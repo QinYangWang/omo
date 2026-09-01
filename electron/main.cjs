@@ -374,39 +374,6 @@ function createWindow() {
 
   ipcMain.handle("quotas:all", (_event, force) => fetchQuotas(!!force));
 
-  // Token usage aggregation from pi session files
-  ipcMain.handle("usage:snapshot", async () => {
-    const dir = path.join(os.homedir(), ".pi/agent/sessions");
-    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-    const providers = new Map();
-    try {
-      for await (const file of fs.glob("**/*.jsonl", { cwd: dir })) {
-        const content = readFileSyncOrNull(path.join(dir, file));
-        if (!content) continue;
-        for (const line of content.split("\n")) {
-          if (!line.includes('"usage"')) continue;
-          try {
-            const entry = JSON.parse(line);
-            const msg = entry.message;
-            if (!msg?.usage) continue;
-            const u = msg.usage;
-            totals.input += u.input || 0;
-            totals.output += u.output || 0;
-            totals.cacheRead += u.cacheRead || 0;
-            totals.cacheWrite += u.cacheWrite || 0;
-            totals.cost += u.cost?.total || 0;
-            const key = `${msg.provider}/${msg.model}`;
-            const p = providers.get(key) ?? { provider: msg.provider, model: msg.model, tokens: 0, cost: 0 };
-            p.tokens += u.totalTokens || (u.input || 0) + (u.output || 0);
-            p.cost += u.cost?.total || 0;
-            providers.set(key, p);
-          } catch { /* partial line */ }
-        }
-      }
-    } catch { /* no sessions dir */ }
-    return { totals, providers: [...providers.values()].sort((a, b) => b.cost - a.cost) };
-  });
-
   // terminal (ponytail: 裸 shell 管道, 无 pty; 需要真 pty 时换 node-pty)
   ipcMain.handle("term:create", (_e, cwd) => {
     if (termProc) return;
