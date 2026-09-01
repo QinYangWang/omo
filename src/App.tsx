@@ -10,6 +10,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
 import { RightPanel, type Surface } from "@/components/RightPanel";
 import { SettingsView } from "@/components/SettingsView";
+import { useI18n } from "@/lib/i18n";
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
@@ -36,7 +37,7 @@ function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
   return (
     <div
       onMouseDown={onMouseDown}
-      className="group relative w-px shrink-0 cursor-col-resize bg-[#242424] hover:bg-[#3a3a3a]"
+      className="group relative w-px shrink-0 cursor-col-resize bg-border hover:bg-[#3a3a3a]"
     >
       <div className="absolute inset-y-0 -left-1 -right-1" />
     </div>
@@ -44,6 +45,7 @@ function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
 }
 
 export default function App() {
+  const { t } = useI18n();
   const [view, setView] = useState<"chat" | "settings">("chat");
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<Record<string, PiSession[]>>({});
@@ -86,8 +88,8 @@ export default function App() {
     return (
       <div className="flex h-screen flex-col bg-background text-foreground">
         <header className="flex h-10 shrink-0 pr-36 [-webkit-app-region:drag]">
-          <div className="flex w-60 shrink-0 items-center bg-[#161616] pl-5 text-sm font-medium">omo</div>
-          <div className="w-px shrink-0 bg-[#242424]" />
+          <div className="flex w-60 shrink-0 items-center bg-sidebar pl-5 text-sm font-medium">omo</div>
+          <div className="w-px shrink-0 bg-border" />
           <div className="flex-1 bg-background" />
         </header>
         <div className="min-h-0 flex-1">
@@ -101,7 +103,7 @@ export default function App() {
     <div className="flex h-screen bg-background text-foreground">
       {/* Col 1: Sidebar */}
       {collapsed ? (
-        <div className="flex w-12 shrink-0 flex-col items-center bg-[#161616] py-2">
+        <div className="flex w-12 shrink-0 flex-col items-center bg-sidebar py-2">
           <div className="flex h-8 items-center" style={noDrag}>
             <Button variant="ghost" size="icon" aria-label="Expand sidebar" onClick={() => setCollapsed(false)}>
               <PanelLeft className="size-4" />
@@ -109,7 +111,7 @@ export default function App() {
           </div>
         </div>
       ) : (
-        <div className="flex shrink-0 flex-col bg-[#161616]" style={{ width: sidebarW }}>
+        <div className="flex shrink-0 flex-col bg-sidebar" style={{ width: sidebarW }}>
           <div className="flex h-10 shrink-0 items-center justify-between pl-4 pr-1 [-webkit-app-region:drag]">
             <span className="text-sm font-medium">omo</span>
             <div style={noDrag}>
@@ -126,7 +128,7 @@ export default function App() {
               onAddProject={addProject}
               onNewSession={async (project) => {
                 const key = crypto.randomUUID();
-                setActive({ key, cwd: project.cwd, project: project.name, title: "New task" });
+                setActive({ key, cwd: project.cwd, project: project.name, title: "" });
                 await window.omo.pi.open(key, project.cwd);
                 await refreshSessions(project);
               }}
@@ -156,7 +158,7 @@ export default function App() {
           className={`flex h-10 shrink-0 items-center gap-1 pl-4 [-webkit-app-region:drag] ${panelOpen ? "pr-2" : "pr-36"}`}
         >
           <div className="min-w-0 flex-1 truncate text-sm">
-            {active?.title ?? "New task"}
+            {active?.title ?? t("new_task")}
           </div>
           <div className="flex items-center" style={noDrag}>
             <Button variant="ghost" size="icon" aria-label="Session info">

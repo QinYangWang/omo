@@ -43,7 +43,7 @@ export function QuotaWindows({ providerId, quotas }: { providerId: string; quota
       {item.windows.slice(0, 2).map((w) => (
         <div key={w.label} className="flex items-center gap-2">
           <Progress value={w.usedPercent} className="flex-1">
-            <ProgressTrack className="h-1.5 bg-white/[0.07]">
+            <ProgressTrack className="h-1.5 bg-accent">
               <ProgressIndicator className={w.usedPercent > 90 ? "bg-red-400" : w.usedPercent > 70 ? "bg-amber-400" : "bg-neutral-400"} />
             </ProgressTrack>
           </Progress>
@@ -111,7 +111,7 @@ export function ProvidersSection() {
       </div>
       <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers…" />
       {message && <p className={cn("text-sm", message.error ? "text-red-400" : "text-muted-foreground")}>{message.text}</p>}
-      <div className="flex flex-col divide-y divide-white/[0.05] overflow-hidden rounded-xl border border-white/[0.06] bg-[#1d1d1d]">
+      <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         {visible.map((provider) => (
           <div key={provider.id} className="flex min-h-14 items-center gap-3 px-4 py-2">
             <span className={cn("size-2 rounded-full", provider.connected ? "bg-emerald-500" : "bg-neutral-600")} />

@@ -6,6 +6,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Select, SelectItem, SelectPopup, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useI18n } from "@/lib/i18n";
 import {
   PromptInput,
   PromptInputBody,
@@ -78,6 +79,7 @@ export function ChatView({
   onAddProject: () => Promise<Project | null | undefined>;
   onClearProject: () => void;
 }) {
+  const { t } = useI18n();
   const key = session?.key ?? "draft";
   const [messages, setMessages] = useState<ChatMessage[]>(() => store.get(key) ?? []);
   const [streaming, setStreaming] = useState(false);
@@ -244,12 +246,12 @@ export function ChatView({
     <div>
       <PromptInput
         onSubmit={onSubmit}
-        className="rounded-xl border border-white/[0.07] bg-[#202020] shadow-none has-[[data-slot=input-group-control]:focus-visible]:border-white/[0.07] has-[[data-slot=input-group-control]:focus-visible]:ring-0"
+        className="rounded-xl border border-border bg-surface shadow-none has-[[data-slot=input-group-control]:focus-visible]:border-border has-[[data-slot=input-group-control]:focus-visible]:ring-0"
       >
         <PromptInputBody>
           <PromptInputTextarea
             className="h-11 min-h-0 resize-none px-4 py-3 text-[15px]"
-            placeholder="Do anything…"
+            placeholder={t("prompt_placeholder")}
           />
         </PromptInputBody>
         <PromptInputFooter className="px-3 pb-2.5 pt-0">
@@ -257,7 +259,7 @@ export function ChatView({
             <CompactSelect
               icon={<Asterisk className="size-3.5" />}
               value={model}
-              placeholder="Select model"
+              placeholder={t("select_model")}
               items={models.map((item) => ({ value: `${item.provider}/${item.id}`, label: item.name }))}
               onChange={(value) => {
                 setModel(value);
@@ -282,7 +284,7 @@ export function ChatView({
           </PromptInputTools>
           <PromptInputSubmit
             status={streaming ? "streaming" : "ready"}
-            className="rounded-full bg-white/[0.08] text-muted-foreground hover:bg-white/[0.12] hover:text-foreground"
+            className="rounded-full bg-accent text-muted-foreground hover:bg-accent hover:text-foreground"
           />
         </PromptInputFooter>
       </PromptInput>
@@ -297,13 +299,13 @@ export function ChatView({
         <CompactSelect
           icon={<Monitor className="size-3.5" />}
           value={mode}
-          items={[{ value: "local", label: "Local" }, { value: "worktree", label: "Worktree" }]}
+          items={[{ value: "local", label: t("local") }, { value: "worktree", label: t("worktree") }]}
           onChange={(value) => setMode(value as "local" | "worktree")}
         />
         <CompactSelect
           icon={<GitBranch className="size-3.5" />}
           value={branches.find((branch) => branch.current)?.name ?? ""}
-          placeholder="No branch"
+          placeholder={t("no_branch")}
           items={branches.map((branch) => ({ value: branch.name, label: branch.name }))}
           onChange={() => {}}
           disabled={!branches.length}
@@ -326,7 +328,7 @@ export function ChatView({
         <div className="absolute left-1/2 top-[43%] -translate-x-1/2 -translate-y-1/2 text-center">
           <Asterisk className="mx-auto mb-5 size-7 text-orange-500" strokeWidth={1.6} />
           <div className="max-w-[70vw] truncate whitespace-nowrap text-xl font-normal">
-            {session ? session.title : "Choose a project to start"}
+            {session ? session.title : t("choose_project_start")}
           </div>
           {session && <div className="mt-1 text-sm text-muted-foreground">@ {session.project}</div>}
         </div>
@@ -345,7 +347,7 @@ export function ChatView({
               onClick={loadOlder}
               className="mx-auto rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
             >
-              Load older messages
+              {t("load_older")}
             </button>
           )}
           {messages.map((msg) =>
@@ -409,10 +411,11 @@ function ProjectSelect({
   onAdd: () => Promise<Project | null | undefined>;
   onClear: () => void;
 }) {
+  const { t } = useI18n();
   const projectItems = projects.map((project) => ({ value: project.cwd, label: project.name }));
   const actions = [
-    { value: "__new", label: "New project…" },
-    { value: "__none", label: "Don't work in a project" },
+    { value: "__new", label: t("new_project") },
+    { value: "__none", label: t("no_project") },
   ];
   const items = [...projectItems, ...actions];
   return (
@@ -433,9 +436,9 @@ function ProjectSelect({
         }
       }}
     >
-      <SelectTrigger className="h-7 max-w-48 gap-1.5 rounded-md border-0 bg-white/[0.04] px-2.5 text-xs text-muted-foreground shadow-none hover:bg-white/[0.07] hover:text-foreground focus-visible:ring-0">
+      <SelectTrigger className="h-7 max-w-48 gap-1.5 rounded-md border-0 bg-accent px-2.5 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0">
         <Folder className="size-3.5" />
-        <SelectValue placeholder="Choose a project">
+        <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.cwd === value)?.name}
         </SelectValue>
       </SelectTrigger>
@@ -448,12 +451,12 @@ function ProjectSelect({
             </span>
           </SelectItem>
         ))}
-        {!!projectItems.length && <SelectSeparator className="my-1 bg-white/[0.07]" />}
+        {!!projectItems.length && <SelectSeparator className="my-1 bg-accent" />}
         <SelectItem value={actions[0]} className="min-h-8 rounded-md text-sm text-foreground/80">
-          <span className="flex items-center gap-2"><FolderPlus className="size-4" /> New project…</span>
+          <span className="flex items-center gap-2"><FolderPlus className="size-4" /> {t("new_project")}</span>
         </SelectItem>
         <SelectItem value={actions[1]} className="min-h-8 rounded-md text-sm text-foreground/80">
-          <span className="flex items-center gap-2"><X className="size-4" /> Don't work in a project</span>
+          <span className="flex items-center gap-2"><X className="size-4" /> {t("no_project")}</span>
         </SelectItem>
       </SelectPopup>
     </Select>
@@ -483,7 +486,7 @@ function CompactSelect({
       itemToStringValue={(item) => item.value}
       disabled={disabled}
     >
-      <SelectTrigger className="h-7 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:bg-white/[0.05] hover:text-foreground focus-visible:ring-0">
+      <SelectTrigger className="h-7 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0">
         {icon}
         <SelectValue placeholder={placeholder}>
           {items.find((item) => item.value === value)?.label}
@@ -502,7 +505,7 @@ function CompactSelect({
 
 function ThinkingMessage({ message }: { message: Extract<ChatMessage, { role: "thinking" }> }) {
   return (
-    <div className="mx-auto w-full max-w-3xl rounded-lg bg-white/[0.025] text-sm">
+    <div className="mx-auto w-full max-w-3xl rounded-lg bg-accent text-sm">
       <details open={message.status === "running"}>
         <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-muted-foreground hover:text-foreground">
           <Brain className="size-3.5" />
@@ -526,7 +529,7 @@ function ThinkingMessage({ message }: { message: Extract<ChatMessage, { role: "t
 function ToolMessage({ message }: { message: Extract<ChatMessage, { role: "tool" }> }) {
   const StatusIcon = message.status === "running" ? LoaderCircle : message.status === "error" ? X : Check;
   return (
-    <div className="mx-auto w-full max-w-3xl rounded-lg border border-white/[0.06] bg-[#1d1d1d] text-sm">
+    <div className="mx-auto w-full max-w-3xl rounded-lg border border-border bg-card text-sm">
       <details open={message.status === "running"}>
         <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-muted-foreground hover:text-foreground">
           <Wrench className="size-3.5" />
@@ -534,7 +537,7 @@ function ToolMessage({ message }: { message: Extract<ChatMessage, { role: "tool"
           <StatusIcon className={`ml-auto size-3.5 ${message.status === "running" ? "animate-spin" : message.status === "error" ? "text-red-400" : "text-emerald-400"}`} />
         </summary>
         {(message.input || message.output) && (
-          <div className="border-t border-white/[0.05] px-3 py-2">
+          <div className="border-t border-border px-3 py-2">
             {message.input && <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{message.input}</pre>}
             {message.output && <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{message.output}</pre>}
           </div>

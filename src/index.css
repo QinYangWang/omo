@@ -5,7 +5,7 @@ textarea {
 }
 
 [data-slot="input-group"]:focus-within {
-    border-color: rgb(255 255 255 / 0.07) !important;
+    border-color: var(--border) !important;
     box-shadow: none !important;
 }
 
@@ -45,11 +45,21 @@ textarea {
     min-height: 32px;
     border: 2px solid transparent;
     border-radius: 999px;
+    background: #bdbdbd;
+    background-clip: padding-box;
+}
+
+.dark *::-webkit-scrollbar-thumb {
     background: #424242;
     background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
+    background: #9e9e9e;
+    background-clip: padding-box;
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
     background: #555;
     background-clip: padding-box;
 }
@@ -79,6 +89,9 @@ textarea {
     --border: var(--color-neutral-200);
     --input: var(--color-neutral-200);
     --ring: var(--color-neutral-400);
+    --sidebar: #f4f4f4;
+    --panel: #fafafa;
+    --surface: #f0f0f0;
     --radius: 0.625rem;
     --destructive-foreground: var(--color-red-700);
     --info: var(--color-blue-500);
@@ -108,6 +121,9 @@ textarea {
     --border: #262626;
     --input: #2c2c2c;
     --ring: var(--color-neutral-600);
+    --sidebar: #161616;
+    --panel: #181818;
+    --surface: #202020;
     --destructive-foreground: var(--color-red-400);
     --info: var(--color-blue-500);
     --info-foreground: var(--color-blue-400);
@@ -136,6 +152,9 @@ textarea {
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
+    --color-sidebar: var(--sidebar);
+    --color-panel: var(--panel);
+    --color-surface: var(--surface);
     --radius-lg: var(--radius);
     --color-destructive-foreground: var(--destructive-foreground);
     --color-info: var(--info);

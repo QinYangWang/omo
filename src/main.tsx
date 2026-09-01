@@ -2,6 +2,8 @@ import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
+import { I18nProvider } from "./lib/i18n";
+import { ThemeProvider } from "./lib/theme";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {};
@@ -34,7 +36,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <ThemeProvider>
+        <I18nProvider>
+          <App />
+        </I18nProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   </StrictMode>
 );

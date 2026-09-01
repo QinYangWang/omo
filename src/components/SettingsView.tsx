@@ -7,23 +7,33 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { useI18n, type Lang } from "@/lib/i18n";
+import { useTheme, type Theme } from "@/lib/theme";
 import { mockSkills } from "@/lib/data";
 import { ProvidersSection, useQuotas, formatReset } from "@/components/ProvidersSection";
 import { Progress, ProgressTrack, ProgressIndicator } from "@/components/ui/progress";
 
-const sections = ["General", "Appearance", "Providers", "Skills", "Usage", "Packages"] as const;
-type Section = (typeof sections)[number];
+const sections = [
+  ["section_general", "General"],
+  ["section_appearance", "Appearance"],
+  ["section_providers", "Providers"],
+  ["section_skills", "Skills"],
+  ["section_usage", "Usage"],
+  ["section_packages", "Packages"],
+] as const;
+type Section = (typeof sections)[number][1];
 
 export function SettingsView({ onBack }: { onBack: () => void }) {
+  const { t } = useI18n();
   const [section, setSection] = useState<Section>("Providers");
   return (
     <div className="flex h-full bg-background">
-      <div className="flex w-60 shrink-0 flex-col bg-[#161616]">
+      <div className="flex w-60 shrink-0 flex-col bg-sidebar">
         <div className="px-2 pb-2">
-          <Input placeholder="Search settings…" />
+          <Input placeholder={t("search_settings")} />
         </div>
         <nav className="flex flex-col gap-0.5 px-2">
-          {sections.map((s) => (
+          {sections.map(([key, s]) => (
             <button
               key={s}
               onClick={() => setSection(s)}
@@ -32,24 +42,25 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
                 section === s && "bg-[#252525] text-foreground"
               )}
             >
-              {s}
+              {t(key as any)}
             </button>
           ))}
         </nav>
         <div className="mt-auto p-2">
           <Button variant="ghost" className="w-full justify-start gap-2 font-normal" onClick={onBack}>
-            <ArrowLeft className="size-4" /> Back
+            <ArrowLeft className="size-4" /> {t("back")}
           </Button>
         </div>
       </div>
-      <div className="w-px shrink-0 bg-[#242424]" />
+      <div className="w-px shrink-0 bg-border" />
       <ScrollArea className="min-w-0 flex-1">
         <div className="w-full max-w-5xl px-12 py-8">
           {section === "Providers" && <ProvidersSection />}
           {section === "Skills" && <SkillsSection />}
           {section === "Usage" && <UsageSection />}
           {section === "Packages" && <PackagesSection />}
-          {(section === "General" || section === "Appearance") && <Placeholder name={section} />}
+          {section === "General" && <Placeholder name={section} />}
+          {section === "Appearance" && <AppearanceSection />}
         </div>
       </ScrollArea>
     </div>
@@ -58,6 +69,44 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
 
 function Placeholder({ name }: { name: string }) {
   return <p className="text-sm text-muted-foreground">{name} 设置待实现</p>;
+}
+
+function AppearanceSection() {
+  const { t, lang, setLang } = useI18n();
+  const { theme, setTheme } = useTheme();
+  const row = (label: string, control: React.ReactNode) => (
+    <div className="flex items-center justify-between border-b border-border py-3 last:border-0">
+      <span className="text-sm">{label}</span>
+      {control}
+    </div>
+  );
+  return (
+    <div className="flex flex-col gap-5">
+      <h2 className="text-xl font-medium">{t("section_appearance")}</h2>
+      <div>
+        {row(
+          t("theme"),
+          <div className="flex gap-1">
+            {(["dark", "light", "system"] as Theme[]).map((v) => (
+              <Button key={v} variant={theme === v ? "secondary" : "ghost"} size="sm" onClick={() => setTheme(v)}>
+                {t(v === "dark" ? "theme_dark" : v === "light" ? "theme_light" : "theme_system")}
+              </Button>
+            ))}
+          </div>
+        )}
+        {row(
+          t("language"),
+          <div className="flex gap-1">
+            {(["en", "zh"] as Lang[]).map((v) => (
+              <Button key={v} variant={lang === v ? "secondary" : "ghost"} size="sm" onClick={() => setLang(v)}>
+                {v === "en" ? "English" : "中文"}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SkillsSection() {
@@ -167,13 +216,13 @@ function UsageSection() {
           <div className="text-sm text-muted-foreground">暂无配额数据（仅订阅制 OAuth provider 支持）</div>
         ) : (
           quotaItems.filter((q) => q.success && q.windows.length).map((q) => (
-            <div key={q.provider} className="flex flex-col gap-1 border-b border-white/[0.05] py-2 last:border-0">
+            <div key={q.provider} className="flex flex-col gap-1 border-b border-border py-2 last:border-0">
               <span className="text-sm">{q.label}</span>
               {q.windows.map((w) => (
                 <div key={w.label} className="flex items-center gap-3">
                   <span className="w-28 truncate text-xs text-muted-foreground">{w.label}</span>
                   <Progress value={w.usedPercent} className="flex-1">
-                    <ProgressTrack className="h-1.5 bg-white/[0.07]">
+                    <ProgressTrack className="h-1.5 bg-accent">
                       <ProgressIndicator className={w.usedPercent > 90 ? "bg-red-400" : w.usedPercent > 70 ? "bg-amber-400" : "bg-neutral-400"} />
                     </ProgressTrack>
                   </Progress>

@@ -4,17 +4,24 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Terminal as XTerm } from "@xterm/xterm";
+import { useI18n } from "@/lib/i18n";
+import { useTheme } from "@/lib/theme";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
 export type Surface = "browser" | "terminal" | "files" | "review";
 
-const surfaces: { id: Surface; icon: typeof Globe; label: string; desc: string }[] = [
-  { id: "browser", icon: Globe, label: "Browser", desc: "Open a local app or URL" },
-  { id: "terminal", icon: TerminalSquare, label: "Terminal", desc: "Start a shell in this workspace" },
-  { id: "files", icon: FolderOpen, label: "Files", desc: "Browse and read workspace files" },
-  { id: "review", icon: GitCompare, label: "Review", desc: "Review file changes" },
-];
+
+
+const surfaceDefs = () => {
+  const { t } = useI18n();
+  return [
+    { id: "browser", icon: Globe, label: t("surface_browser"), desc: t("surface_browser_desc") },
+    { id: "terminal", icon: TerminalSquare, label: t("surface_terminal"), desc: t("surface_terminal_desc") },
+    { id: "files", icon: FolderOpen, label: t("surface_files"), desc: t("surface_files_desc") },
+    { id: "review", icon: GitCompare, label: t("surface_review"), desc: t("surface_review_desc") },
+  ] as { id: Surface; icon: typeof Globe; label: string; desc: string }[];
+};
 
 export function RightPanel({
   surface,
@@ -26,19 +33,21 @@ export function RightPanel({
   onClose: () => void;
   full?: boolean;
 }) {
+  const { t } = useI18n();
+  const surfaces = surfaceDefs();
   if (!surface) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-6 bg-[#181818] p-6 pt-12">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-6 bg-panel p-6 pt-12">
         <div className="text-center">
-          <div className="text-sm font-medium">Open a surface</div>
-          <div className="text-xs text-muted-foreground">Choose what to show in the right panel</div>
+          <div className="text-sm font-medium">{t("open_surface")}</div>
+          <div className="text-xs text-muted-foreground">{t("open_surface_desc")}</div>
         </div>
         <div className="grid w-full grid-cols-2 gap-3">
           {surfaces.map(({ id, icon: Icon, label, desc }) => (
             <button
               key={id}
               onClick={() => onSelect(id)}
-              className="flex min-h-28 flex-col gap-1 rounded-lg border border-white/[0.06] bg-[#202020] p-4 text-left hover:bg-[#252525]"
+              className="flex min-h-28 flex-col gap-1 rounded-lg border border-border bg-surface p-4 text-left hover:bg-[#252525]"
             >
               <Icon className="size-4" />
               <span className="text-sm font-medium">{label}</span>
@@ -50,7 +59,7 @@ export function RightPanel({
     );
   }
   return (
-    <div className="flex h-full w-full flex-col bg-[#181818] pt-10">
+    <div className="flex h-full w-full flex-col bg-panel pt-10">
       <Tabs value={surface} onValueChange={(v) => onSelect(v as Surface)} className="flex h-full flex-col">
         <div className="flex items-center border-b pr-1">
           <TabsList variant="underline" className="flex-1">
@@ -101,9 +110,11 @@ function BrowserSurface() {
 
 function TerminalSurface() {
   const ref = useRef<HTMLDivElement>(null);
+  const { theme } = useTheme();
   useEffect(() => {
+    const dark = document.documentElement.classList.contains("dark");
     const term = new XTerm({
-      theme: { background: "#1a1a1a", foreground: "#d4d4d4" },
+      theme: dark ? { background: "#1a1a1a", foreground: "#d4d4d4" } : { background: "#ffffff", foreground: "#1a1a1a" },
       fontSize: 13,
       convertEol: true,
     });
@@ -121,7 +132,7 @@ function TerminalSurface() {
       ro.disconnect();
       term.dispose();
     };
-  }, []);
+  }, [theme]);
   return <div ref={ref} className="h-full overflow-hidden rounded-md bg-background" />;
 }
 
@@ -197,6 +208,7 @@ function FilesSurface() {
 }
 
 function ReviewSurface() {
+  const { t } = useI18n();
   const [status, setStatus] = useState<{ file: string; xy: string }[]>([]);
   const [diff, setDiff] = useState<{ file: string; text: string } | null>(null);
   const [cwd, setCwd] = useState("");
@@ -219,7 +231,7 @@ function ReviewSurface() {
       <div className={diff ? "h-1/3 border-b" : "flex-1"}>
         <ScrollArea className="h-full">
           <div className="p-1">
-            {status.length === 0 && <p className="p-2 text-sm text-muted-foreground">无变更</p>}
+            {status.length === 0 && <p className="p-2 text-sm text-muted-foreground">{t("no_changes")}</p>}
             {status.map((s) => (
               <button
                 key={s.file}

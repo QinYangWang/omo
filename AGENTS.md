@@ -25,6 +25,8 @@ src/components/
 src/types/webview.d.ts window.omo 类型 + webview 元素声明
 ```
 
+- **i18n/主题**：`src/lib/i18n.tsx`（zh/en 词典 + `useI18n().t()`，localStorage `omo:lang`）与 `src/lib/theme.tsx`（dark/light/system，localStorage `omo:theme`，index.html 内联脚本防闪烁）。组件颜色一律走 CSS 变量（bg-sidebar/panel/surface/card/border…），禁止写死 hex。
+
 ## 数据流
 
 - **会话**：Project = 本地目录（存 `userData/projects.json`）；会话经 `SessionManager.list/create/open/forkFrom` 管理。历史渲染只取当前分支最近 80 项（分页 Load older），SDK 内部保留完整上下文。
@@ -50,3 +52,4 @@ src/types/webview.d.ts window.omo 类型 + webview 元素声明
 - Skills/Packages 商店真实安装（`pi install`）
 - Worktree 模式与分支切换的真实执行
 - ctx 上下文长度指示接 `usage` 事件
+- 剩余硬编码英文文案继续收敛到 i18n 词典（Usage/Providers 细节文案）
