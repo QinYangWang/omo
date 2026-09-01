@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+textarea {
+    resize: none !important;
+}
+
+[data-slot="input-group"]:focus-within {
+    border-color: rgb(255 255 255 / 0.07) !important;
+    box-shadow: none !important;
+}
+
+[data-slot="select-scroll-up-arrow"],
+[data-slot="select-scroll-down-arrow"] {
+    display: none !important;
+}
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #3a3a3a transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button:single-button,
+*::-webkit-scrollbar-button:vertical:start:decrement,
+*::-webkit-scrollbar-button:vertical:end:increment,
+*::-webkit-scrollbar-button:horizontal:start:decrement,
+*::-webkit-scrollbar-button:horizontal:end:increment {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+    -webkit-appearance: none;
+}
+
+*::-webkit-scrollbar-thumb {
+    min-height: 32px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: #424242;
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: #555;
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+    --background: var(--color-white);
+    --foreground: var(--color-neutral-900);
+    --card: var(--color-white);
+    --card-foreground: var(--color-neutral-900);
+    --popover: var(--color-white);
+    --popover-foreground: var(--color-neutral-900);
+    --primary: var(--color-neutral-900);
+    --primary-foreground: var(--color-neutral-50);
+    --secondary: var(--color-neutral-100);
+    --secondary-foreground: var(--color-neutral-900);
+    --muted: var(--color-neutral-100);
+    --muted-foreground: var(--color-neutral-500);
+    --accent: var(--color-neutral-100);
+    --accent-foreground: var(--color-neutral-900);
+    --destructive: var(--color-red-500);
+    --border: var(--color-neutral-200);
+    --input: var(--color-neutral-200);
+    --ring: var(--color-neutral-400);
+    --radius: 0.625rem;
+    --destructive-foreground: var(--color-red-700);
+    --info: var(--color-blue-500);
+    --info-foreground: var(--color-blue-700);
+    --success: var(--color-emerald-500);
+    --success-foreground: var(--color-emerald-700);
+    --warning: var(--color-amber-500);
+    --warning-foreground: var(--color-amber-700);
+}
+
+.dark {
+    --background: #1a1a1a;
+    --foreground: var(--color-neutral-300);
+    --card: #202020;
+    --card-foreground: var(--color-neutral-300);
+    --popover: #202020;
+    --popover-foreground: var(--color-neutral-300);
+    --primary: var(--color-neutral-200);
+    --primary-foreground: var(--color-neutral-900);
+    --secondary: #262626;
+    --secondary-foreground: var(--color-neutral-300);
+    --muted: #242424;
+    --muted-foreground: var(--color-neutral-500);
+    --accent: #2b2b2b;
+    --accent-foreground: var(--color-neutral-200);
+    --destructive: var(--color-red-600);
+    --border: #262626;
+    --input: #2c2c2c;
+    --ring: var(--color-neutral-600);
+    --destructive-foreground: var(--color-red-400);
+    --info: var(--color-blue-500);
+    --info-foreground: var(--color-blue-400);
+    --success: var(--color-emerald-500);
+    --success-foreground: var(--color-emerald-400);
+    --warning: var(--color-amber-500);
+    --warning-foreground: var(--color-amber-400);
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --radius-lg: var(--radius);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+}
