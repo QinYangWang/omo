@@ -437,7 +437,7 @@ function ProjectSelect({
         }
       }}
     >
-      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2.5 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
+      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 w-fit max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2.5 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
         <Folder className="size-3.5" />
         <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.cwd === value)?.name}
@@ -448,7 +448,7 @@ function ProjectSelect({
           <SelectItem key={item.value} value={item} className="min-h-8 rounded-md text-sm">
             <span className="flex min-w-0 items-center gap-2">
               <Folder className="size-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{item.label}</span>
+              <span className="whitespace-nowrap">{item.label}</span>
             </span>
           </SelectItem>
         ))}
@@ -487,7 +487,7 @@ function CompactSelect({
       itemToStringValue={(item) => item.value}
       disabled={disabled}
     >
-      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
+      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 w-fit max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
         {icon}
         <SelectValue placeholder={placeholder}>
           {items.find((item) => item.value === value)?.label}

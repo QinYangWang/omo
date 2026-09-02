@@ -98,7 +98,7 @@ export function SelectValue({
   return (
     <SelectPrimitive.Value
       className={cn(
-        "flex-1 truncate data-placeholder:text-muted-foreground",
+        "min-w-0 whitespace-nowrap data-placeholder:text-muted-foreground",
         className,
       )}
       data-slot="select-value"
