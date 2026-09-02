@@ -269,11 +269,12 @@ export function ChatView({
       </div>
       <PromptInput
         onSubmit={onSubmit}
-        className="rounded-3xl border border-border bg-background shadow-none transition-none focus-within:border-border focus-within:shadow-none focus-within:ring-0 has-[[data-slot=input-group-control]:focus-visible]:border-border has-[[data-slot=input-group-control]:focus-visible]:ring-0"
+        className="overflow-hidden rounded-3xl border border-border bg-background shadow-none transition-none focus-within:border-border focus-within:shadow-none focus-within:ring-0 has-[[data-slot=input-group-control]:focus-visible]:border-border has-[[data-slot=input-group-control]:focus-visible]:ring-0"
       >
         <PromptInputBody>
           <PromptInputTextarea
-            className="h-11 min-h-0 resize-none px-4 py-3 text-[15px]"
+            unstyled
+            className="h-11 min-h-0 resize-none px-4 py-3 text-[15px] focus-visible:ring-0"
             placeholder={t("prompt_placeholder")}
           />
         </PromptInputBody>
