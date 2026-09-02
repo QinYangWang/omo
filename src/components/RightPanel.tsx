@@ -26,11 +26,9 @@ const surfaceDefs = () => {
 export function RightPanel({
   surface,
   onSelect,
-  onClose,
 }: {
   surface: Surface | null;
   onSelect: (s: Surface) => void;
-  onClose: () => void;
   full?: boolean;
 }) {
   const { t } = useI18n();
@@ -62,16 +60,13 @@ export function RightPanel({
     <div className="flex h-full w-full flex-col bg-panel pt-10">
       <Tabs value={surface} onValueChange={(v) => onSelect(v as Surface)} className="flex h-full flex-col">
         <div className="flex items-center border-b pr-1">
-          <TabsList variant="underline" className="flex-1">
+          <TabsList variant="line" className="flex-1">
             {surfaces.map(({ id, icon: Icon, label }) => (
               <TabsTrigger key={id} value={id} className="gap-1.5">
                 <Icon className="size-3.5" /> {label}
               </TabsTrigger>
             ))}
           </TabsList>
-          <Button variant="ghost" size="icon" aria-label="Close panel" onClick={onClose}>
-            <X className="size-4" />
-          </Button>
         </div>
         <TabsContent value="browser" className="min-h-0 flex-1 p-2">
           <BrowserSurface />

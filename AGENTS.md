@@ -1,6 +1,6 @@
 # omo (oh-my-openagents)
 
-Pi agent 的原生 Desktop 客户端（Electron）。技术栈：Electron + React 19 + Vite + Tailwind v4 + coss ui（主样式）+ ai-elements（聊天组件）+ `@earendil-works/pi-coding-agent` SDK（in-process，不走 RPC 子进程）。
+Pi agent 的原生 Desktop 客户端（Electron）。技术栈：Electron + React 19 + Vite + Tailwind v4 + shadcn/ui（Base UI）+ ai-elements（聊天组件）+ `@earendil-works/pi-coding-agent` SDK（in-process，不走 RPC 子进程）。
 
 ## 运行
 
@@ -38,8 +38,9 @@ src/types/webview.d.ts window.omo 类型 + webview 元素声明
 
 ## 开发注意
 
-- coss 是 Base UI 风格：`render` prop 而非 `asChild`；Select 用 items-first 模式。
-- ai-elements 与 coss 共享 `src/components/ui`，只保留了 5 个 ai-elements 文件（conversation/message/prompt-input/response/code-block 依赖已裁剪），不要直接 `npx ai-elements add` 全套，会冲突。
+- UI 组件统一使用 `src/components/ui` 中的 shadcn/ui 组件；新增组件执行 `npx shadcn@latest add <component>`，项目配置见 `components.json`。
+- 项目使用 shadcn/ui 的 Base UI 版本：自定义 trigger 使用 `render` prop，不使用 `asChild`；Select 使用 items-first 与对象值模式。
+- ai-elements 只保留 `src/components/ai-elements` 下已裁剪的聊天组件；不要直接添加全套组件，以免覆盖共享的 `src/components/ui` 依赖。
 - Electron 用 `titleBarStyle: "hidden"` + `titleBarOverlay` 原生窗口键；标题栏拖拽区用内联 `style={{ WebkitAppRegion }}`，Tailwind 任意属性在 drag 区会被吞。
 - 终端是裸 shell 管道（无 pty）；需要全屏交互程序时换 node-pty。
 

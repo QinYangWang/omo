@@ -1,6 +1,6 @@
 # OMO (oh-my-openagents) — Desktop 页面布局设计
 
-技术栈：Electron + React + coss ui(主样式) + shadcn(仅补 coss 缺失组件，样式统一到 coss) + ai-elements(聊天) + Tailwind。暗色优先（参考图均为暗色）。
+技术栈：Electron + React + shadcn/ui（Base UI）+ ai-elements（聊天）+ Tailwind。暗色优先（参考图均为暗色）。
 
 > 原则：**shell 极简**。会话是唯一主视图；浏览器/终端/文件/Diff 全部收进右侧 surface 面板；设置是全屏视图（复用同一窗口，左侧独立导航）。**无独立项目页**——会话按 cwd 自动归类，项目仅作为会话条目下的标签。
 
@@ -9,7 +9,7 @@
 - **侧栏**：PROJECTS 固定分组（不再按时间分组）；Project 行内 `+` 新会话 + 导入按钮（弹窗列 `SessionManager.listAll()`，导入=`forkFrom` 到该目录）；顶部 `+` 添加本地目录（存 userData/projects.json）。
 - **Pi 直连 SDK in-process**（`createAgentSession` + 共享 `ModelRuntime` + `SessionManager`），不走 RPC 子进程；事件经 IPC `pi:event` 推送。
 - **消息渲染**：历史分页（首次 80 项 + Load older）；Tool/Thinking 卡片；用户消息时间+Copy；助手仅完整回答末尾显示结束时间/耗时/整次回答 Copy。
-- **聊天框**：coss Select 模型（`getAvailable()` + `setModel`）+ Thinking 等级 + context 指示；下方 Project（含 New project… / Don't work in a project）/ Local|Worktree / Branch 选择器。
+- **聊天框**：shadcn/ui Select 模型（`getAvailable()` + `setModel`）+ Thinking 等级 + context 指示；下方 Project（含 New project… / Don't work in a project）/ Local|Worktree / Branch 选择器。
 - **窗口**：`titleBarOverlay` 原生窗口键；三列 1px 可拖拽竖线；侧栏可折叠为 48px 窄条。
 - **Providers**：真实 `ModelRuntime`（40 provider）列表 + checkAuth + `login()/logout()`，动态 prompt 转应用内 Dialog，凭证写 `~/.pi/agent/auth.json`。
 - **配额（pi-quotas）**：复用 `@latentminds/pi-quotas` TS 源码（主进程 `tsx/esm/api` 注册后动态 import，因 node_modules 禁类型剥离）；`fetchAllProviderQuotas` + authStorage 桥接 auth.json/ModelRuntime；Provider 行内与 Usage 页“订阅配额”显示真实配额窗口（用量% + 重置时间，>70% 黄 >90% 红，可强制刷新）。
@@ -128,7 +128,7 @@ xterm.js，多 tab，cwd=当前会话目录。
 ```
 
 ### 3a. General / Appearance
-数据目录、默认 mode；主题/明暗、字号（coss 主题 token）。
+数据目录、默认 mode；主题/明暗、字号（shadcn/ui 主题 token）。
 
 ### 3b. Providers
 ```
@@ -171,7 +171,7 @@ xterm.js，多 tab，cwd=当前会话目录。
 │ Breakdown (Table: Model | Cost | Share | Tokens)  │
 │  Cost quality 边栏: Provider reported / priced %  │
 ├───────────────────────────────────────────────────┤
-│ 订阅配额 (coss Progress):                         │
+│ 订阅配额 (shadcn/ui Progress):                    │
 │  OpenAI Pro ████████░░ 87%  reset in 3d           │
 ├───────────────────────────────────────────────────┤
 │ 上下文分析 (Table):                               │
@@ -186,8 +186,7 @@ xterm.js，多 tab，cwd=当前会话目录。
 | 用途 | 库 |
 |---|---|
 | Conversation/Message/Tool/PromptInput | ai-elements |
-| Button/Card/Tabs/Dialog/Sheet/Table/Progress/Badge/Toast/Menu/Input/Switch | coss ui |
-| coss 缺失组件（样式对齐 coss 暗色 token） | shadcn |
+| Button/Card/Tabs/Dialog/Sheet/Table/Progress/Badge/Toast/Menu/Input/Switch | shadcn/ui（Base UI） |
 | 图表 | recharts |
 | 终端 | xterm.js |
 | 高亮 | shiki |

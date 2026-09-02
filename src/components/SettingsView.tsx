@@ -23,12 +23,12 @@ const sections = [
 ] as const;
 type Section = (typeof sections)[number][1];
 
-export function SettingsView({ onBack }: { onBack: () => void }) {
+export function SettingsView({ onBack, sidebarOpen = true }: { onBack: () => void; sidebarOpen?: boolean }) {
   const { t } = useI18n();
   const [section, setSection] = useState<Section>("Providers");
   return (
     <div className="flex h-full bg-background">
-      <div className="flex w-60 shrink-0 flex-col bg-sidebar">
+      {sidebarOpen && <div className="flex w-60 shrink-0 flex-col bg-sidebar">
         <div className="px-2 pb-2">
           <Input placeholder={t("search_settings")} />
         </div>
@@ -51,8 +51,8 @@ export function SettingsView({ onBack }: { onBack: () => void }) {
             <ArrowLeft className="size-4" /> {t("back")}
           </Button>
         </div>
-      </div>
-      <div className="w-px shrink-0 bg-border" />
+      </div>}
+      {sidebarOpen && <div className="w-px shrink-0 bg-border" />}
       <ScrollArea className="min-w-0 flex-1">
         <div className="w-full max-w-5xl px-12 py-8">
           {section === "Providers" && <ProvidersSection />}

@@ -1,6 +1,6 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "new-york",
+  "style": "base-rhea",
   "rsc": false,
   "tsx": true,
   "tailwind": {
@@ -17,8 +17,8 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "iconLibrary": "lucide",
-  "registries": {
-    "@coss": "https://coss.com/ui/r/{name}.json"
-  }
+  "iconLibrary": "hugeicons",
+  "rtl": false,
+  "menuColor": "default-translucent",
+  "menuAccent": "subtle"
 }

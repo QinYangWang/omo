@@ -4,6 +4,11 @@ import "./index.css";
 import App from "./App";
 import { I18nProvider } from "./lib/i18n";
 import { ThemeProvider } from "./lib/theme";
+import { installWebPreviewApi } from "./lib/web-preview";
+
+if (!window.omo) {
+  installWebPreviewApi();
+}
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {};

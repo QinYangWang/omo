@@ -7,18 +7,6 @@
       "skillPath": "skills/ai-elements/SKILL.md",
       "computedHash": "6d7ccc65b98adb04d6c47632746dbfea55528903de9b027f6b39b80983d5aa55"
     },
-    "coss": {
-      "source": "cosscom/coss",
-      "sourceType": "github",
-      "skillPath": "apps/ui/skills/coss/SKILL.md",
-      "computedHash": "4b6bc23cfc2ad9dcf608bf4e9d2157eaf70dcdf673c99cf4d1555c94f30c0f77"
-    },
-    "coss-particles": {
-      "source": "cosscom/coss",
-      "sourceType": "github",
-      "skillPath": "apps/ui/skills/coss-particles/SKILL.md",
-      "computedHash": "fd04aeb6c61c0f3271bc124d63d40b21594cb694178df49575d309cec2a4eda5"
-    },
     "diffs": {
       "source": "pierrecomputer/pierre",
       "sourceType": "github",
@@ -30,6 +18,18 @@
       "sourceType": "github",
       "skillPath": "SKILL.md",
       "computedHash": "9e9d17f9df4712080eb2a602071328e3d76f25541248d29e2f7c93b2f8f7f606"
+    },
+    "migrate-radix-to-base": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/migrate-radix-to-base/SKILL.md",
+      "computedHash": "e1f2030ee5059be3dff0812ca0e4b995ee9fa3132176f049ebe6c90346a6755e"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "a86630dd9b32722a4ea6846abc6756d5da8f06bdc2343dbc625923cc5c7a758b"
     }
   }
 }

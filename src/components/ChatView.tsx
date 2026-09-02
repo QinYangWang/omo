@@ -5,7 +5,7 @@ import {
   ConversationContent,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
-import { Select, SelectGroup, SelectGroupLabel, SelectItem, SelectPopup, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
 import {
   PromptInput,
@@ -273,7 +273,6 @@ export function ChatView({
       >
         <PromptInputBody>
           <PromptInputTextarea
-            unstyled
             className="h-11 min-h-0 resize-none px-4 py-3 text-[15px] focus-visible:ring-0"
             placeholder={t("prompt_placeholder")}
           />
@@ -436,13 +435,13 @@ function ProjectSelect({
         }
       }}
     >
-      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 w-fit max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2.5 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
+      <SelectTrigger className="h-7 min-h-0 min-w-0 w-fit max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2.5 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
         <Folder className="size-3.5" />
         <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.cwd === value)?.name}
         </SelectValue>
       </SelectTrigger>
-      <SelectPopup className="min-w-56 p-1" alignItemWithTrigger={false} sideOffset={6}>
+      <SelectContent className="min-w-56 p-1" alignItemWithTrigger={false} sideOffset={6}>
         {projectItems.map((item) => (
           <SelectItem key={item.value} value={item} className="min-h-8 rounded-md text-sm">
             <span className="flex min-w-0 items-center gap-2">
@@ -458,7 +457,7 @@ function ProjectSelect({
         <SelectItem value={actions[1]} className="min-h-8 rounded-md text-sm text-foreground/80">
           <span className="flex items-center gap-2"><X className="size-4" /> {t("no_project")}</span>
         </SelectItem>
-      </SelectPopup>
+      </SelectContent>
     </Select>
   );
 }
@@ -486,15 +485,15 @@ function ModelSelect({
       onValueChange={(item) => item && onChange(item.value)}
       itemToStringValue={(item) => item.label}
     >
-      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 w-fit max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
+      <SelectTrigger className="h-7 min-h-0 min-w-0 w-fit max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
         <Asterisk className="size-3.5" />
         <SelectValue placeholder={placeholder}>{selected?.label}</SelectValue>
       </SelectTrigger>
-      <SelectPopup className="min-w-56 p-1" alignItemWithTrigger={false} sideOffset={6}>
+      <SelectContent className="min-w-56 p-1" alignItemWithTrigger={false} sideOffset={6}>
         {groups.map((provider, index) => (
           <SelectGroup key={provider}>
             {index > 0 && <SelectSeparator className="my-1 bg-accent" />}
-            <SelectGroupLabel
+            <SelectLabel
               render={<button type="button" />}
               className="w-full cursor-pointer justify-start rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
               onClick={(event) => {
@@ -508,7 +507,7 @@ function ModelSelect({
             >
               <ChevronRight className={`size-3 transition-transform ${expanded.has(provider) ? "rotate-90" : ""}`} />
               {provider}
-            </SelectGroupLabel>
+            </SelectLabel>
             {expanded.has(provider) && modelItems.filter((item) => item.provider === provider).map((item) => (
               <SelectItem key={`${item.provider}/${item.id}`} value={item} className="min-h-8 rounded-md pl-7 text-sm">
                 {item.name}
@@ -516,7 +515,7 @@ function ModelSelect({
             ))}
           </SelectGroup>
         ))}
-      </SelectPopup>
+      </SelectContent>
     </Select>
   );
 }
@@ -544,19 +543,19 @@ function CompactSelect({
       itemToStringValue={(item) => item.value}
       disabled={disabled}
     >
-      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 w-fit max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
+      <SelectTrigger className="h-7 min-h-0 min-w-0 w-fit max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
         {icon}
         <SelectValue placeholder={placeholder}>
           {items.find((item) => item.value === value)?.label}
         </SelectValue>
       </SelectTrigger>
-      <SelectPopup className="min-w-44 p-1" alignItemWithTrigger={false} sideOffset={6}>
+      <SelectContent className="min-w-44 p-1" alignItemWithTrigger={false} sideOffset={6}>
         {items.map((item) => (
           <SelectItem key={item.value} value={item} className="text-sm">
             {item.label}
           </SelectItem>
         ))}
-      </SelectPopup>
+      </SelectContent>
     </Select>
   );
 }
