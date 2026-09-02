@@ -6,6 +6,7 @@ let cachedRemote: { key: string; api: omoApi } | undefined
 export function getomoApi(): omoApi {
   const remote = getRemoteConfig()
   if (remote.url) {
+    if (!remote.token) installWebPreviewApi()
     const key = `${remote.url}\n${remote.token}`
     if (cachedRemote?.key !== key) cachedRemote = { key, api: createRemoteApi(remote.url, remote.token) }
     return cachedRemote.api

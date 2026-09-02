@@ -41,7 +41,13 @@ interface ProviderInfo {
 
 interface omoApi {
   pi: {
-    open(sessionId: string, cwd: string, sessionPath?: string): Promise<{ messages: any[]; cursor: number; hasMore: boolean }>;
+    open(sessionId: string, cwd: string, sessionPath?: string): Promise<{
+      messages: any[];
+      cursor: number;
+      hasMore: boolean;
+      model?: { id: string; provider: string; name: string } | null;
+      thinkingLevel?: string;
+    }>;
     history(sessionId: string, before: number): Promise<{ messages: any[]; cursor: number; hasMore: boolean }>;
     models(): Promise<{ id: string; provider: string; name: string }[]>;
     setModel(sessionId: string, provider: string, modelId: string): Promise<void>;
@@ -81,7 +87,8 @@ interface omoApi {
   };
   projects: {
     list(): Promise<Project[]>;
-    add(): Promise<Project | null>;
+    add(path?: string): Promise<Project | null>;
+    pickDirectory(): Promise<string | null>;
   };
   sessions: {
     list(cwd: string): Promise<PiSession[]>;

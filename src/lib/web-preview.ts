@@ -74,7 +74,8 @@ export function installWebPreviewApi() {
     },
     projects: {
       list: async () => previewProjects,
-      add: async () => previewProjects[0],
+      add: async () => null,
+      pickDirectory: async () => null,
     },
     sessions: {
       list: async () => previewSessions,

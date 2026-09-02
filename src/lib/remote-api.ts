@@ -223,10 +223,8 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     usage: { snapshot: () => request("/usage") },
     projects: {
       list: () => request("/projects"),
-      add: async () => {
-        const cwd = window.prompt("Server project path")
-        return cwd ? post("/projects", { cwd }) : null
-      },
+      add: (path?: string) => path ? post("/projects", { cwd: path }) : Promise.resolve(null),
+      pickDirectory: async () => null,
     },
     sessions: {
       list: (cwd) => request(`/sessions?${query({ cwd })}`),

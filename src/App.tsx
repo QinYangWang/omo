@@ -79,11 +79,10 @@ export default function App() {
     });
   }, []);
 
-  const addProject = async () => {
-    const project = await omo.projects.add();
+  const addProject = async (path?: string) => {
+    const project = await omo.projects.add(path);
     if (!project) return;
     setProjects((items) => (items.some((p) => p.id === project.id) ? items : [...items, project]));
-    await refreshSessions(project);
     return project;
   };
 

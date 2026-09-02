@@ -41,9 +41,43 @@ Load older：以当前 cursor 为终点，再向前取 80 项
 
 分页只影响 React 状态。Pi SDK 的完整 Session context 不受 UI 分页影响。
 
-## UI Message 转换
+## Turn 聚合与虚拟列表
 
-Server 的 `server/display-messages.cjs` 与 Electron 使用一致的转换规则：
+`src/lib/conversation-turns.ts` 以每条 user message 作为边界，将 Pi Message 聚合为 `ConversationTurn`：
+
+```ts
+interface ConversationTurn {
+  id: string
+  absoluteIndex: number
+  user: UserMessage
+  items: ChatMessage[]
+}
+```
+
+同时维护轻量 `TurnMeta`：
+
+```ts
+interface TurnMeta {
+  id: string
+  absoluteIndex: number
+  userPreview: string
+}
+```
+
+Outline 直接基于 `TurnMeta` 生成，不依赖 DOM 查询。正文使用 React Virtuoso 的可变高度列表，一个 Turn 是一个虚拟列表 item。`startReached` 自动向前 prepend 更早历史，并由 Virtuoso 保持现有滚动位置；不再显示分页按钮。
+
+点击 Outline 节点时使用 `scrollToIndex()`。附近 Turn 使用 smooth scroll，远距离跳转使用 `behavior: "auto"`，随后再执行一次小幅位置校正并短暂 highlight 对应 Turn。
+
+## Pi RenderBlock adapter
+
+`src/lib/pi-adapter.ts` 将 Pi SDK message/event 标准化为 RenderBlock：
+
+- `markdown`
+- `reasoning`
+- `tool-call`
+- `error`
+
+`src/components/chat/render-blocks.tsx` 只负责渲染 RenderBlock，不解析 Pi SDK 协议。Markdown 使用 React Markdown AST；reasoning 默认折叠；tool call 和 tool result 合并到同一张工具卡片；未知内容使用通用文本展示。Streaming delta 更新已有 block，而不是持续新增 block。
 
 - user：提取字符串或 text parts。
 - assistant text：生成 `role: "assistant"`。

@@ -50,10 +50,12 @@ class PiService {
       const all = displayMessages(manager.buildSessionContext().messages);
       this.history.set(sessionId, all);
       const cursor = Math.max(0, all.length - 80);
-      this.ensure(sessionId, cwd, sessionPath).catch((error) => this.events.append(sessionId, { type: "omo_error", message: String(error) }));
+      const session = await this.ensure(sessionId, cwd, sessionPath);
       return {
         messages: all.slice(cursor), cursor, hasMore: cursor > 0,
         sessionId: manager.getSessionId(), sessionFile: sessionPath,
+        model: session.model ? { id: session.model.id, provider: session.model.provider, name: session.model.name || session.model.id } : null,
+        thinkingLevel: session.thinkingLevel,
         eventSequence: this.events.latestSequence(sessionId),
       };
     }

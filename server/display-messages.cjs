@@ -41,6 +41,28 @@ function displayMessages(messages) {
       else items.push({ id: message.toolCallId, role: "tool", toolName: message.toolName, output: clip(output, 16000), status: message.isError ? "error" : "done" });
     }
   }
+  let turnStart;
+  let assistantItems = [];
+  let lastAssistant;
+  const finishTurn = () => {
+    if (!lastAssistant) return;
+    lastAssistant.turnEnd = true;
+    lastAssistant.completedAt = lastAssistant.timestamp;
+    lastAssistant.durationMs = turnStart && lastAssistant.timestamp ? Math.max(0, lastAssistant.timestamp - turnStart) : undefined;
+    lastAssistant.copyText = assistantItems.map((item) => item.text).join("\n\n");
+    assistantItems = [];
+    lastAssistant = undefined;
+  };
+  for (const item of items) {
+    if (item.role === "user") {
+      finishTurn();
+      turnStart = item.timestamp;
+    } else if (item.role === "assistant") {
+      lastAssistant = item;
+      assistantItems.push(item);
+    }
+  }
+  finishTurn();
   return items;
 }
 

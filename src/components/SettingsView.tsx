@@ -101,7 +101,7 @@ function ConnectionSection() {
     <div className="flex max-w-2xl flex-col gap-5">
       <div>
         <h2 className="text-xl font-medium">Server</h2>
-        <p className="mt-1 text-sm text-muted-foreground">留空使用 Electron 本地模式；填写地址后 Web 和 Electron 将连接远程 Pi Server。</p>
+        <p className="mt-1 text-sm text-muted-foreground">留空使用 Electron 本地模式；填写地址后 Web 和 Electron 将连接远程 Pi Server。静态 Web 由 omo Server 托管时会自动填入当前 Server URL。</p>
       </div>
       <label className="flex flex-col gap-2 text-sm">
         Server URL

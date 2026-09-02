@@ -57,7 +57,8 @@ contextBridge.exposeInMainWorld("omo", {
   },
   projects: {
     list: () => ipcRenderer.invoke("projects:list"),
-    add: () => ipcRenderer.invoke("projects:add"),
+    add: (path) => ipcRenderer.invoke("projects:add", path),
+    pickDirectory: () => ipcRenderer.invoke("projects:pick-directory"),
   },
   sessions: {
     list: (cwd) => ipcRenderer.invoke("sessions:list", cwd),

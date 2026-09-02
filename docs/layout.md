@@ -33,7 +33,9 @@ Sidebar 收起后完全隐藏，三个按钮移动到会话标题栏左侧。
 - Session 导入和新建按钮
 - 底部设置入口
 
-Project 对应本地或远程执行端目录。Session 条目显示名称或首条消息。
+Project 对应本地或远程执行端目录。添加项目通过目录选择完成：Electron 本地模式使用系统目录选择器，远程模式使用 Server workspace 目录树；纯静态 Web 不提供本地目录选择。
+
+Session 条目显示名称或首条消息。创建 Project 后不自动导入 Session；导入按钮只列出当前 Project cwd 下的 Pi Session。
 
 ## Chat
 

@@ -235,15 +235,15 @@ function createWindow() {
       const all = displayMessages(manager.buildSessionContext().messages);
       historyPages.set(sessionId, all);
       const cursor = Math.max(0, all.length - 80);
-      ensurePi(sessionId, cwd, sessionPath).catch((error) =>
-        win?.webContents.send("pi:event", { sessionId, event: { type: "omo_error", message: String(error) } })
-      );
+      const session = await ensurePi(sessionId, cwd, sessionPath);
       return {
         messages: all.slice(cursor),
         cursor,
         hasMore: cursor > 0,
         sessionId: manager.getSessionId(),
         sessionFile: sessionPath,
+        model: session.model ? { id: session.model.id, provider: session.model.provider, name: session.model.name || session.model.id } : null,
+        thinkingLevel: session.thinkingLevel,
       };
     }
     const session = await ensurePi(sessionId, cwd);
@@ -417,10 +417,19 @@ function createWindow() {
   };
   const writeProjects = (projects) => fs.writeFile(projectsFile, JSON.stringify(projects, null, 2));
   ipcMain.handle("projects:list", readProjects);
-  ipcMain.handle("projects:add", async () => {
+  ipcMain.handle("projects:pick-directory", async () => {
     const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
-    if (picked.canceled) return null;
-    const cwd = picked.filePaths[0];
+    return picked.canceled ? null : picked.filePaths[0];
+  });
+  ipcMain.handle("projects:add", async (_e, selectedPath) => {
+    let cwd = selectedPath;
+    if (!cwd) {
+      const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"] });
+      if (picked.canceled) return null;
+      cwd = picked.filePaths[0];
+    }
+    const stat = await fs.stat(cwd).catch(() => null);
+    if (!stat?.isDirectory()) throw new Error("Directory does not exist");
     const projects = await readProjects();
     const existing = projects.find((p) => p.cwd.toLowerCase() === cwd.toLowerCase());
     if (existing) return existing;

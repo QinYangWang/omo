@@ -17,19 +17,6 @@ Base UI 约定：
 - Select 使用 items-first 和对象值模式。
 - Trigger、Label 等部件可以接收 `render={<element />}` 替换默认元素。
 
-## ai-elements
-
-聊天组件保留在：
-
-```text
-src/components/ai-elements/
-  conversation.tsx
-  message.tsx
-  prompt-input.tsx
-```
-
-这些组件复用 `src/components/ui` 的 Button、Input Group、Select、Tooltip、Dropdown Menu 等实现。
-
 ## 应用壳
 
 `src/App.tsx` 使用三列布局：
@@ -56,7 +43,11 @@ macOS 通过 `titlebar-area-x` 预留交通灯按钮区域。其他平台使用 
 
 ## 会话区
 
-ChatView 使用 ai-elements 的 Conversation、Message 和 PromptInput。工具栏包含：
+ChatView 使用 `src/components/chat` 中的 TurnCard 和 RenderBlocks。消息流基于 React Virtuoso 的可变高度虚拟列表；Codex 风格会话大纲直接基于 TurnMeta，不依赖 DOM。节点刻度默认等宽短线，hover 时变长并显示用户消息预览，点击后通过 `scrollToIndex()` 定位，visible range 更新 active 节点。
+
+Markdown 使用 React Markdown AST 和 shadcn/typeset 渲染，代码、表格、链接和行内代码由 typeset 统一控制，不使用独立的 CodeBlock 卡片组件。助手回答底部提供时间和复制按钮；复制在非安全上下文浏览器中会回退到隐藏 textarea + `execCommand("copy")`。
+
+工具栏包含：
 
 - 模型选择
 - Thinking 等级
