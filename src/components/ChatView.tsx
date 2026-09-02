@@ -244,9 +244,32 @@ export function ChatView({
 
   const input = (
     <div>
+      <div className="mb-2 flex h-8 items-center gap-1 px-1 text-xs text-muted-foreground">
+        <ProjectSelect
+          projects={projects}
+          value={session?.cwd ?? ""}
+          onSelect={onSelectProject}
+          onAdd={onAddProject}
+          onClear={onClearProject}
+        />
+        <CompactSelect
+          icon={<Monitor className="size-3.5" />}
+          value={mode}
+          items={[{ value: "local", label: t("local") }, { value: "worktree", label: t("worktree") }]}
+          onChange={(value) => setMode(value as "local" | "worktree")}
+        />
+        <CompactSelect
+          icon={<GitBranch className="size-3.5" />}
+          value={branches.find((branch) => branch.current)?.name ?? ""}
+          placeholder={t("no_branch")}
+          items={branches.map((branch) => ({ value: branch.name, label: branch.name }))}
+          onChange={() => {}}
+          disabled={!branches.length}
+        />
+      </div>
       <PromptInput
         onSubmit={onSubmit}
-        className="rounded-xl border border-border bg-surface shadow-none has-[[data-slot=input-group-control]:focus-visible]:border-border has-[[data-slot=input-group-control]:focus-visible]:ring-0"
+        className="rounded-3xl border border-border bg-background shadow-none transition-none focus-within:border-border focus-within:shadow-none focus-within:ring-0 has-[[data-slot=input-group-control]:focus-visible]:border-border has-[[data-slot=input-group-control]:focus-visible]:ring-0"
       >
         <PromptInputBody>
           <PromptInputTextarea
@@ -254,7 +277,7 @@ export function ChatView({
             placeholder={t("prompt_placeholder")}
           />
         </PromptInputBody>
-        <PromptInputFooter className="px-3 pb-2.5 pt-0">
+        <PromptInputFooter className="px-4 pb-3 pt-0">
           <PromptInputTools className="gap-2">
             <CompactSelect
               icon={<Asterisk className="size-3.5" />}
@@ -288,29 +311,6 @@ export function ChatView({
           />
         </PromptInputFooter>
       </PromptInput>
-      <div className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground">
-        <ProjectSelect
-          projects={projects}
-          value={session?.cwd ?? ""}
-          onSelect={onSelectProject}
-          onAdd={onAddProject}
-          onClear={onClearProject}
-        />
-        <CompactSelect
-          icon={<Monitor className="size-3.5" />}
-          value={mode}
-          items={[{ value: "local", label: t("local") }, { value: "worktree", label: t("worktree") }]}
-          onChange={(value) => setMode(value as "local" | "worktree")}
-        />
-        <CompactSelect
-          icon={<GitBranch className="size-3.5" />}
-          value={branches.find((branch) => branch.current)?.name ?? ""}
-          placeholder={t("no_branch")}
-          items={branches.map((branch) => ({ value: branch.name, label: branch.name }))}
-          onChange={() => {}}
-          disabled={!branches.length}
-        />
-      </div>
     </div>
   );
 
@@ -436,7 +436,7 @@ function ProjectSelect({
         }
       }}
     >
-      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-accent px-2.5 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
+      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2.5 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
         <Folder className="size-3.5" />
         <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.cwd === value)?.name}
