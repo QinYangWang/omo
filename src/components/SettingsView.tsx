@@ -75,6 +75,15 @@ function ConnectionSection() {
   const [token, setToken] = useState(current.token);
   const [status, setStatus] = useState("");
 
+  const save = async (nextUrl: string, nextToken: string) => {
+    try {
+      await saveRemoteConfig(nextUrl, nextToken);
+      window.location.reload();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const test = async () => {
     setStatus("Connecting…");
     try {
@@ -105,8 +114,8 @@ function ConnectionSection() {
       {status && <p className="text-sm text-muted-foreground">{status}</p>}
       <div className="flex gap-2">
         <Button variant="outline" disabled={!url} onClick={test}>Test connection</Button>
-        <Button onClick={() => { saveRemoteConfig(url, token); window.location.reload(); }}>Save and reconnect</Button>
-        {current.url && <Button variant="ghost" onClick={() => { saveRemoteConfig("", ""); window.location.reload(); }}>Use local</Button>}
+        <Button onClick={() => save(url, token)}>Save and reconnect</Button>
+        {current.url && <Button variant="ghost" onClick={() => save("", "")}>Use local</Button>}
       </div>
     </div>
   );

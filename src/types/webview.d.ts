@@ -39,7 +39,7 @@ interface ProviderInfo {
   error?: string;
 }
 
-interface OmoApi {
+interface omoApi {
   pi: {
     open(sessionId: string, cwd: string, sessionPath?: string): Promise<{ messages: any[]; cursor: number; hasMore: boolean }>;
     history(sessionId: string, before: number): Promise<{ messages: any[]; cursor: number; hasMore: boolean }>;
@@ -93,7 +93,12 @@ interface OmoApi {
 }
 
 interface Window {
-  omo: OmoApi;
+  omo: omoApi;
+  omoSecure?: {
+    loadRemoteConfig(): Promise<{ url: string; token: string }>;
+    saveRemoteConfig(url: string, token: string): Promise<boolean>;
+    clearRemoteConfig(): Promise<boolean>;
+  };
 }
 
 declare namespace JSX {

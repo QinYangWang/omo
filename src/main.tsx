@@ -5,10 +5,7 @@ import App from "./App";
 import { I18nProvider } from "./lib/i18n";
 import { ThemeProvider } from "./lib/theme";
 import { installWebPreviewApi } from "./lib/web-preview";
-
-if (!window.omo) {
-  installWebPreviewApi();
-}
+import { initializeRemoteConfig } from "./lib/remote-api";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {};
@@ -38,14 +35,20 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }
   }
 }
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <ThemeProvider>
-        <I18nProvider>
-          <App />
-        </I18nProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
-  </StrictMode>
-);
+async function bootstrap() {
+  await initializeRemoteConfig();
+  if (!window.omo) installWebPreviewApi();
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <ThemeProvider>
+          <I18nProvider>
+            <App />
+          </I18nProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
+    </StrictMode>
+  );
+}
+
+void bootstrap();

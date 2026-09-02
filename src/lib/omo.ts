@@ -1,9 +1,9 @@
 import { createRemoteApi, getRemoteConfig } from "@/lib/remote-api"
 import { installWebPreviewApi } from "@/lib/web-preview"
 
-let cachedRemote: { key: string; api: OmoApi } | undefined
+let cachedRemote: { key: string; api: omoApi } | undefined
 
-export function getOmoApi(): OmoApi {
+export function getomoApi(): omoApi {
   const remote = getRemoteConfig()
   if (remote.url) {
     const key = `${remote.url}\n${remote.token}`
@@ -14,8 +14,8 @@ export function getOmoApi(): OmoApi {
   return window.omo
 }
 
-export const omo = new Proxy({} as OmoApi, {
+export const omo = new Proxy({} as omoApi, {
   get(_target, property) {
-    return getOmoApi()[property as keyof OmoApi]
+    return getomoApi()[property as keyof omoApi]
   },
 })

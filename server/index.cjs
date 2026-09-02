@@ -2,16 +2,20 @@ const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
+const { WebSocketServer } = require("ws");
 const config = require("./config.cjs");
 const { createWorkspaceGuard } = require("./workspace.cjs");
 const { EventStore } = require("./event-store.cjs");
 const { PiService } = require("./pi-service.cjs");
 const { usageSnapshot } = require("./usage.cjs");
+const { TerminalService } = require("./terminal-service.cjs");
+const { fetchQuotas } = require("./quotas.cjs");
 
 const workspace = createWorkspaceGuard(config.workspaceRoots);
 const sessionWorkspace = createWorkspaceGuard([config.sessionRoot]);
 const events = new EventStore(config.dataDir, config.eventRetention);
 const pi = new PiService(events, workspace, sessionWorkspace);
+const terminals = new TerminalService(workspace);
 const projectsFile = path.join(config.dataDir, "projects.json");
 fs.mkdir(config.dataDir, { recursive: true });
 
@@ -98,7 +102,7 @@ const server = http.createServer(async (req, res) => {
   setCors(req, res);
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  if (url.pathname === "/api/v1/health") return json(res, 200, { ok: true, version: 1, capabilities: ["pi", "events", "projects", "files", "git", "providers"] });
+  if (url.pathname === "/api/v1/health") return json(res, 200, { ok: true, version: 1, capabilities: ["pi", "events", "projects", "files", "git", "providers", "terminal"] });
   if (url.pathname.startsWith("/api/") && !authorized(req)) return json(res, 401, { error: "Unauthorized" });
 
   try {
@@ -133,6 +137,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/v1/pi/prompt") return json(res, 202, await pi.prompt(await body(req)));
     if (req.method === "POST" && url.pathname === "/api/v1/pi/abort") { const input = await body(req); await pi.abort(input.sessionId); return json(res, 200, { ok: true }); }
     if (req.method === "GET" && url.pathname === "/api/v1/events") return streamEvents(req, res, url.searchParams.get("sessionId"), Number(req.headers["last-event-id"] || url.searchParams.get("after") || 0));
+    if (req.method === "POST" && url.pathname === "/api/v1/terminals") {
+      const input = await body(req); return json(res, 200, await terminals.create(input.cwd));
+    }
+    const terminalTicketMatch = url.pathname.match(/^\/api\/v1\/terminals\/([^/]+)\/ticket$/);
+    if (req.method === "POST" && terminalTicketMatch) {
+      return json(res, 200, { ticket: terminals.issueTicket(decodeURIComponent(terminalTicketMatch[1])) });
+    }
     if (req.method === "GET" && url.pathname === "/api/v1/files") {
       const dir = await workspace.resolveExisting(url.searchParams.get("path"));
       const entries = (await fs.readdir(dir, { withFileTypes: true })).filter((item) => !item.name.startsWith(".") && item.name !== "node_modules").map((item) => ({ name: item.name, dir: item.isDirectory() })).sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name));
@@ -155,7 +166,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/v1/providers/respond") { const input = await body(req); return json(res, 200, pi.respond(input.requestId, input.value)); }
     if (req.method === "POST" && url.pathname === "/api/v1/providers/cancel") { const input = await body(req); return json(res, 200, pi.cancel(input.requestId)); }
     if (req.method === "POST" && url.pathname === "/api/v1/providers/logout") { const input = await body(req); return json(res, 200, await pi.logout(input.providerId)); }
-    if (req.method === "GET" && url.pathname === "/api/v1/quotas") return json(res, 200, { installed: false, items: [] });
+    if (req.method === "GET" && url.pathname === "/api/v1/quotas") return json(res, 200, await fetchQuotas(pi, path.dirname(config.sessionRoot), url.searchParams.get("force") === "true"));
     if (req.method === "GET" && url.pathname === "/api/v1/usage") return json(res, 200, await usageSnapshot(config.sessionRoot));
     if (req.method === "GET" && url.pathname === "/api/v1/cwd") return json(res, 200, { cwd: workspace.roots[0] });
     if (!url.pathname.startsWith("/api/") && await serveStatic(url, res)) return;
@@ -164,6 +175,21 @@ const server = http.createServer(async (req, res) => {
     console.error(error);
     return json(res, error.statusCode || 500, { error: error instanceof Error ? error.message : String(error) });
   }
+});
+
+const webSockets = new WebSocketServer({ noServer: true });
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const match = url.pathname.match(/^\/api\/v1\/terminals\/([^/]+)\/stream$/);
+  const terminalId = match && decodeURIComponent(match[1]);
+  const ticket = url.searchParams.get("ticket");
+  if (!terminalId || !ticket || !terminals.consumeTicket(ticket, terminalId)) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    socket.destroy(); return;
+  }
+  webSockets.handleUpgrade(req, socket, head, (webSocket) => {
+    terminals.attach(terminalId, webSocket, Number(url.searchParams.get("after") || 0));
+  });
 });
 
 server.listen(config.port, config.host, () => {

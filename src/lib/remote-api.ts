@@ -8,21 +8,51 @@ function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/$/, "")
 }
 
+let secureRemoteConfig: { url: string; token: string } | undefined
+
+export async function initializeRemoteConfig() {
+  if (!window.omoSecure) return
+  const legacy = {
+    url: normalizeBaseUrl(localStorage.getItem("omo:server-url") || ""),
+    token: localStorage.getItem("omo:server-token") || "",
+  }
+  try {
+    const stored = await window.omoSecure.loadRemoteConfig()
+    secureRemoteConfig = stored.url ? stored : legacy
+    if (!stored.url && legacy.url) await window.omoSecure.saveRemoteConfig(legacy.url, legacy.token)
+    localStorage.removeItem("omo:server-url")
+    localStorage.removeItem("omo:server-token")
+  } catch (error) {
+    secureRemoteConfig = legacy
+    console.error("Unable to initialize secure remote configuration", error)
+  }
+}
+
 export function getRemoteConfig() {
+  if (secureRemoteConfig) return secureRemoteConfig
   return {
     url: normalizeBaseUrl(localStorage.getItem("omo:server-url") || window.__OMO_SERVER_URL__ || ""),
     token: localStorage.getItem("omo:server-token") || "",
   }
 }
 
-export function saveRemoteConfig(url: string, token: string) {
-  if (url.trim()) localStorage.setItem("omo:server-url", normalizeBaseUrl(url))
+export async function saveRemoteConfig(url: string, token: string) {
+  const config = { url: normalizeBaseUrl(url), token }
+  if (window.omoSecure) {
+    if (config.url) await window.omoSecure.saveRemoteConfig(config.url, config.token)
+    else await window.omoSecure.clearRemoteConfig()
+    secureRemoteConfig = config
+    localStorage.removeItem("omo:server-url")
+    localStorage.removeItem("omo:server-token")
+    return
+  }
+  if (config.url) localStorage.setItem("omo:server-url", config.url)
   else localStorage.removeItem("omo:server-url")
-  if (token) localStorage.setItem("omo:server-token", token)
+  if (config.token) localStorage.setItem("omo:server-token", config.token)
   else localStorage.removeItem("omo:server-token")
 }
 
-export function createRemoteApi(baseUrl: string, token: string): OmoApi {
+export function createRemoteApi(baseUrl: string, token: string): omoApi {
   const base = normalizeBaseUrl(baseUrl)
   const headers = () => ({
     "Content-Type": "application/json",
@@ -39,7 +69,13 @@ export function createRemoteApi(baseUrl: string, token: string): OmoApi {
 
   const piListeners = new Set<EventCallback>()
   const authListeners = new Set<(event: any) => void>()
+  const terminalListeners = new Set<(data: string) => void>()
   const streams = new Map<string, AbortController>()
+  let terminalId = ""
+  let terminalSocket: WebSocket | undefined
+  let terminalOffset = 0
+  let terminalRetry = 1000
+  let terminalReconnect: ReturnType<typeof setTimeout> | undefined
 
   const connectEvents = (sessionId: string) => {
     if (streams.has(sessionId)) return
@@ -86,13 +122,51 @@ export function createRemoteApi(baseUrl: string, token: string): OmoApi {
           }
         } catch (error) {
           if (controller.signal.aborted) break
-          console.warn("Omo event stream reconnecting", error)
+          console.warn("omo event stream reconnecting", error)
         }
         await new Promise((resolve) => setTimeout(resolve, retry + Math.random() * retry * 0.2))
         retry = Math.min(30000, retry * 2)
       }
     }
     void run()
+  }
+
+  const reconnectTerminal = async () => {
+    if (!terminalId) return
+    try {
+      const result = await post<{ ticket: string }>(`/terminals/${encodeURIComponent(terminalId)}/ticket`, {})
+      connectTerminal(result.ticket)
+    } catch (error) {
+      console.warn("Remote terminal reconnecting", error)
+      terminalReconnect = setTimeout(() => void reconnectTerminal(), terminalRetry + Math.random() * terminalRetry * 0.2)
+      terminalRetry = Math.min(30000, terminalRetry * 2)
+    }
+  }
+
+  const connectTerminal = (ticket: string) => {
+    if (!terminalId) return
+    const wsBase = base.replace(/^http:/, "ws:").replace(/^https:/, "wss:")
+    const socket = new WebSocket(`${wsBase}/api/v1/terminals/${encodeURIComponent(terminalId)}/stream?${query({ ticket, after: String(terminalOffset) })}`)
+    terminalSocket = socket
+    socket.onopen = () => { terminalRetry = 1000 }
+    socket.onmessage = (event) => {
+      const message = JSON.parse(String(event.data))
+      if (message.type === "reset") {
+        terminalOffset = message.offset
+        terminalListeners.forEach((listener) => listener("\u001bc"))
+      } else if (message.type === "output") {
+        if (message.nextOffset <= terminalOffset) return
+        const skip = Math.max(0, terminalOffset - message.offset)
+        const data = String(message.data).slice(skip)
+        terminalOffset = message.nextOffset
+        terminalListeners.forEach((listener) => listener(data))
+      }
+    }
+    socket.onclose = () => {
+      if (!terminalId || terminalSocket !== socket) return
+      terminalReconnect = setTimeout(() => void reconnectTerminal(), terminalRetry + Math.random() * terminalRetry * 0.2)
+      terminalRetry = Math.min(30000, terminalRetry * 2)
+    }
   }
 
   return {
@@ -115,9 +189,18 @@ export function createRemoteApi(baseUrl: string, token: string): OmoApi {
       onEvent: (callback) => { piListeners.add(callback); return () => piListeners.delete(callback) },
     },
     term: {
-      create: async () => { throw new Error("Remote terminal transport is not available yet") },
-      input: () => undefined,
-      onData: () => () => undefined,
+      create: async (cwd) => {
+        if (terminalId && terminalSocket?.readyState !== WebSocket.CLOSED) return
+        if (terminalReconnect) clearTimeout(terminalReconnect)
+        const result = await post<{ terminalId: string; offset: number; ticket: string }>("/terminals", { cwd })
+        terminalId = result.terminalId
+        terminalOffset = result.offset
+        connectTerminal(result.ticket)
+      },
+      input: (data) => {
+        if (terminalSocket?.readyState === WebSocket.OPEN) terminalSocket.send(JSON.stringify({ type: "input", data }))
+      },
+      onData: (callback) => { terminalListeners.add(callback); return () => terminalListeners.delete(callback) },
     },
     fs: {
       list: (dir) => request(`/files?${query({ path: dir })}`),

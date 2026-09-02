@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, dialog, safeStorage } = require("electron");
 const path = require("path");
 const os = require("os");
 const fs = require("fs/promises");
@@ -444,6 +444,27 @@ function createWindow() {
   });
 
   ipcMain.handle("app:cwd", () => app.getAppPath());
+
+  const remoteConfigFile = path.join(app.getPath("userData"), "remote-server.json");
+  ipcMain.handle("remote-config:load", async () => {
+    let stored;
+    try { stored = JSON.parse(await fs.readFile(remoteConfigFile, "utf8")); } catch { return { url: "", token: "" }; }
+    let token = "";
+    if (stored.encryptedToken && safeStorage.isEncryptionAvailable()) {
+      try { token = safeStorage.decryptString(Buffer.from(stored.encryptedToken, "base64")); } catch { token = ""; }
+    }
+    return { url: stored.url || "", token };
+  });
+  ipcMain.handle("remote-config:save", async (_event, { url, token }) => {
+    if (token && !safeStorage.isEncryptionAvailable()) throw new Error("OS credential encryption is unavailable");
+    const encryptedToken = token ? safeStorage.encryptString(token).toString("base64") : "";
+    await fs.writeFile(remoteConfigFile, JSON.stringify({ url, encryptedToken }, null, 2), { mode: 0o600 });
+    return true;
+  });
+  ipcMain.handle("remote-config:clear", async () => {
+    await fs.rm(remoteConfigFile, { force: true });
+    return true;
+  });
 
   win.webContents.on("console-message", (event) =>
     console.log(`[renderer:${event.level}] ${event.message}`)
