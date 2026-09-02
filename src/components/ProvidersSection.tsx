@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Progress, ProgressIndicator, ProgressTrack } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { omo } from "@/lib/omo";
 
 export function formatReset(iso: string) {
   const diff = new Date(iso).getTime() - Date.now();
@@ -21,7 +22,7 @@ export function useQuotas() {
   const [quotas, setQuotas] = useState<QuotaItem[]>([]);
   const [installed, setInstalled] = useState(true);
   const refresh = async (force = false) => {
-    const result = await window.omo.providers.quotas(force);
+    const result = await omo.providers.quotas(force);
     setInstalled(result.installed);
     setQuotas(result.items);
   };
@@ -65,10 +66,10 @@ export function ProvidersSection() {
   const [answer, setAnswer] = useState("");
   const { quotas, refresh: refreshQuotas } = useQuotas();
 
-  const refresh = () => window.omo.providers.list().then(setProviders);
+  const refresh = () => omo.providers.list().then(setProviders);
   useEffect(() => {
     refresh();
-    return window.omo.providers.onAuthEvent((event) => {
+    return omo.providers.onAuthEvent((event) => {
       if (event.kind === "prompt") {
         setAnswer("");
         setAuthPrompt(event);
@@ -84,7 +85,7 @@ export function ProvidersSection() {
     setBusy(provider.id);
     setMessage({ text: type === "oauth" ? "Opening browser…" : "Waiting for credentials…" });
     try {
-      await window.omo.providers.login(provider.id, type);
+      await omo.providers.login(provider.id, type);
       setMessage({ text: `${provider.name} connected` });
       await refresh();
     } catch (error) {
@@ -95,7 +96,7 @@ export function ProvidersSection() {
   };
 
   const respond = async (value: string) => {
-    await window.omo.providers.respond(authPrompt.requestId, value);
+    await omo.providers.respond(authPrompt.requestId, value);
     setAuthPrompt(undefined);
   };
 
@@ -124,7 +125,7 @@ export function ProvidersSection() {
             {provider.connected ? (
               <Button variant="ghost" size="sm" disabled={busy === provider.id} onClick={async () => {
                 setBusy(provider.id);
-                try { await window.omo.providers.logout(provider.id); await refresh(); }
+                try { await omo.providers.logout(provider.id); await refresh(); }
                 finally { setBusy(undefined); }
               }}>Logout</Button>
             ) : (
@@ -139,7 +140,7 @@ export function ProvidersSection() {
 
       <Dialog open={!!authPrompt} onOpenChange={(open) => {
         if (!open && authPrompt) {
-          window.omo.providers.cancel(authPrompt.requestId);
+          omo.providers.cancel(authPrompt.requestId);
           setAuthPrompt(undefined);
         }
       }}>

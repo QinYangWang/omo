@@ -7,6 +7,7 @@ import {
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
+import { omo } from "@/lib/omo";
 import {
   PromptInput,
   PromptInputBody,
@@ -101,7 +102,7 @@ export function ChatView({
       return;
     }
     setLoading(true);
-    window.omo.pi
+    omo.pi
       .open(key, session.cwd, session.path)
       .then(({ messages: history, cursor, hasMore }) => {
         const restored = history as ChatMessage[];
@@ -129,7 +130,7 @@ export function ChatView({
   }, [key, session?.cwd, session?.path]);
 
   useEffect(() => {
-    window.omo.pi.models().then((available) => {
+    omo.pi.models().then((available) => {
       setModels(available);
       const preferred = available.find((item) => /luna/i.test(item.name)) ?? available[0];
       if (preferred) setModel((current) => current || `${preferred.provider}/${preferred.id}`);
@@ -138,11 +139,11 @@ export function ChatView({
 
   useEffect(() => {
     if (!session) return setBranches([]);
-    window.omo.git.branches(session.cwd).then(setBranches);
+    omo.git.branches(session.cwd).then(setBranches);
   }, [session?.cwd]);
 
   useEffect(() => {
-    return window.omo.pi.onEvent(({ sessionId: sid, event }) => {
+    return omo.pi.onEvent(({ sessionId: sid, event }) => {
       if (sid !== keyRef.current) return;
       const apply = (fn: (m: ChatMessage[]) => ChatMessage[]) => {
         const next = fn(store.get(keyRef.current) ?? []);
@@ -224,7 +225,7 @@ export function ChatView({
 
   const loadOlder = async () => {
     if (!page.hasMore) return;
-    const result = await window.omo.pi.history(key, page.cursor);
+    const result = await omo.pi.history(key, page.cursor);
     const next = [...(result.messages as ChatMessage[]), ...(store.get(key) ?? [])];
     const nextPage = { cursor: result.cursor, hasMore: result.hasMore };
     store.set(key, next);
@@ -239,7 +240,7 @@ export function ChatView({
     store.set(key, next);
     setMessages(next);
     setStreaming(true);
-    if (session) window.omo.pi.prompt(key, m.text, session.cwd, session.path);
+    if (session) omo.pi.prompt(key, m.text, session.cwd, session.path);
   };
 
   const input = (
@@ -286,7 +287,7 @@ export function ChatView({
               onChange={(value) => {
                 setModel(value);
                 const selected = models.find((item) => `${item.provider}/${item.id}` === value);
-                if (session && selected) window.omo.pi.setModel(key, selected.provider, selected.id);
+                if (session && selected) omo.pi.setModel(key, selected.provider, selected.id);
               }}
             />
             <CompactSelect
@@ -297,7 +298,7 @@ export function ChatView({
               }))}
               onChange={(value) => {
                 setThinking(value);
-                if (session) window.omo.pi.setThinking(key, value);
+                if (session) omo.pi.setThinking(key, value);
               }}
             />
             <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 text-xs text-muted-foreground">

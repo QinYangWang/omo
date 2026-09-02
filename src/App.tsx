@@ -14,6 +14,7 @@ import { RightPanel, type Surface } from "@/components/RightPanel";
 import { SettingsView } from "@/components/SettingsView";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { omo } from "@/lib/omo";
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
@@ -67,19 +68,19 @@ export default function App() {
   const isMac = /Mac/.test(navigator.platform);
 
   const refreshSessions = async (project: Project) => {
-    const list = await window.omo.sessions.list(project.cwd);
+    const list = await omo.sessions.list(project.cwd);
     setSessions((current) => ({ ...current, [project.id]: list }));
   };
 
   useEffect(() => {
-    window.omo.projects.list().then((items) => {
+    omo.projects.list().then((items) => {
       setProjects(items);
       items.forEach(refreshSessions);
     });
   }, []);
 
   const addProject = async () => {
-    const project = await window.omo.projects.add();
+    const project = await omo.projects.add();
     if (!project) return;
     setProjects((items) => (items.some((p) => p.id === project.id) ? items : [...items, project]));
     await refreshSessions(project);
@@ -195,7 +196,7 @@ export default function App() {
               onNewSession={async (project) => {
                 const key = crypto.randomUUID();
                 setActive({ key, cwd: project.cwd, project: project.name, title: "" });
-                await window.omo.pi.open(key, project.cwd);
+                await omo.pi.open(key, project.cwd);
                 await refreshSessions(project);
               }}
               onSelectSession={(project, session) =>
@@ -208,7 +209,7 @@ export default function App() {
                 })
               }
               onImport={async (project, sourcePath) => {
-                await window.omo.sessions.import(sourcePath, project.cwd);
+                await omo.sessions.import(sourcePath, project.cwd);
                 await refreshSessions(project);
               }}
               onOpenSettings={() => setView("settings")}

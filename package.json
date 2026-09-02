@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "concurrently -k \"vite --port 5188 --strictPort\" \"wait-on http://localhost:5188 && electron .\"",
     "build": "tsc -b && vite build",
-    "start": "electron ."
+    "start": "electron .",
+    "server": "node server/index.cjs",
+    "server:dev": "OMO_WORKSPACE_ROOTS=${OMO_WORKSPACE_ROOTS:-$PWD} node --watch server/index.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",

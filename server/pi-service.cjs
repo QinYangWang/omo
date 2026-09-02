@@ -1,0 +1,150 @@
+const { displayMessages } = require("./display-messages.cjs");
+
+class PiService {
+  constructor(eventStore, workspace, sessionWorkspace) {
+    this.events = eventStore;
+    this.workspace = workspace;
+    this.sessionWorkspace = sessionWorkspace;
+    this.sessions = new Map();
+    this.history = new Map();
+    this.authPrompts = new Map();
+    this.sdk = import("@earendil-works/pi-coding-agent");
+    this.runtimePromise = undefined;
+  }
+
+  async runtime() {
+    const { ModelRuntime } = await this.sdk;
+    this.runtimePromise ||= ModelRuntime.create();
+    return this.runtimePromise;
+  }
+
+  async ensure(sessionId, cwd, sessionPath) {
+    if (this.sessions.has(sessionId)) return this.sessions.get(sessionId);
+    const creating = (async () => {
+      cwd = await this.workspace.resolveExisting(cwd);
+      if (sessionPath) sessionPath = await this.sessionWorkspace.resolveExisting(sessionPath);
+      const { createAgentSession, SessionManager } = await this.sdk;
+      const modelRuntime = await this.runtime();
+      const { session } = await createAgentSession({
+        cwd,
+        modelRuntime,
+        sessionManager: sessionPath ? SessionManager.open(sessionPath) : SessionManager.create(cwd),
+        tools: process.platform === "win32"
+          ? ["read", "powershell", "edit", "write", "grep", "find", "ls"]
+          : ["read", "bash", "edit", "write", "grep", "find", "ls"],
+      });
+      session.subscribe((event) => this.events.append(sessionId, event));
+      return session;
+    })();
+    this.sessions.set(sessionId, creating);
+    try { return await creating; }
+    catch (error) { this.sessions.delete(sessionId); throw error; }
+  }
+
+  async open({ sessionId, cwd, sessionPath }) {
+    if (sessionPath) {
+      cwd = await this.workspace.resolveExisting(cwd);
+      sessionPath = await this.sessionWorkspace.resolveExisting(sessionPath);
+      const { SessionManager } = await this.sdk;
+      const manager = SessionManager.open(sessionPath);
+      const all = displayMessages(manager.buildSessionContext().messages);
+      this.history.set(sessionId, all);
+      const cursor = Math.max(0, all.length - 80);
+      this.ensure(sessionId, cwd, sessionPath).catch((error) => this.events.append(sessionId, { type: "omo_error", message: String(error) }));
+      return {
+        messages: all.slice(cursor), cursor, hasMore: cursor > 0,
+        sessionId: manager.getSessionId(), sessionFile: sessionPath,
+        eventSequence: this.events.latestSequence(sessionId),
+      };
+    }
+    const session = await this.ensure(sessionId, cwd);
+    return {
+      messages: [], cursor: 0, hasMore: false,
+      sessionId: session.sessionId,
+      sessionFile: session.sessionFile,
+      model: session.model ? { id: session.model.id, provider: session.model.provider, name: session.model.name || session.model.id } : null,
+      thinkingLevel: session.thinkingLevel,
+      eventSequence: this.events.latestSequence(sessionId),
+    };
+  }
+
+  historyPage(sessionId, before) {
+    const all = this.history.get(sessionId) || [];
+    const end = Math.max(0, Math.min(Number(before), all.length));
+    const cursor = Math.max(0, end - 80);
+    return { messages: all.slice(cursor, end), cursor, hasMore: cursor > 0 };
+  }
+
+  async models() {
+    return (await (await this.runtime()).getAvailable()).map((model) => ({ id: model.id, provider: model.provider, name: model.name || model.id }));
+  }
+
+  async setModel(sessionId, provider, modelId) {
+    const session = await this.sessions.get(sessionId);
+    const model = (await this.runtime()).getModel(provider, modelId);
+    if (!session || !model) throw new Error("Model is not available");
+    await session.setModel(model);
+  }
+
+  async setThinking(sessionId, level) {
+    const session = await this.sessions.get(sessionId);
+    if (!session) throw new Error("Open a session first");
+    session.setThinkingLevel(level);
+  }
+
+  async prompt({ sessionId, message, cwd, sessionPath, requestId }) {
+    if (requestId) {
+      const existing = this.events.requestResult(requestId);
+      if (existing) return existing;
+    }
+    const session = await this.ensure(sessionId, cwd, sessionPath);
+    const result = { sessionId: session.sessionId, sessionFile: session.sessionFile };
+    if (requestId) this.events.saveRequest(requestId, result);
+    session.prompt(message, session.isStreaming ? { streamingBehavior: "followUp" } : undefined)
+      .catch((error) => this.events.append(sessionId, { type: "omo_error", message: error instanceof Error ? error.message : String(error) }));
+    return result;
+  }
+
+  async abort(sessionId) { await (await this.sessions.get(sessionId))?.abort(); }
+
+  async providers() {
+    const runtime = await this.runtime();
+    return Promise.all(runtime.getProviders().map(async (provider) => {
+      let auth; let error;
+      try { auth = await runtime.checkAuth(provider.id, { signal: AbortSignal.timeout(5000) }); }
+      catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
+      return { id: provider.id, name: provider.name, connected: !!auth, authType: auth?.type, source: auth?.source,
+        hasApiKey: !!provider.auth.apiKey?.login, hasOAuth: !!provider.auth.oauth,
+        subscription: !!provider.auth.oauth?.isSubscription, error };
+    }));
+  }
+
+  async login(providerId, type) {
+    const runtime = await this.runtime();
+    await runtime.login(providerId, type, {
+      notify: (event) => this.events.append("__providers", { kind: "notify", providerId, event }),
+      prompt: (prompt) => {
+        const requestId = crypto.randomUUID();
+        this.events.append("__providers", { kind: "prompt", providerId, requestId, prompt: { ...prompt, signal: undefined } });
+        return new Promise((resolve, reject) => this.authPrompts.set(requestId, { resolve, reject }));
+      },
+    });
+    return true;
+  }
+
+  respond(requestId, value) {
+    const pending = this.authPrompts.get(requestId);
+    if (!pending) return false;
+    this.authPrompts.delete(requestId); pending.resolve(value); return true;
+  }
+
+  cancel(requestId) {
+    const pending = this.authPrompts.get(requestId);
+    if (!pending) return false;
+    this.authPrompts.delete(requestId); pending.reject(new Error("Authentication cancelled")); return true;
+  }
+
+  async logout(providerId) { await (await this.runtime()).logout(providerId); return true; }
+}
+
+module.exports = { PiService };

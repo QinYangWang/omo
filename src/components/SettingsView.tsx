@@ -12,6 +12,8 @@ import { useTheme, type Theme } from "@/lib/theme";
 import { mockSkills } from "@/lib/data";
 import { ProvidersSection, useQuotas, formatReset } from "@/components/ProvidersSection";
 import { Progress, ProgressTrack, ProgressIndicator } from "@/components/ui/progress";
+import { omo } from "@/lib/omo";
+import { getRemoteConfig, saveRemoteConfig } from "@/lib/remote-api";
 
 const sections = [
   ["section_general", "General"],
@@ -59,7 +61,7 @@ export function SettingsView({ onBack, sidebarOpen = true }: { onBack: () => voi
           {section === "Skills" && <SkillsSection />}
           {section === "Usage" && <UsageSection />}
           {section === "Packages" && <PackagesSection />}
-          {section === "General" && <Placeholder name={section} />}
+          {section === "General" && <ConnectionSection />}
           {section === "Appearance" && <AppearanceSection />}
         </div>
       </ScrollArea>
@@ -67,8 +69,47 @@ export function SettingsView({ onBack, sidebarOpen = true }: { onBack: () => voi
   );
 }
 
-function Placeholder({ name }: { name: string }) {
-  return <p className="text-sm text-muted-foreground">{name} 设置待实现</p>;
+function ConnectionSection() {
+  const current = getRemoteConfig();
+  const [url, setUrl] = useState(current.url);
+  const [token, setToken] = useState(current.token);
+  const [status, setStatus] = useState("");
+
+  const test = async () => {
+    setStatus("Connecting…");
+    try {
+      const response = await fetch(`${url.replace(/\/$/, "")}/api/v1/projects`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setStatus("Connected");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  return (
+    <div className="flex max-w-2xl flex-col gap-5">
+      <div>
+        <h2 className="text-xl font-medium">Server</h2>
+        <p className="mt-1 text-sm text-muted-foreground">留空使用 Electron 本地模式；填写地址后 Web 和 Electron 将连接远程 Pi Server。</p>
+      </div>
+      <label className="flex flex-col gap-2 text-sm">
+        Server URL
+        <Input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://omo.example.com" />
+      </label>
+      <label className="flex flex-col gap-2 text-sm">
+        Access token
+        <Input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Bearer token" />
+      </label>
+      {status && <p className="text-sm text-muted-foreground">{status}</p>}
+      <div className="flex gap-2">
+        <Button variant="outline" disabled={!url} onClick={test}>Test connection</Button>
+        <Button onClick={() => { saveRemoteConfig(url, token); window.location.reload(); }}>Save and reconnect</Button>
+        {current.url && <Button variant="ghost" onClick={() => { saveRemoteConfig("", ""); window.location.reload(); }}>Use local</Button>}
+      </div>
+    </div>
+  );
 }
 
 function AppearanceSection() {
@@ -173,9 +214,9 @@ function SkillsSection() {
 }
 
 function UsageSection() {
-  const [usage, setUsage] = useState<Awaited<ReturnType<typeof window.omo.usage.snapshot>> | null>(null);
+  const [usage, setUsage] = useState<Awaited<ReturnType<typeof omo.usage.snapshot>> | null>(null);
   useEffect(() => {
-    window.omo.usage.snapshot().then(setUsage).catch((error) => console.error("Usage unavailable", error));
+    omo.usage.snapshot().then(setUsage).catch((error) => console.error("Usage unavailable", error));
   }, []);
   const t = usage?.totals ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   const fmt = (n: number) => n.toLocaleString();

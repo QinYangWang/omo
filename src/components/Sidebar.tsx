@@ -5,6 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
+import { omo } from "@/lib/omo";
 
 export function Sidebar({
   projects,
@@ -31,7 +32,7 @@ export function Sidebar({
 
   const openImport = async (project: Project) => {
     setImportProject(project);
-    setAllSessions(await window.omo.sessions.all());
+    setAllSessions(await omo.sessions.all());
   };
 
   return (

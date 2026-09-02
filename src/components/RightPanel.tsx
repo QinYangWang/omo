@@ -7,6 +7,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import { FitAddon } from "@xterm/addon-fit";
+import { omo } from "@/lib/omo";
 import "@xterm/xterm/css/xterm.css";
 
 export type Surface = "browser" | "terminal" | "files" | "review";
@@ -117,9 +118,9 @@ function TerminalSurface() {
     term.loadAddon(fit);
     term.open(ref.current!);
     fit.fit();
-    window.omo.term.create();
-    const off = window.omo.term.onData((d) => term.write(d));
-    term.onData((d) => window.omo.term.input(d));
+    omo.term.create();
+    const off = omo.term.onData((d) => term.write(d));
+    term.onData((d) => omo.term.input(d));
     const ro = new ResizeObserver(() => fit.fit());
     ro.observe(ref.current!);
     return () => {
@@ -139,21 +140,21 @@ function FilesSurface() {
   const [file, setFile] = useState<{ path: string; content: string } | null>(null);
 
   useEffect(() => {
-    window.omo.cwd().then(async (cwd) => {
+    omo.cwd().then(async (cwd) => {
       setRootPath(cwd);
-      const entries = await window.omo.fs.list(cwd);
+      const entries = await omo.fs.list(cwd);
       setRoot(entries.map((e) => ({ ...e, path: `${cwd}/${e.name}` })));
     });
   }, []);
 
   const toggle = async (node: FNode) => {
     if (!node.dir) {
-      const r = await window.omo.fs.read(node.path);
+      const r = await omo.fs.read(node.path);
       setFile({ path: node.path, content: r.content ?? r.error ?? "" });
       return;
     }
     if (!node.children) {
-      const entries = await window.omo.fs.list(node.path);
+      const entries = await omo.fs.list(node.path);
       node.children = entries.map((e) => ({ ...e, path: `${node.path}/${e.name}` }));
     }
     node.open = !node.open;
@@ -209,9 +210,9 @@ function ReviewSurface() {
   const [cwd, setCwd] = useState("");
 
   useEffect(() => {
-    window.omo.cwd().then(async (c) => {
+    omo.cwd().then(async (c) => {
       setCwd(c);
-      const out = await window.omo.git.status(c);
+      const out = await omo.git.status(c);
       setStatus(
         out
           .split("\n")
@@ -231,7 +232,7 @@ function ReviewSurface() {
               <button
                 key={s.file}
                 onClick={async () =>
-                  setDiff({ file: s.file, text: await window.omo.git.diff(cwd, s.file) })
+                  setDiff({ file: s.file, text: await omo.git.diff(cwd, s.file) })
                 }
                 className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
               >

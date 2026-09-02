@@ -1,0 +1,16 @@
+services:
+  omo:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5189:5189"
+    environment:
+      OMO_TOKEN: ${OMO_TOKEN:?set OMO_TOKEN in .env}
+      OMO_WORKSPACE_ROOTS: /workspace
+    volumes:
+      - ./projects:/workspace
+      - omo-data:/data
+      - ${HOME}/.pi/agent:/root/.pi/agent
+
+volumes:
+  omo-data:

@@ -15,6 +15,8 @@ npm run build    # tsc -b && vite build
 ```
 electron/main.cjs      主进程：Pi SDK 会话、Provider 认证、Project/会话列表、fs/git/终端 IPC
 electron/preload.cjs   contextBridge → window.omo API
+server/                 Node Server：Pi SDK、HTTP API、SSE 事件重放、文件/Git 安全边界
+src/lib/omo.ts          统一 API 入口：Electron 本地 IPC 或远程 HTTP/SSE Transport
 src/App.tsx            三列壳：Sidebar | Main | Right Panel（可拖拽竖线分隔）
 src/components/
   Sidebar.tsx          PROJECTS + 会话列表 + 导入弹窗
@@ -35,6 +37,7 @@ src/types/webview.d.ts window.omo 类型 + webview 元素声明
 - **Token 用量**：`usage:snapshot` 扫描 pi session JSONL 聚合 usage/cost。
 - **事件**：`session.subscribe` → `webContents.send("pi:event")`，渲染层按 text_delta / thinking_delta / toolcall / tool_execution_end 增量拼装。
 - **限制**：消息渲染有字节/条数预算（工具参数 8KB、输出 16KB 截断），仅影响 UI，不影响 LLM 上下文。
+- **Server 模式**：`npm run server` 启动远程服务；Agent 事件先写入 SQLite WAL，再经 SSE 推送并支持 sequence 重放。客户端统一通过 `src/lib/omo.ts` 访问 API，组件中不要直接新增 `window.omo` 调用。服务器文件访问必须经过 `OMO_WORKSPACE_ROOTS` realpath 校验。
 
 ## 开发注意
 
@@ -47,6 +50,7 @@ src/types/webview.d.ts window.omo 类型 + webview 元素声明
 ## 文档索引
 
 - [docs/layout.md](docs/layout.md) — 页面布局设计（v3，部分已随实现演进）
+- [docs/server.md](docs/server.md) — Server 模式配置、部署与断线恢复
 
 ## 待办
 
