@@ -47,7 +47,7 @@ export function RightPanel({
             <button
               key={id}
               onClick={() => onSelect(id)}
-              className="flex min-h-28 flex-col gap-1 rounded-lg border border-border bg-surface p-4 text-left hover:bg-[#252525]"
+              className="flex min-h-28 flex-col gap-1 rounded-lg border border-border bg-surface p-4 text-left hover:bg-accent"
             >
               <Icon className="size-4" />
               <span className="text-sm font-medium">{label}</span>

@@ -37,7 +37,7 @@ function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
   return (
     <div
       onMouseDown={onMouseDown}
-      className="group relative w-px shrink-0 cursor-col-resize bg-border hover:bg-[#3a3a3a]"
+      className="group relative w-px shrink-0 cursor-col-resize bg-border hover:bg-accent"
     >
       <div className="absolute inset-y-0 -left-1 -right-1" />
     </div>
