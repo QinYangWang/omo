@@ -255,7 +255,7 @@ export function ChatView({
           />
         </PromptInputBody>
         <PromptInputFooter className="px-3 pb-2.5 pt-0">
-          <PromptInputTools className="gap-0.5">
+          <PromptInputTools className="gap-2">
             <CompactSelect
               icon={<Asterisk className="size-3.5" />}
               value={model}
@@ -284,11 +284,11 @@ export function ChatView({
           </PromptInputTools>
           <PromptInputSubmit
             status={streaming ? "streaming" : "ready"}
-            className="rounded-full bg-accent text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="rounded-full border-0 bg-accent text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0"
           />
         </PromptInputFooter>
       </PromptInput>
-      <div className="flex h-8 items-center gap-1 px-2 text-xs text-muted-foreground">
+      <div className="flex h-8 items-center gap-2 px-3 text-xs text-muted-foreground">
         <ProjectSelect
           projects={projects}
           value={session?.cwd ?? ""}
@@ -436,7 +436,7 @@ function ProjectSelect({
         }
       }}
     >
-      <SelectTrigger className="h-7 max-w-48 gap-1.5 rounded-md border-0 bg-accent px-2.5 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0">
+      <SelectTrigger className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-accent px-2.5 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0 sm:min-h-0">
         <Folder className="size-3.5" />
         <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.cwd === value)?.name}
@@ -486,7 +486,7 @@ function CompactSelect({
       itemToStringValue={(item) => item.value}
       disabled={disabled}
     >
-      <SelectTrigger className="h-7 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0">
+      <SelectTrigger className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0 sm:min-h-0">
         {icon}
         <SelectValue placeholder={placeholder}>
           {items.find((item) => item.value === value)?.label}
