@@ -436,7 +436,7 @@ function ProjectSelect({
         }
       }}
     >
-      <SelectTrigger className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-accent px-2.5 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0 sm:min-h-0">
+      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-accent px-2.5 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
         <Folder className="size-3.5" />
         <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.cwd === value)?.name}
@@ -486,7 +486,7 @@ function CompactSelect({
       itemToStringValue={(item) => item.value}
       disabled={disabled}
     >
-      <SelectTrigger className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus-visible:ring-0 sm:min-h-0">
+      <SelectTrigger hideIcon className="h-7 min-h-0 min-w-0 max-w-48 gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0">
         {icon}
         <SelectValue placeholder={placeholder}>
           {items.find((item) => item.value === value)?.label}
