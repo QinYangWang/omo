@@ -68,5 +68,7 @@ Compose 默认映射 `127.0.0.1:5189:5189`，并挂载：
 - 远程终端使用 node-pty、一次性 WebSocket ticket 和 offset 重放。
 - 文件、Git、Project cwd 和终端 cwd 必须位于 workspace roots。
 - Session JSONL 只允许位于 Pi sessions 目录。
+- JSON 请求体上限为 16MB；文本文件最多 300KB，图片文件最多 5,900,000 bytes。
+- Prompt 最多接收 8 个图片附件，每个附件的 base64 数据最多 8,000,000 个字符。
 
 详细接口见 [server-api.md](server-api.md)，恢复机制见 [reliability.md](reliability.md)，安全边界见 [security.md](security.md)。

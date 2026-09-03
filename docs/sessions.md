@@ -128,7 +128,7 @@ text 和 thinking delta 追加到当前 Session 最后一个对应消息；tool 
 ## 流式状态
 
 - Assistant `message_start` 将 Session 标记为 streaming。
-- `message_end` 清除 streaming。
+- `agent_end` 清除 streaming，并标记最后一个 Assistant block 的完成时间和耗时。
 - 当前 Session 正 streaming 时，新 Prompt 使用 `streamingBehavior: "followUp"`。
 - 非 streaming 时直接调用 Pi `session.prompt`。
 - Abort 调用当前 Agent Session 的 `abort()`。

@@ -1,22 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
-  PanelRight,
+  Info,
   PanelLeft,
   PanelLeftClose,
-  Info,
+  PanelRight,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Sidebar } from "@/components/Sidebar";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatView } from "@/components/ChatView";
 import { RightPanel, type Surface } from "@/components/RightPanel";
 import { SettingsView } from "@/components/SettingsView";
+import { Sidebar } from "@/components/Sidebar";
+import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
 import { omo } from "@/lib/omo";
+import { useTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
+const macPlatformPattern = /Mac/;
 
 function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
   const startX = useRef(0);
@@ -39,17 +41,23 @@ function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
     [onDrag]
   );
   return (
-    <div
+    <button
+      aria-label="Resize panel"
+      className="group relative m-0 w-px shrink-0 cursor-col-resize border-0 bg-border p-0 hover:bg-accent"
       onMouseDown={onMouseDown}
-      className="group relative w-px shrink-0 cursor-col-resize bg-border hover:bg-accent"
+      type="button"
     >
-      <div className="absolute inset-y-0 -left-1 -right-1" />
-    </div>
+      <span
+        aria-hidden="true"
+        className="absolute inset-y-0 -right-1 -left-1"
+      />
+    </button>
   );
 }
 
 export default function App() {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const [view, setView] = useState<"chat" | "settings">("chat");
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<Record<string, PiSession[]>>({});
@@ -65,28 +73,58 @@ export default function App() {
   const [sidebarW, setSidebarW] = useState(240);
   const [panelW, setPanelW] = useState(400);
   const [collapsed, setCollapsed] = useState(false);
-  const isMac = /Mac/.test(navigator.platform);
+  const isMac = macPlatformPattern.test(navigator.platform);
 
-  const refreshSessions = async (project: Project) => {
+  useEffect(() => {
+    const syncTitleBar = () => {
+      const styles = getComputedStyle(document.documentElement);
+      const colorVariable =
+        view === "chat" && panelOpen ? "--window-panel" : "--window-background";
+      omo.windowControls.setTitleBarOverlay({
+        color: styles.getPropertyValue(colorVariable).trim(),
+        symbolColor: styles.getPropertyValue("--window-control").trim(),
+      });
+    };
+    let frame = requestAnimationFrame(syncTitleBar);
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const onSchemeChange = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(syncTitleBar);
+    };
+    if (theme === "system") {
+      media.addEventListener("change", onSchemeChange);
+    }
+    return () => {
+      cancelAnimationFrame(frame);
+      media.removeEventListener("change", onSchemeChange);
+    };
+  }, [panelOpen, theme, view]);
+
+  const refreshSessions = useCallback(async (project: Project) => {
     const list = await omo.sessions.list(project.cwd);
     setSessions((current) => ({ ...current, [project.id]: list }));
-  };
+  }, []);
 
   useEffect(() => {
     omo.projects.list().then((items) => {
       setProjects(items);
       items.forEach(refreshSessions);
     });
-  }, []);
+  }, [refreshSessions]);
 
   const addProject = async (path?: string) => {
     const project = await omo.projects.add(path);
-    if (!project) return;
-    setProjects((items) => (items.some((p) => p.id === project.id) ? items : [...items, project]));
+    if (!project) {
+      return;
+    }
+    setProjects((items) =>
+      items.some((p) => p.id === project.id) ? items : [...items, project]
+    );
     return project;
   };
 
-  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const clamp = (v: number, lo: number, hi: number) =>
+    Math.min(hi, Math.max(lo, v));
 
   const sessionEntries = projects.flatMap((project) =>
     (sessions[project.id] ?? []).map((session) => ({ project, session }))
@@ -96,40 +134,50 @@ export default function App() {
   );
   const openSessionAt = (index: number) => {
     const entry = sessionEntries[index];
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
     setActive({
+      cwd: entry.project.cwd,
       key: entry.session.id,
       path: entry.session.path,
-      cwd: entry.project.cwd,
       project: entry.project.name,
-      title: entry.session.name || entry.session.firstMessage || "Untitled session",
+      title:
+        entry.session.name || entry.session.firstMessage || "Untitled session",
     });
   };
   const headerNavigation = (
     <div className="flex items-center gap-0.5" style={noDrag}>
       <Button
-        variant="ghost"
-        size="icon"
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         onClick={() => setCollapsed((value) => !value)}
+        size="icon"
+        variant="ghost"
       >
-        {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
+        {collapsed ? (
+          <PanelLeft className="size-4" />
+        ) : (
+          <PanelLeftClose className="size-4" />
+        )}
       </Button>
       <Button
-        variant="ghost"
-        size="icon"
         aria-label="Previous session"
         disabled={activeSessionIndex <= 0}
         onClick={() => openSessionAt(activeSessionIndex - 1)}
+        size="icon"
+        variant="ghost"
       >
         <ArrowLeft className="size-4" />
       </Button>
       <Button
-        variant="ghost"
-        size="icon"
         aria-label="Next session"
-        disabled={activeSessionIndex < 0 || activeSessionIndex >= sessionEntries.length - 1}
+        disabled={
+          activeSessionIndex < 0 ||
+          activeSessionIndex >= sessionEntries.length - 1
+        }
         onClick={() => openSessionAt(activeSessionIndex + 1)}
+        size="icon"
+        variant="ghost"
       >
         <ArrowRight className="size-4" />
       </Button>
@@ -146,7 +194,7 @@ export default function App() {
   if (view === "settings") {
     return (
       <div className="flex h-screen flex-col bg-background text-foreground">
-        <header className="flex h-10 shrink-0 [-webkit-app-region:drag]">
+        <header className="flex h-10 shrink-0 bg-background [-webkit-app-region:drag]">
           {!collapsed && (
             <>
               <div
@@ -165,11 +213,14 @@ export default function App() {
               paddingRight: titlebarRightPadding,
             }}
           >
-            {collapsed && headerNavigation}
+            {collapsed ? headerNavigation : null}
           </div>
         </header>
         <div className="min-h-0 flex-1">
-          <SettingsView onBack={() => setView("chat")} sidebarOpen={!collapsed} />
+          <SettingsView
+            onBack={() => setView("chat")}
+            sidebarOpen={!collapsed}
+          />
         </div>
       </div>
     );
@@ -179,7 +230,10 @@ export default function App() {
     <div className="flex h-screen bg-background text-foreground">
       {/* Col 1: Sidebar */}
       {!collapsed && (
-        <div className="flex shrink-0 flex-col bg-sidebar" style={{ width: sidebarW }}>
+        <div
+          className="flex shrink-0 flex-col bg-sidebar"
+          style={{ width: sidebarW }}
+        >
           <div
             className="flex h-10 shrink-0 items-center [-webkit-app-region:drag]"
             style={{ paddingLeft: titlebarLeftPadding }}
@@ -188,85 +242,102 @@ export default function App() {
           </div>
           <div className="min-h-0 flex-1">
             <Sidebar
-              projects={projects}
-              sessions={sessions}
               activeSession={active?.path ?? active?.key ?? null}
               onAddProject={addProject}
-              onNewSession={async (project) => {
-                const key = crypto.randomUUID();
-                setActive({ key, cwd: project.cwd, project: project.name, title: "" });
-                await omo.pi.open(key, project.cwd);
-                await refreshSessions(project);
-              }}
-              onSelectSession={(project, session) =>
-                setActive({
-                  key: session.id,
-                  path: session.path,
-                  cwd: project.cwd,
-                  project: project.name,
-                  title: session.name || session.firstMessage || "Untitled session",
-                })
-              }
               onImport={async (project, sourcePath) => {
                 await omo.sessions.import(sourcePath, project.cwd);
                 await refreshSessions(project);
               }}
+              onNewSession={async (project) => {
+                const key = crypto.randomUUID();
+                setActive({
+                  cwd: project.cwd,
+                  key,
+                  project: project.name,
+                  title: "",
+                });
+                await omo.pi.open(key, project.cwd);
+              }}
               onOpenSettings={() => setView("settings")}
+              onSelectSession={(project, session) =>
+                setActive({
+                  cwd: project.cwd,
+                  key: session.id,
+                  path: session.path,
+                  project: project.name,
+                  title:
+                    session.name || session.firstMessage || "Untitled session",
+                })
+              }
+              projects={projects}
+              sessions={sessions}
             />
           </div>
         </div>
       )}
-      {!collapsed && <Divider onDrag={(dx) => setSidebarW((w) => clamp(w + dx, 180, 400))} />}
+      {!collapsed && (
+        <Divider onDrag={(dx) => setSidebarW((w) => clamp(w + dx, 180, 400))} />
+      )}
 
       {/* Col 2: Main */}
       <div className="flex min-w-0 flex-1 flex-col">
         <header
-          className="flex h-10 shrink-0 items-center gap-1 [-webkit-app-region:drag]"
+          className="flex h-10 shrink-0 items-center gap-1 bg-background [-webkit-app-region:drag]"
           style={{
             paddingLeft: collapsed ? titlebarLeftPadding : "1rem",
             paddingRight: panelOpen ? "0.5rem" : titlebarRightPadding,
           }}
         >
-          {collapsed && headerNavigation}
-          <div className={cn("min-w-0 flex-1 truncate text-sm", collapsed && "pl-2")}>
+          {collapsed ? headerNavigation : null}
+          <div
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm",
+              collapsed && "pl-2"
+            )}
+          >
             {active?.title ?? t("new_task")}
           </div>
           <div className="flex items-center" style={noDrag}>
-            <Button variant="ghost" size="icon" aria-label="Session info">
+            <Button aria-label="Session info" size="icon" variant="ghost">
               <Info className="size-4" />
             </Button>
-            <Button variant="ghost" size="icon" aria-label="Toggle panel" onClick={() => setPanelOpen((v) => !v)}>
+            <Button
+              aria-label="Toggle panel"
+              onClick={() => setPanelOpen((v) => !v)}
+              size="icon"
+              variant="ghost"
+            >
               <PanelRight className="size-4" />
             </Button>
           </div>
         </header>
         <main className="min-h-0 flex-1">
           <ChatView
-            session={active}
-            projects={projects}
+            onAddProject={addProject}
+            onClearProject={() => setActive(null)}
             onSelectProject={(project) =>
               setActive({
-                key: crypto.randomUUID(),
                 cwd: project.cwd,
+                key: crypto.randomUUID(),
                 project: project.name,
                 title: "New task",
               })
             }
-            onAddProject={addProject}
-            onClearProject={() => setActive(null)}
+            projects={projects}
+            session={active}
           />
         </main>
       </div>
 
       {/* Col 3: Right panel */}
-      {panelOpen && (
+      {panelOpen ? (
         <>
           <Divider onDrag={(dx) => setPanelW((w) => clamp(w - dx, 280, 640))} />
           <div className="shrink-0 overflow-hidden" style={{ width: panelW }}>
-            <RightPanel surface={surface} onSelect={setSurface} full />
+            <RightPanel full onSelect={setSurface} surface={surface} />
           </div>
         </>
-      )}
+      ) : null}
     </div>
   );
 }

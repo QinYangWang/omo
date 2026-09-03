@@ -42,6 +42,8 @@ Electron 本地模式收到 OAuth URL 时通过系统浏览器打开。Server �
 
 ## 用量
 
+Settings → Usage 支持中英文显示。订阅配额按返回的 quota window 各显示一条进度条；每条窗口不会额外渲染重复轨道。重置时间会按当前语言显示。
+
 `server/usage.cjs` 和 Electron 本地模式扫描：
 
 ```text
@@ -58,4 +60,4 @@ ${PI_CODING_AGENT_DIR:-~/.pi/agent}/sessions/**/*.jsonl
 - tokens 使用 `input + output + cacheWrite`。
 - providers 按 cost 降序排列。
 
-JSONL 中无法解析的行会被忽略。
+JSONL 中无法解析的行会被忽略。Usage 页面当前展示已记录的 Session 用量，并按 provider/model 汇总。

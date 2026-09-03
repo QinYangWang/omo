@@ -45,7 +45,7 @@ Session 条目显示名称或首条消息。创建 Project 后不自动导入 Se
 
 - 标题栏：导航、当前 Session 标题、Info、Right Panel 开关
 - Conversation：历史消息和流式增量
-- Prompt Input：输入、模型、Thinking、上下文、Local/Worktree、分支和 Project
+- Prompt Input：输入、模型、Thinking、上下文、Local/Worktree、分支和 Project；默认 placeholder 会提示粘贴图片、`@` 文件和 `/` 命令
 
 Project 选择器包含已有 Project、New project 和 no project。模型选择器按 Provider 分组，并支持展开/收起。
 
@@ -71,6 +71,6 @@ Settings 是全屏视图，左侧导航包含：
 - Usage
 - Packages
 
-General 当前实现 Server URL、Token、连接测试和本地/远程切换。Appearance 实现主题和语言。Providers 使用 Pi Provider 认证和配额。Usage 使用 Session JSONL 聚合。Skills 与 Packages 使用当前应用内的展示数据。
+General 当前实现 Server URL、Token、连接测试和本地/远程切换。Appearance 实现主题和语言。Providers 使用 Pi Provider 认证和配额。Usage 使用 Session JSONL 聚合，包含多语言统计和订阅配额进度。Usage 不显示上下文使用分析。Skills 与 Packages 使用当前应用内的展示数据。
 
 设置页 Sidebar 可以收起，收起后顶部导航按钮移动到设置内容区。

@@ -56,6 +56,8 @@ Markdown 使用 React Markdown AST 和 shadcn/typeset 渲染，代码、表格�
 - 当前分支
 - Project 选择
 
+Prompt 输入框保留图片粘贴、`@` 文件补全和 `/` 命令补全；不再在输入框底部显示对应图标，placeholder 直接说明三种用法。
+
 模型按 Provider 分组；Provider 标题可点击展开或收起。
 
 ## 右侧面板
@@ -76,3 +78,4 @@ Markdown 使用 React Markdown AST 和 shadcn/typeset 渲染，代码、表格�
 - 主题初始化脚本位于 `index.html`，避免启动闪烁。
 - 业务组件使用语义 CSS 变量。
 - 常用色板包括 `bg-background`、`bg-sidebar`、`bg-panel`、`bg-surface`、`bg-card`、`text-muted-foreground` 和 `border-border`。
+- Progress 使用者自行组合 Track 和 Indicator；根组件不会隐式追加第二条轨道。

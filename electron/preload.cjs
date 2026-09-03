@@ -1,25 +1,76 @@
+"use strict";
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("omoSecure", {
-  loadRemoteConfig: () => ipcRenderer.invoke("remote-config:load"),
-  saveRemoteConfig: (url, token) => ipcRenderer.invoke("remote-config:save", { url, token }),
   clearRemoteConfig: () => ipcRenderer.invoke("remote-config:clear"),
+  loadRemoteConfig: () => ipcRenderer.invoke("remote-config:load"),
+  saveRemoteConfig: (url, token) =>
+    ipcRenderer.invoke("remote-config:save", { token, url }),
 });
 
 contextBridge.exposeInMainWorld("omo", {
+  cwd: () => ipcRenderer.invoke("app:cwd"),
+  fs: {
+    list: (dir) => ipcRenderer.invoke("fs:list", dir),
+    read: (p, binary) => ipcRenderer.invoke("fs:read", { binary, path: p }),
+  },
+  git: {
+    branches: (cwd) => ipcRenderer.invoke("git:branches", cwd),
+    diff: (cwd, file) => ipcRenderer.invoke("git:diff", { cwd, file }),
+    status: (cwd) => ipcRenderer.invoke("git:status", cwd),
+  },
   pi: {
-    open: (sessionId, cwd, sessionPath) => ipcRenderer.invoke("pi:open", { sessionId, cwd, sessionPath }),
-    history: (sessionId, before) => ipcRenderer.invoke("pi:history", { sessionId, before }),
-    models: () => ipcRenderer.invoke("pi:models"),
-    setModel: (sessionId, provider, modelId) => ipcRenderer.invoke("pi:set-model", { sessionId, provider, modelId }),
-    setThinking: (sessionId, level) => ipcRenderer.invoke("pi:set-thinking", { sessionId, level }),
-    prompt: (sessionId, message, cwd, sessionPath) => ipcRenderer.invoke("pi:prompt", { sessionId, message, cwd, sessionPath }),
     abort: (sessionId) => ipcRenderer.invoke("pi:abort", { sessionId }),
+    commands: (sessionId, cwd, sessionPath) =>
+      ipcRenderer.invoke("pi:commands", { cwd, sessionId, sessionPath }),
+    history: (sessionId, before) =>
+      ipcRenderer.invoke("pi:history", { before, sessionId }),
+    models: () => ipcRenderer.invoke("pi:models"),
     onEvent: (cb) => {
       const h = (_e, data) => cb(data);
       ipcRenderer.on("pi:event", h);
       return () => ipcRenderer.removeListener("pi:event", h);
     },
+    open: (sessionId, cwd, sessionPath) =>
+      ipcRenderer.invoke("pi:open", { cwd, sessionId, sessionPath }),
+    prompt: (sessionId, message, cwd, sessionPath, images) =>
+      ipcRenderer.invoke("pi:prompt", {
+        cwd,
+        images,
+        message,
+        sessionId,
+        sessionPath,
+      }),
+    setModel: (sessionId, provider, modelId) =>
+      ipcRenderer.invoke("pi:set-model", { modelId, provider, sessionId }),
+    setThinking: (sessionId, level) =>
+      ipcRenderer.invoke("pi:set-thinking", { level, sessionId }),
+  },
+  projects: {
+    add: (path) => ipcRenderer.invoke("projects:add", path),
+    list: () => ipcRenderer.invoke("projects:list"),
+    pickDirectory: () => ipcRenderer.invoke("projects:pick-directory"),
+  },
+  providers: {
+    cancel: (requestId) => ipcRenderer.invoke("providers:cancel", requestId),
+    list: () => ipcRenderer.invoke("providers:list"),
+    login: (providerId, type) =>
+      ipcRenderer.invoke("providers:login", { providerId, type }),
+    logout: (providerId) => ipcRenderer.invoke("providers:logout", providerId),
+    onAuthEvent: (cb) => {
+      const h = (_event, data) => cb(data);
+      ipcRenderer.on("providers:auth-event", h);
+      return () => ipcRenderer.removeListener("providers:auth-event", h);
+    },
+    quotas: (force) => ipcRenderer.invoke("quotas:all", force),
+    respond: (requestId, value) =>
+      ipcRenderer.invoke("providers:respond", { requestId, value }),
+  },
+  sessions: {
+    all: () => ipcRenderer.invoke("sessions:all"),
+    import: (sourcePath, cwd) =>
+      ipcRenderer.invoke("sessions:import", { cwd, sourcePath }),
+    list: (cwd) => ipcRenderer.invoke("sessions:list", cwd),
   },
   term: {
     create: (cwd) => ipcRenderer.invoke("term:create", cwd),
@@ -30,41 +81,9 @@ contextBridge.exposeInMainWorld("omo", {
       return () => ipcRenderer.removeListener("term:data", h);
     },
   },
-  fs: {
-    list: (dir) => ipcRenderer.invoke("fs:list", dir),
-    read: (p) => ipcRenderer.invoke("fs:read", p),
-  },
-  git: {
-    status: (cwd) => ipcRenderer.invoke("git:status", cwd),
-    diff: (cwd, file) => ipcRenderer.invoke("git:diff", { cwd, file }),
-    branches: (cwd) => ipcRenderer.invoke("git:branches", cwd),
-  },
-  providers: {
-    quotas: (force) => ipcRenderer.invoke("quotas:all", force),
-    list: () => ipcRenderer.invoke("providers:list"),
-    login: (providerId, type) => ipcRenderer.invoke("providers:login", { providerId, type }),
-    respond: (requestId, value) => ipcRenderer.invoke("providers:respond", { requestId, value }),
-    cancel: (requestId) => ipcRenderer.invoke("providers:cancel", requestId),
-    logout: (providerId) => ipcRenderer.invoke("providers:logout", providerId),
-    onAuthEvent: (cb) => {
-      const h = (_event, data) => cb(data);
-      ipcRenderer.on("providers:auth-event", h);
-      return () => ipcRenderer.removeListener("providers:auth-event", h);
-    },
-  },
-  usage: {
-    snapshot: () => ipcRenderer.invoke("usage:snapshot"),
-  },
-  projects: {
-    list: () => ipcRenderer.invoke("projects:list"),
-    add: (path) => ipcRenderer.invoke("projects:add", path),
-    pickDirectory: () => ipcRenderer.invoke("projects:pick-directory"),
-  },
-  sessions: {
-    list: (cwd) => ipcRenderer.invoke("sessions:list", cwd),
-    all: () => ipcRenderer.invoke("sessions:all"),
-    import: (sourcePath, cwd) => ipcRenderer.invoke("sessions:import", { sourcePath, cwd }),
-  },
-  cwd: () => ipcRenderer.invoke("app:cwd"),
   usage: { snapshot: () => ipcRenderer.invoke("usage:snapshot") },
+  windowControls: {
+    setTitleBarOverlay: (options) =>
+      ipcRenderer.send("window:set-title-bar-overlay", options),
+  },
 });

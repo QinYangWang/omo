@@ -1,74 +1,105 @@
-export type UserMessage = {
+export interface ImageContent {
+  data: string;
+  mimeType: string;
+  name?: string;
+  type: "image";
+}
+
+export interface UserMessage {
+  completedAt?: number;
+  copyText?: string;
+  durationMs?: number;
   id: string;
+  images?: ImageContent[];
   role: "user";
   text: string;
   timestamp?: number;
   turnEnd?: boolean;
-  completedAt?: number;
-  durationMs?: number;
-  copyText?: string;
-};
+}
 
-export type AssistantMessage = {
+export interface AssistantMessage {
+  completedAt?: number;
+  copyText?: string;
+  durationMs?: number;
   id: string;
   role: "assistant";
   text: string;
   timestamp?: number;
   turnEnd?: boolean;
-  completedAt?: number;
-  durationMs?: number;
-  copyText?: string;
-};
+}
 
 export type ChatMessage =
   | UserMessage
   | AssistantMessage
-  | { id: string; role: "tool"; toolName: string; input?: string; output?: string; status: "running" | "done" | "error" }
+  | {
+      id: string;
+      role: "tool";
+      toolName: string;
+      input?: string;
+      output?: string;
+      status: "running" | "done" | "error";
+    }
   | { id: string; role: "thinking"; text: string; status: "running" | "done" };
 
-export type TurnMeta = {
-  id: string;
+export interface TurnMeta {
   absoluteIndex: number;
+  id: string;
   userPreview: string;
-};
+}
 
-export type ConversationTurn = {
-  id: string;
+export interface ConversationTurn {
   absoluteIndex: number;
-  user: UserMessage;
+  id: string;
   items: Exclude<ChatMessage, UserMessage>[];
-};
+  user: UserMessage;
+}
 
-export type TurnWindow = {
-  turns: ConversationTurn[];
-  start: number;
+export interface TurnWindow {
   end: number;
-  total: number;
-  startCursor: number;
   hasOlder: boolean;
   metas: TurnMeta[];
-};
+  start: number;
+  startCursor: number;
+  total: number;
+  turns: ConversationTurn[];
+}
 
 export function createTurnWindow(total: number, count: number): TurnWindow {
   const start = Math.max(0, total - count);
-  return { turns: [], start, end: start, total, startCursor: start, hasOlder: start > 0, metas: [] };
+  return {
+    end: start,
+    hasOlder: start > 0,
+    metas: [],
+    start,
+    startCursor: start,
+    total,
+    turns: [],
+  };
 }
 
-export function toTurns(messages: ChatMessage[], startIndex = 0): ConversationTurn[] {
+export function toTurns(
+  messages: ChatMessage[],
+  startIndex = 0
+): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   for (const message of messages) {
     if (message.role === "user") {
-      turns.push({ id: message.id, absoluteIndex: startIndex + turns.length, user: message, items: [] });
+      turns.push({
+        absoluteIndex: startIndex + turns.length,
+        id: message.id,
+        items: [],
+        user: message,
+      });
     } else if (turns.length) {
       const item: ConversationTurn["items"][number] = message;
-      turns[turns.length - 1].items.push(item);
+      turns.at(-1)?.items.push(item);
     } else {
       const item: ConversationTurn["items"][number] = message;
       turns.push({
-        id: message.id,
         absoluteIndex: startIndex + turns.length,
-        user: { id: `${message.id}:orphan`, role: "user", text: "" },
+        id: message.id,
         items: [item],
+        user: { id: `${message.id}:orphan`, role: "user", text: "" },
       });
     }
   }
@@ -77,51 +108,94 @@ export function toTurns(messages: ChatMessage[], startIndex = 0): ConversationTu
 
 export function toTurnMeta(turns: ConversationTurn[]): TurnMeta[] {
   return turns.map((turn) => ({
-    id: turn.id,
     absoluteIndex: turn.absoluteIndex,
+    id: turn.id,
     userPreview: turn.user.text.replace(/\s+/g, " ").trim().slice(0, 300),
   }));
 }
 
 export function emptyWindow(): TurnWindow {
-  return { turns: [], start: 0, end: 0, total: 0, startCursor: 0, hasOlder: false, metas: [] };
-}
-
-export function windowFromMessages(messages: ChatMessage[], cursor: number, hasMore: boolean): TurnWindow {
-  const turns = toTurns(messages, cursor);
-  const total = cursor + turns.length;
-  return { turns, start: cursor, end: cursor + turns.length, total, startCursor: cursor, hasOlder: hasMore, metas: toTurnMeta(turns) };
-}
-
-export function prependWindow(current: TurnWindow, older: ChatMessage[], cursor: number, hasMore: boolean): TurnWindow {
-  const turns = toTurns(older, current.start - toTurns(older).length);
   return {
-    ...current,
-    turns: [...turns, ...current.turns],
-    start: current.start - turns.length,
-    startCursor: cursor,
-    hasOlder: hasMore,
-    metas: toTurnMeta([...turns, ...current.turns]),
+    end: 0,
+    hasOlder: false,
+    metas: [],
+    start: 0,
+    startCursor: 0,
+    total: 0,
+    turns: [],
   };
 }
 
-export function appendMessages(current: TurnWindow, messages: ChatMessage[]): TurnWindow {
+export function windowFromMessages(
+  messages: ChatMessage[],
+  cursor: number,
+  hasMore: boolean
+): TurnWindow {
+  const turns = toTurns(messages, cursor);
+  const total = cursor + turns.length;
+  return {
+    end: cursor + turns.length,
+    hasOlder: hasMore,
+    metas: toTurnMeta(turns),
+    start: cursor,
+    startCursor: cursor,
+    total,
+    turns,
+  };
+}
+
+export function prependWindow(
+  current: TurnWindow,
+  older: ChatMessage[],
+  cursor: number,
+  hasMore: boolean
+): TurnWindow {
+  const turns = toTurns(older, current.start - toTurns(older).length);
+  return {
+    ...current,
+    hasOlder: hasMore,
+    metas: toTurnMeta([...turns, ...current.turns]),
+    start: current.start - turns.length,
+    startCursor: cursor,
+    turns: [...turns, ...current.turns],
+  };
+}
+
+export function appendMessages(
+  current: TurnWindow,
+  messages: ChatMessage[]
+): TurnWindow {
   const appended = toTurns(messages, current.start + current.turns.length);
   const turns = [...current.turns];
   for (const turn of appended) {
     if (!turn.user.text && turns.length) {
-      turns[turns.length - 1].items.push(...turn.items);
+      turns.at(-1)?.items.push(...turn.items);
     } else {
       turns.push(turn);
     }
   }
-  return { ...current, turns, end: current.start + turns.length, metas: toTurnMeta(turns) };
+  return {
+    ...current,
+    end: current.start + turns.length,
+    metas: toTurnMeta(turns),
+    turns,
+  };
 }
 
-export function updateLastTurn(current: TurnWindow, update: (items: ChatMessage[]) => ChatMessage[]): TurnWindow {
+export function updateLastTurn(
+  current: TurnWindow,
+  update: (items: ChatMessage[]) => ChatMessage[]
+): TurnWindow {
   const turns = [...current.turns];
   const last = turns.at(-1);
-  if (!last) return current;
-  turns[turns.length - 1] = { ...last, items: update([last.user, ...last.items]).filter((item) => item.role !== "user") };
-  return { ...current, turns, metas: toTurnMeta(turns) };
+  if (!last) {
+    return current;
+  }
+  turns[turns.length - 1] = {
+    ...last,
+    items: update([last.user, ...last.items]).filter(
+      (item) => item.role !== "user"
+    ),
+  };
+  return { ...current, metas: toTurnMeta(turns), turns };
 }

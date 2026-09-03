@@ -37,5 +37,5 @@ export const segmentedControlItemVariants = cva(
           "data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-sm/5 dark:data-pressed:bg-input",
       },
     },
-  },
+  }
 );

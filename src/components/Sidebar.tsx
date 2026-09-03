@@ -1,13 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Folder, Import, Plus, Search, Settings } from "lucide-react";
+import {
+  ChevronRight,
+  Folder,
+  Import,
+  Plus,
+  Search,
+  Settings,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { omo } from "@/lib/omo";
+import { getRemoteConfig } from "@/lib/remote-api";
+import { cn } from "@/lib/utils";
 
-type DirectoryNode = { name: string; path: string };
+interface DirectoryNode {
+  name: string;
+  path: string;
+}
 
 const fs = {
   list: async (dir: string) => {
@@ -28,7 +50,7 @@ function DirectoryPicker({
   const [stack, setStack] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const currentPath = stack[stack.length - 1] || root;
+  const currentPath = stack.at(-1) || root;
 
   const load = async (path?: string) => {
     setLoading(true);
@@ -45,40 +67,76 @@ function DirectoryPicker({
   };
 
   useEffect(() => {
-    omo.cwd().then(async (path) => {
-      setRoot(path);
-      setNodes((await fs.list(path)).filter((item) => item.dir));
-    }).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    omo
+      .cwd()
+      .then(async (path) => {
+        setRoot(path);
+        setNodes((await fs.list(path)).filter((item) => item.dir));
+      })
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : String(cause))
+      );
   }, []);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" disabled={!stack.length} onClick={() => { const next = stack.slice(0, -1); setStack(next); void load(next[next.length - 1]); }}>Back</Button>
-        <div className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">{currentPath || "…"}</div>
+        <Button
+          disabled={!stack.length}
+          onClick={async () => {
+            const next = stack.slice(0, -1);
+            setStack(next);
+            await load(next.at(-1));
+          }}
+          size="sm"
+          variant="ghost"
+        >
+          Back
+        </Button>
+        <div className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 text-muted-foreground text-xs">
+          {currentPath || "…"}
+        </div>
       </div>
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error ? <p className="text-red-400 text-sm">{error}</p> : null}
       <ScrollArea className="h-72 rounded-md border border-border">
         <div className="p-1">
-          {loading && <p className="p-2 text-sm text-muted-foreground">Loading…</p>}
-          {!loading && nodes.map((node) => (
-            <button
-              key={node.path}
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
-              onClick={() => { setStack((items) => [...items, node.path]); void load(node.path); }}
-            >
-              <Folder className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">{node.name}</span>
-              <ChevronRight className="size-3.5 text-muted-foreground" />
-            </button>
-          ))}
-          {!loading && nodes.length === 0 && <p className="p-2 text-sm text-muted-foreground">No subdirectories</p>}
+          {loading ? (
+            <p className="p-2 text-muted-foreground text-sm">Loading…</p>
+          ) : null}
+          {loading
+            ? null
+            : nodes.map((node) => (
+                <button
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  key={node.path}
+                  onClick={async () => {
+                    setStack((items) => [...items, node.path]);
+                    await load(node.path);
+                  }}
+                  type="button"
+                >
+                  <Folder className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">{node.name}</span>
+                  <ChevronRight className="size-3.5 text-muted-foreground" />
+                </button>
+              ))}
+          {!loading && nodes.length === 0 ? (
+            <p className="p-2 text-muted-foreground text-sm">
+              No subdirectories
+            </p>
+          ) : null}
         </div>
       </ScrollArea>
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button disabled={!currentPath || loading} onClick={() => onSelect(currentPath)}>Select this directory</Button>
+        <Button onClick={onCancel} variant="ghost">
+          Cancel
+        </Button>
+        <Button
+          disabled={!currentPath || loading}
+          onClick={() => onSelect(currentPath)}
+        >
+          Select this directory
+        </Button>
       </div>
     </div>
   );
@@ -106,13 +164,23 @@ export function Sidebar({
   const { t } = useI18n();
   const [importProject, setImportProject] = useState<Project | null>(null);
   const [projectSessions, setProjectSessions] = useState<PiSession[]>([]);
+  const [expandedProjects, setExpandedProjects] = useState<
+    Record<string, boolean>
+  >({});
   const [addOpen, setAddOpen] = useState(false);
-  const [projectSource, setProjectSource] = useState<"local" | "remote">("remote");
-  const canLocal = typeof window.omo?.fs?.list === "function" && !localStorage.getItem("omo:server-url");
+  const [projectSource, setProjectSource] = useState<"local" | "remote">(
+    "remote"
+  );
+  const canLocal =
+    !!window.omoSecure &&
+    typeof window.omo?.fs?.list === "function" &&
+    !getRemoteConfig().url;
   const source = canLocal ? projectSource : "remote";
 
   useEffect(() => {
-    if (source === "local" && !canLocal) setProjectSource("remote");
+    if (source === "local" && !canLocal) {
+      setProjectSource("remote");
+    }
   }, [canLocal, source]);
 
   const openImport = async (project: Project) => {
@@ -120,127 +188,224 @@ export function Sidebar({
     setProjectSessions(await omo.sessions.list(project.cwd));
   };
 
-  const addFromPath = async (path: string) => {
-    await onAddProject(path);
-    setAddOpen(false);
-  };
+  const addFromPath = useCallback(
+    async (path: string) => {
+      await onAddProject(path);
+      setAddOpen(false);
+    },
+    [onAddProject]
+  );
 
   const pickLocalDirectory = async () => {
     const path = await omo.projects.pickDirectory();
-    if (path) await addFromPath(path);
+    if (path) {
+      await addFromPath(path);
+    }
   };
 
-  const currentPicker = useMemo(() => addOpen ? (
-    source === "local" ? null : <DirectoryPicker key={source} onSelect={addFromPath} onCancel={() => setAddOpen(false)} />
-  ) : null, [addOpen, source]);
+  const currentPicker = useMemo(
+    () =>
+      addOpen && source === "remote" ? (
+        <DirectoryPicker
+          key={source}
+          onCancel={() => setAddOpen(false)}
+          onSelect={addFromPath}
+        />
+      ) : null,
+    [addOpen, source, addFromPath]
+  );
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-full min-h-0 w-full flex-col">
       <div className="px-2 pb-1">
-        <Button variant="ghost" className="w-full justify-start gap-2 font-normal">
+        <Button
+          className="w-full justify-start gap-2 font-normal"
+          variant="ghost"
+        >
           <Search className="size-4" /> {t("search")}
         </Button>
       </div>
-      <div className="flex items-center justify-between px-4 py-2 text-xs text-muted-foreground">
+      <div className="flex items-center justify-between px-4 py-2 text-muted-foreground text-xs">
         <span>{t("projects")}</span>
-        <Button variant="ghost" size="icon" className="size-6" aria-label={t("add_project")} onClick={() => setAddOpen(true)}>
+        <Button
+          aria-label={t("add_project")}
+          className="size-6"
+          onClick={() => setAddOpen(true)}
+          size="icon"
+          variant="ghost"
+        >
           <Plus className="size-4" />
         </Button>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-3 px-2 pb-4">
           {projects.length === 0 && (
-            <button className="w-full rounded-md px-2 py-3 text-left text-sm text-muted-foreground hover:bg-accent" onClick={() => setAddOpen(true)}>
+            <button
+              className="w-full rounded-md px-2 py-3 text-left text-muted-foreground text-sm hover:bg-accent"
+              onClick={() => setAddOpen(true)}
+              type="button"
+            >
               <Folder className="mb-2 size-4" /> {t("add_local_dir")}
             </button>
           )}
           {projects.map((project) => (
-            <section key={project.id}>
-              <div className="group flex h-8 items-center gap-2 px-2">
-                <Folder className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name}</span>
-                <Button variant="ghost" size="icon" className="size-6 opacity-60 hover:opacity-100" title={t("import_session")} onClick={() => openImport(project)}>
-                  <Import className="size-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="size-6 opacity-60 hover:opacity-100" title={t("new_session")} onClick={() => onNewSession(project)}>
-                  <Plus className="size-3.5" />
-                </Button>
-              </div>
-              <div className="ml-5 border-l border-border pl-1">
-                {(sessions[project.id] ?? []).map((session) => (
-                  <button
-                    key={session.path}
-                    onClick={() => onSelectSession(project, session)}
-                    className={cn(
-                      "block w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-foreground",
-                      activeSession === session.path && "bg-accent text-foreground"
-                    )}
-                    title={session.name || session.firstMessage}
+            <Collapsible
+              key={project.id}
+              onOpenChange={(open) =>
+                setExpandedProjects((current) => ({
+                  ...current,
+                  [project.id]: open,
+                }))
+              }
+              open={expandedProjects[project.id] ?? true}
+            >
+              <section>
+                <div className="group flex h-8 items-center gap-2 px-2">
+                  <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                    <ChevronRight
+                      className={cn(
+                        "size-4 shrink-0 text-muted-foreground transition-transform",
+                        (expandedProjects[project.id] ?? true) && "rotate-90"
+                      )}
+                    />
+                    <Folder className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium text-sm">
+                      {project.name}
+                    </span>
+                  </CollapsibleTrigger>
+                  <Button
+                    className="size-6 opacity-60 hover:opacity-100"
+                    onClick={() => openImport(project)}
+                    size="icon"
+                    title={t("import_session")}
+                    variant="ghost"
                   >
-                    {session.name || session.firstMessage || t("untitled")}
-                  </button>
-                ))}
-              </div>
-            </section>
+                    <Import className="size-3.5" />
+                  </Button>
+                  <Button
+                    className="size-6 opacity-60 hover:opacity-100"
+                    onClick={() => onNewSession(project)}
+                    size="icon"
+                    title={t("new_session")}
+                    variant="ghost"
+                  >
+                    <Plus className="size-3.5" />
+                  </Button>
+                </div>
+                <CollapsibleContent>
+                  <div className="ml-5 border-border border-l pl-1">
+                    {(sessions[project.id] ?? []).map((session) => (
+                      <button
+                        className={cn(
+                          "block w-full truncate rounded-md px-2 py-1.5 text-left text-muted-foreground text-sm hover:bg-accent hover:text-foreground",
+                          activeSession === session.path &&
+                            "bg-accent text-foreground"
+                        )}
+                        key={session.path}
+                        onClick={() => onSelectSession(project, session)}
+                        title={session.name || session.firstMessage}
+                        type="button"
+                      >
+                        {session.name || session.firstMessage || t("untitled")}
+                      </button>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </section>
+            </Collapsible>
           ))}
         </div>
       </ScrollArea>
       <div className="p-2">
-        <Button variant="ghost" size="icon" aria-label={t("settings")} onClick={onOpenSettings}>
+        <Button
+          aria-label={t("settings")}
+          onClick={onOpenSettings}
+          size="icon"
+          variant="ghost"
+        >
           <Settings className="size-4" />
         </Button>
       </div>
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      <Dialog onOpenChange={setAddOpen} open={addOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t("add_project")}</DialogTitle>
-            <DialogDescription>选择本地或远程服务器上的目录。</DialogDescription>
+            <DialogDescription>
+              选择本地或远程服务器上的目录。
+            </DialogDescription>
           </DialogHeader>
-          {canLocal && (
+          {canLocal ? (
             <div className="flex gap-1">
               {(["local", "remote"] as const).map((item) => (
-                <Button key={item} variant={source === item ? "secondary" : "ghost"} size="sm" onClick={() => setProjectSource(item)}>
+                <Button
+                  key={item}
+                  onClick={() => setProjectSource(item)}
+                  size="sm"
+                  variant={source === item ? "secondary" : "ghost"}
+                >
                   {item === "local" ? "Local" : "Remote"}
                 </Button>
               ))}
             </div>
-          )}
+          ) : null}
           {source === "local" ? (
             <div className="flex flex-col items-start gap-3 rounded-md border border-border p-4">
-              <p className="text-sm text-muted-foreground">使用操作系统目录选择器选择本地项目目录。</p>
+              <p className="text-muted-foreground text-sm">
+                使用操作系统目录选择器选择本地项目目录。
+              </p>
               <div className="flex gap-2">
                 <Button onClick={pickLocalDirectory}>Choose directory</Button>
-                <Button variant="ghost" onClick={() => setAddOpen(false)}>Cancel</Button>
+                <Button onClick={() => setAddOpen(false)} variant="ghost">
+                  Cancel
+                </Button>
               </div>
             </div>
-          ) : currentPicker}
+          ) : (
+            currentPicker
+          )}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!importProject} onOpenChange={(open) => !open && setImportProject(null)}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{t("import_title", { name: importProject?.name ?? "" })}</DialogTitle>
+      <Dialog
+        onOpenChange={(open) => !open && setImportProject(null)}
+        open={!!importProject}
+      >
+        <DialogContent className="min-w-0 max-w-xl">
+          <DialogHeader className="min-w-0">
+            <DialogTitle className="min-w-0 truncate pr-8">
+              {t("import_title", { name: importProject?.name ?? "" })}
+            </DialogTitle>
             <DialogDescription>{t("import_desc")}</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-96">
+          <ScrollArea className="max-h-96 min-w-0">
             <div className="space-y-1 pr-2">
               {projectSessions.map((session) => (
                 <button
+                  className="flex w-full min-w-0 flex-col rounded-md px-3 py-2 text-left hover:bg-accent"
                   key={session.path}
-                  className="w-full rounded-md px-3 py-2 text-left hover:bg-accent"
                   onClick={async () => {
-                    if (!importProject) return;
+                    if (!importProject) {
+                      return;
+                    }
                     await onImport(importProject, session.path);
                     setImportProject(null);
                   }}
+                  type="button"
                 >
-                  <div className="truncate text-sm">{session.name || session.firstMessage || t("untitled")}</div>
-                  <div className="truncate text-xs text-muted-foreground">{session.cwd} · {session.messageCount} messages</div>
+                  <div className="w-full min-w-0 truncate text-sm">
+                    {session.name || session.firstMessage || t("untitled")}
+                  </div>
+                  <div className="w-full min-w-0 truncate text-muted-foreground text-xs">
+                    {session.cwd} · {session.messageCount} messages
+                  </div>
                 </button>
               ))}
-              {projectSessions.length === 0 && <p className="p-2 text-sm text-muted-foreground">No sessions in this directory</p>}
+              {projectSessions.length === 0 && (
+                <p className="p-2 text-muted-foreground text-sm">
+                  No sessions in this directory
+                </p>
+              )}
             </div>
           </ScrollArea>
         </DialogContent>

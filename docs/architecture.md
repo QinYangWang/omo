@@ -18,6 +18,7 @@ electron/preload.cjs        window.omo 和 window.omoSecure
 server/index.cjs            HTTP、SSE、WebSocket、静态文件
 server/pi-service.cjs       远程 Pi 与 Provider 生命周期
 server/event-store.cjs      SQLite 事件与幂等请求
+server/display-messages.cjs Pi 历史消息到 UI 消息适配
 server/terminal-service.cjs 远程 PTY
 server/workspace.cjs        路径边界
 server/quotas.cjs           Provider 配额
@@ -38,8 +39,8 @@ import { omo } from "@/lib/omo"
 `src/lib/omo.ts` 根据远程配置动态选择后端：
 
 - 已配置 Server URL：创建并缓存 Remote API。
-- 未配置 Server URL且存在 `window.omo`：使用 Electron IPC。
-- 普通 Vite 浏览器预览：安装 `src/lib/web-preview.ts` 的预览 API。
+- 未配置 Server URL 且存在 `window.omo`：使用 Electron IPC。
+- 没有 Electron preload 且未配置远程 URL：安装 `src/lib/web-preview.ts` 的预览 API。
 
 组件不直接调用 `window.omo`，避免将 Electron IPC 绑定到业务 UI。
 
@@ -78,7 +79,7 @@ Pi event
 
 ## Project 与 Session
 
-Project 是执行端上的目录。Electron 本地 Project 保存在 Electron `userData/projects.json`；Server Project 保存在 `OMO_DATA_DIR/projects.json`。
+Project 是执行端上的目录。Electron 本地 Project 保存在 Electron `userData/projects.json`；Server Project 保存在 `OMO_DATA_DIR/projects.json`。远程模式下 Project、Session、文件、Git、Provider 和终端都由 Server 执行。
 
 Session 使用 Pi `SessionManager`：
 

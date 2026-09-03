@@ -1,10 +1,11 @@
+"use strict";
 const fs = require("node:fs");
 const path = require("node:path");
 const { EventEmitter } = require("node:events");
 const { DatabaseSync } = require("node:sqlite");
 
 class EventStore {
-  constructor(dataDir, retention = 100000) {
+  constructor(dataDir, retention = 100_000) {
     fs.mkdirSync(dataDir, { recursive: true });
     this.db = new DatabaseSync(path.join(dataDir, "omo.db"));
     this.db.exec(`
@@ -32,24 +33,41 @@ class EventStore {
       INSERT INTO session_events(session_id, sequence, event_id, type, payload, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    this.latest = this.db.prepare("SELECT COALESCE(MAX(sequence), 0) AS value FROM session_events WHERE session_id = ?");
-    this.after = this.db.prepare("SELECT * FROM session_events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT ?");
-    this.trim = this.db.prepare("DELETE FROM session_events WHERE session_id = ? AND sequence <= ?");
-    this.getRequest = this.db.prepare("SELECT result FROM requests WHERE request_id = ?");
-    this.putRequest = this.db.prepare("INSERT OR REPLACE INTO requests(request_id, result, created_at) VALUES (?, ?, ?)");
+    this.latest = this.db.prepare(
+      "SELECT COALESCE(MAX(sequence), 0) AS value FROM session_events WHERE session_id = ?"
+    );
+    this.after = this.db.prepare(
+      "SELECT * FROM session_events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT ?"
+    );
+    this.trim = this.db.prepare(
+      "DELETE FROM session_events WHERE session_id = ? AND sequence <= ?"
+    );
+    this.getRequest = this.db.prepare(
+      "SELECT result FROM requests WHERE request_id = ?"
+    );
+    this.putRequest = this.db.prepare(
+      "INSERT OR REPLACE INTO requests(request_id, result, created_at) VALUES (?, ?, ?)"
+    );
   }
 
   append(sessionId, payload) {
     const sequence = Number(this.latest.get(sessionId).value) + 1;
     const record = {
       id: crypto.randomUUID(),
-      sessionId,
+      payload,
       sequence,
+      sessionId,
       timestamp: Date.now(),
       type: payload?.type || "unknown",
-      payload,
     };
-    this.insert.run(sessionId, sequence, record.id, record.type, JSON.stringify(payload), record.timestamp);
+    this.insert.run(
+      sessionId,
+      sequence,
+      record.id,
+      record.type,
+      JSON.stringify(payload),
+      record.timestamp
+    );
     if (sequence > this.retention && sequence % 1000 === 0) {
       this.trim.run(sessionId, sequence - this.retention);
     }
@@ -64,11 +82,11 @@ class EventStore {
   list(sessionId, after = 0, limit = 5000) {
     return this.after.all(sessionId, after, limit).map((row) => ({
       id: row.event_id,
-      sessionId: row.session_id,
+      payload: JSON.parse(row.payload),
       sequence: row.sequence,
+      sessionId: row.session_id,
       timestamp: row.created_at,
       type: row.type,
-      payload: JSON.parse(row.payload),
     }));
   }
 

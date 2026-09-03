@@ -1,26 +1,75 @@
-import { useEffect, useRef, useState } from "react";
-import { Globe, TerminalSquare, FolderOpen, GitCompare, X, ChevronRight, ChevronDown, File, Folder } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Terminal as XTerm } from "@xterm/xterm";
-import { useI18n } from "@/lib/i18n";
-import { useTheme } from "@/lib/theme";
 import { FitAddon } from "@xterm/addon-fit";
+import { Terminal as XTerm } from "@xterm/xterm";
+import {
+  ChevronDown,
+  ChevronRight,
+  File,
+  Folder,
+  FolderOpen,
+  GitCompare,
+  Globe,
+  TerminalSquare,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useI18n } from "@/lib/i18n";
 import { omo } from "@/lib/omo";
 import "@xterm/xterm/css/xterm.css";
 
 export type Surface = "browser" | "terminal" | "files" | "review";
 
+const diffLines = (text: string) => {
+  const occurrences = new Map<string, number>();
+  return text.split("\n").map((line) => {
+    const occurrence = occurrences.get(line) ?? 0;
+    occurrences.set(line, occurrence + 1);
+    return { key: `${line}-${occurrence}`, line };
+  });
+};
 
+const diffLineClass = (line: string) => {
+  if (line.startsWith("+")) {
+    return "block text-emerald-400";
+  }
+  if (line.startsWith("-")) {
+    return "block text-red-400";
+  }
+  if (line.startsWith("@@")) {
+    return "block text-blue-400";
+  }
+  return "block";
+};
 
 const surfaceDefs = () => {
   const { t } = useI18n();
   return [
-    { id: "browser", icon: Globe, label: t("surface_browser"), desc: t("surface_browser_desc") },
-    { id: "terminal", icon: TerminalSquare, label: t("surface_terminal"), desc: t("surface_terminal_desc") },
-    { id: "files", icon: FolderOpen, label: t("surface_files"), desc: t("surface_files_desc") },
-    { id: "review", icon: GitCompare, label: t("surface_review"), desc: t("surface_review_desc") },
+    {
+      desc: t("surface_browser_desc"),
+      icon: Globe,
+      id: "browser",
+      label: t("surface_browser"),
+    },
+    {
+      desc: t("surface_terminal_desc"),
+      icon: TerminalSquare,
+      id: "terminal",
+      label: t("surface_terminal"),
+    },
+    {
+      desc: t("surface_files_desc"),
+      icon: FolderOpen,
+      id: "files",
+      label: t("surface_files"),
+    },
+    {
+      desc: t("surface_review_desc"),
+      icon: GitCompare,
+      id: "review",
+      label: t("surface_review"),
+    },
   ] as { id: Surface; icon: typeof Globe; label: string; desc: string }[];
 };
 
@@ -38,19 +87,22 @@ export function RightPanel({
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-6 bg-panel p-6 pt-12">
         <div className="text-center">
-          <div className="text-sm font-medium">{t("open_surface")}</div>
-          <div className="text-xs text-muted-foreground">{t("open_surface_desc")}</div>
+          <div className="font-medium text-sm">{t("open_surface")}</div>
+          <div className="text-muted-foreground text-xs">
+            {t("open_surface_desc")}
+          </div>
         </div>
         <div className="grid w-full grid-cols-2 gap-3">
           {surfaces.map(({ id, icon: Icon, label, desc }) => (
             <button
+              className="flex min-h-28 flex-col gap-1 rounded-lg border border-border bg-surface p-4 text-left hover:bg-accent"
               key={id}
               onClick={() => onSelect(id)}
-              className="flex min-h-28 flex-col gap-1 rounded-lg border border-border bg-surface p-4 text-left hover:bg-accent"
+              type="button"
             >
               <Icon className="size-4" />
-              <span className="text-sm font-medium">{label}</span>
-              <span className="text-xs text-muted-foreground">{desc}</span>
+              <span className="font-medium text-sm">{label}</span>
+              <span className="text-muted-foreground text-xs">{desc}</span>
             </button>
           ))}
         </div>
@@ -59,26 +111,30 @@ export function RightPanel({
   }
   return (
     <div className="flex h-full w-full flex-col bg-panel pt-10">
-      <Tabs value={surface} onValueChange={(v) => onSelect(v as Surface)} className="flex h-full flex-col">
+      <Tabs
+        className="flex h-full flex-col"
+        onValueChange={(v) => onSelect(v as Surface)}
+        value={surface}
+      >
         <div className="flex items-center border-b pr-1">
-          <TabsList variant="line" className="flex-1">
+          <TabsList className="flex-1" variant="line">
             {surfaces.map(({ id, icon: Icon, label }) => (
-              <TabsTrigger key={id} value={id} className="gap-1.5">
+              <TabsTrigger className="gap-1.5" key={id} value={id}>
                 <Icon className="size-3.5" /> {label}
               </TabsTrigger>
             ))}
           </TabsList>
         </div>
-        <TabsContent value="browser" className="min-h-0 flex-1 p-2">
+        <TabsContent className="min-h-0 flex-1 p-2" value="browser">
           <BrowserSurface />
         </TabsContent>
-        <TabsContent value="terminal" className="min-h-0 flex-1 p-2">
+        <TabsContent className="min-h-0 flex-1 p-2" value="terminal">
           <TerminalSurface />
         </TabsContent>
-        <TabsContent value="files" className="min-h-0 flex-1">
+        <TabsContent className="min-h-0 flex-1" value="files">
           <FilesSurface />
         </TabsContent>
-        <TabsContent value="review" className="min-h-0 flex-1">
+        <TabsContent className="min-h-0 flex-1" value="review">
           <ReviewSurface />
         </TabsContent>
       </Tabs>
@@ -88,56 +144,91 @@ export function RightPanel({
 
 function BrowserSurface() {
   const [url, setUrl] = useState("http://localhost:5173");
-  const ref = useRef<HTMLElement>(null);
+  const ref = useRef<WebviewElement>(null);
   return (
     <div className="flex h-full flex-col gap-2">
       <input
         className="h-8 rounded-md border bg-background px-2 text-sm"
-        value={url}
         onChange={(e) => setUrl(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") (ref.current as any)?.loadURL?.(url);
+          if (e.key === "Enter") {
+            ref.current?.loadURL(url);
+          }
         }}
+        value={url}
       />
-      <webview ref={ref as any} src={url} className="min-h-0 flex-1 rounded-md border" />
+      <webview
+        className="min-h-0 flex-1 rounded-md border"
+        ref={ref}
+        src={url}
+      />
     </div>
   );
 }
 
 function TerminalSurface() {
   const ref = useRef<HTMLDivElement>(null);
-  const { theme } = useTheme();
   useEffect(() => {
     const dark = document.documentElement.classList.contains("dark");
     const term = new XTerm({
-      theme: dark ? { background: "#1a1a1a", foreground: "#d4d4d4" } : { background: "#ffffff", foreground: "#1a1a1a" },
-      fontSize: 13,
       convertEol: true,
+      fontSize: 13,
+      theme: dark
+        ? { background: "#1a1a1a", foreground: "#d4d4d4" }
+        : { background: "#ffffff", foreground: "#1a1a1a" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(ref.current!);
+    const element = ref.current;
+    if (element === null) {
+      return;
+    }
+    term.open(element);
     fit.fit();
     omo.term.create();
     const off = omo.term.onData((d) => term.write(d));
     term.onData((d) => omo.term.input(d));
     const ro = new ResizeObserver(() => fit.fit());
-    ro.observe(ref.current!);
+    ro.observe(element);
     return () => {
       off();
       ro.disconnect();
       term.dispose();
     };
-  }, [theme]);
-  return <div ref={ref} className="h-full overflow-hidden rounded-md bg-background" />;
+  }, []);
+  return (
+    <div
+      className="h-full overflow-hidden rounded-md bg-background"
+      ref={ref}
+    />
+  );
 }
 
-type FNode = { name: string; path: string; dir: boolean; children?: FNode[]; open?: boolean };
+interface FNode {
+  children?: FNode[];
+  dir: boolean;
+  name: string;
+  open?: boolean;
+  path: string;
+}
+
+function FileNodeToggle({ node }: { node: FNode }) {
+  if (!node.dir) {
+    return <span className="w-3.5" />;
+  }
+  return node.open ? (
+    <ChevronDown className="size-3.5" />
+  ) : (
+    <ChevronRight className="size-3.5" />
+  );
+}
 
 function FilesSurface() {
   const [root, setRoot] = useState<FNode[]>([]);
   const [rootPath, setRootPath] = useState("");
-  const [file, setFile] = useState<{ path: string; content: string } | null>(null);
+  const [file, setFile] = useState<{ path: string; content: string } | null>(
+    null
+  );
 
   useEffect(() => {
     omo.cwd().then(async (cwd) => {
@@ -150,12 +241,15 @@ function FilesSurface() {
   const toggle = async (node: FNode) => {
     if (!node.dir) {
       const r = await omo.fs.read(node.path);
-      setFile({ path: node.path, content: r.content ?? r.error ?? "" });
+      setFile({ content: r.content ?? r.error ?? "", path: node.path });
       return;
     }
     if (!node.children) {
       const entries = await omo.fs.list(node.path);
-      node.children = entries.map((e) => ({ ...e, path: `${node.path}/${e.name}` }));
+      node.children = entries.map((e) => ({
+        ...e,
+        path: `${node.path}/${e.name}`,
+      }));
     }
     node.open = !node.open;
     setRoot([...root]);
@@ -165,19 +259,22 @@ function FilesSurface() {
     nodes.map((n) => (
       <div key={n.path}>
         <button
-          onClick={() => toggle(n)}
           className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-left text-sm hover:bg-accent"
+          onClick={() => toggle(n)}
           style={{ paddingLeft: depth * 14 + 6 }}
+          type="button"
         >
+          <FileNodeToggle node={n} />
           {n.dir ? (
-            n.open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />
+            <Folder className="size-3.5" />
           ) : (
-            <span className="w-3.5" />
+            <File className="size-3.5" />
           )}
-          {n.dir ? <Folder className="size-3.5" /> : <File className="size-3.5" />}
           <span className="truncate">{n.name}</span>
         </button>
-        {n.dir && n.open && n.children && renderNodes(n.children, depth + 1)}
+        {n.dir && n.open && n.children
+          ? renderNodes(n.children, depth + 1)
+          : null}
       </div>
     ));
 
@@ -186,11 +283,19 @@ function FilesSurface() {
       <ScrollArea className={file ? "h-1/3 border-b" : "flex-1"}>
         <div className="p-1">{renderNodes(root, 0)}</div>
       </ScrollArea>
-      {file && (
+      {file ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
-            <span className="truncate">{file.path.replace(rootPath + "/", "")}</span>
-            <Button variant="ghost" size="icon" className="size-6" onClick={() => setFile(null)}>
+          <div className="flex items-center justify-between px-2 py-1 text-muted-foreground text-xs">
+            <span className="truncate">
+              {file.path.replace(`${rootPath}/`, "")}
+            </span>
+            <Button
+              className="size-6"
+              onClick={() => setFile(null)}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
               <X className="size-3.5" />
             </Button>
           </div>
@@ -198,7 +303,7 @@ function FilesSurface() {
             <pre className="p-2 text-xs leading-relaxed">{file.content}</pre>
           </ScrollArea>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -217,7 +322,7 @@ function ReviewSurface() {
         out
           .split("\n")
           .filter(Boolean)
-          .map((l) => ({ xy: l.slice(0, 2), file: l.slice(3) }))
+          .map((l) => ({ file: l.slice(3), xy: l.slice(0, 2) }))
       );
     });
   }, []);
@@ -227,52 +332,57 @@ function ReviewSurface() {
       <div className={diff ? "h-1/3 border-b" : "flex-1"}>
         <ScrollArea className="h-full">
           <div className="p-1">
-            {status.length === 0 && <p className="p-2 text-sm text-muted-foreground">{t("no_changes")}</p>}
+            {status.length === 0 && (
+              <p className="p-2 text-muted-foreground text-sm">
+                {t("no_changes")}
+              </p>
+            )}
             {status.map((s) => (
               <button
+                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
                 key={s.file}
                 onClick={async () =>
-                  setDiff({ file: s.file, text: await omo.git.diff(cwd, s.file) })
+                  setDiff({
+                    file: s.file,
+                    text: await omo.git.diff(cwd, s.file),
+                  })
                 }
-                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+                type="button"
               >
-                <span className="w-6 font-mono text-xs text-muted-foreground">{s.xy.trim() || "?"}</span>
+                <span className="w-6 font-mono text-muted-foreground text-xs">
+                  {s.xy.trim() || "?"}
+                </span>
                 <span className="truncate">{s.file}</span>
               </button>
             ))}
           </div>
         </ScrollArea>
       </div>
-      {diff && (
+      {diff ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between px-2 py-1 text-muted-foreground text-xs">
             <span className="truncate">{diff.file}</span>
-            <Button variant="ghost" size="icon" className="size-6" onClick={() => setDiff(null)}>
+            <Button
+              className="size-6"
+              onClick={() => setDiff(null)}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
               <X className="size-3.5" />
             </Button>
           </div>
           <ScrollArea className="min-h-0 flex-1">
             <pre className="p-2 text-xs leading-relaxed">
-              {diff.text.split("\n").map((l, i) => (
-                <span
-                  key={i}
-                  className={
-                    l.startsWith("+")
-                      ? "block text-emerald-400"
-                      : l.startsWith("-")
-                        ? "block text-red-400"
-                        : l.startsWith("@@")
-                          ? "block text-blue-400"
-                          : "block"
-                  }
-                >
-                  {l}
+              {diffLines(diff.text).map(({ key, line }) => (
+                <span className={diffLineClass(line)} key={key}>
+                  {line}
                 </span>
               ))}
             </pre>
           </ScrollArea>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

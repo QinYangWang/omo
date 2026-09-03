@@ -1,236 +1,459 @@
-type EventCallback = (data: { sessionId: string; event: any }) => void
+const trailingSlash = /\/$/;
+const httpScheme = /^http:/;
+const httpsScheme = /^https:/;
+const sseLineEndings = /\r\n/g;
+
+type EventCallback = (data: OmoPiEventEnvelope) => void;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function eventData(block: string) {
+  return block
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+}
+
+function dispatchEvent(
+  sessionId: string,
+  sequenceKey: string,
+  data: string,
+  authListeners: Set<(event: ProviderAuthEvent) => void>,
+  piListeners: Set<EventCallback>
+) {
+  const parsed: unknown = JSON.parse(data);
+  if (!isRecord(parsed) || typeof parsed.sequence !== "number") {
+    return;
+  }
+  localStorage.setItem(sequenceKey, String(parsed.sequence));
+  if (sessionId === "__providers") {
+    const event = parsed.payload as ProviderAuthEvent;
+    if (event.kind === "notify" && event.event.type === "auth_url") {
+      window.open(event.event.url, "_blank", "noopener,noreferrer");
+    }
+    if (event.kind === "notify" && event.event.type === "device_code") {
+      window.open(event.event.verificationUri, "_blank", "noopener,noreferrer");
+    }
+    for (const listener of authListeners) {
+      listener(event);
+    }
+    return;
+  }
+  const event = parsed.payload as OmoPiEvent;
+  for (const listener of piListeners) {
+    listener({ event, sessionId });
+  }
+}
+
+async function readEventStream(
+  response: Response,
+  signal: AbortSignal,
+  sequenceKey: string,
+  sessionId: string,
+  authListeners: Set<(event: ProviderAuthEvent) => void>,
+  piListeners: Set<EventCallback>
+) {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return;
+  }
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (!signal.aborted) {
+    // biome-ignore lint/performance/noAwaitInLoops: stream chunks must be read in order.
+    const { value, done } = await reader.read();
+    if (done) {
+      return;
+    }
+    buffer += decoder
+      .decode(value, { stream: true })
+      .replace(sseLineEndings, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const data = eventData(block);
+      if (data) {
+        dispatchEvent(sessionId, sequenceKey, data, authListeners, piListeners);
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
 
 declare global {
-  interface Window { __OMO_SERVER_URL__?: string }
+  interface Window {
+    __OMO_SERVER_URL__?: string;
+  }
 }
 
 function normalizeBaseUrl(value: string) {
-  return value.trim().replace(/\/$/, "")
+  return value.trim().replace(trailingSlash, "");
 }
 
-let secureRemoteConfig: { url: string; token: string } | undefined
+let secureRemoteConfig: { url: string; token: string } | undefined;
 
 export async function initializeRemoteConfig() {
-  if (!window.omoSecure) return
-  const legacy = {
-    url: normalizeBaseUrl(localStorage.getItem("omo:server-url") || ""),
-    token: localStorage.getItem("omo:server-token") || "",
+  if (!window.omoSecure) {
+    return;
   }
+  const legacy = {
+    token: localStorage.getItem("omo:server-token") || "",
+    url: normalizeBaseUrl(localStorage.getItem("omo:server-url") || ""),
+  };
   try {
-    const stored = await window.omoSecure.loadRemoteConfig()
-    secureRemoteConfig = stored.url ? stored : legacy
-    if (!stored.url && legacy.url) await window.omoSecure.saveRemoteConfig(legacy.url, legacy.token)
-    localStorage.removeItem("omo:server-url")
-    localStorage.removeItem("omo:server-token")
+    const stored = await window.omoSecure.loadRemoteConfig();
+    secureRemoteConfig = stored.url ? stored : legacy;
+    if (!stored.url && legacy.url) {
+      await window.omoSecure.saveRemoteConfig(legacy.url, legacy.token);
+    }
+    localStorage.removeItem("omo:server-url");
+    localStorage.removeItem("omo:server-token");
   } catch (error) {
-    secureRemoteConfig = legacy
-    console.error("Unable to initialize secure remote configuration", error)
+    secureRemoteConfig = legacy;
+    console.error("Unable to initialize secure remote configuration", error);
   }
 }
 
 export function getRemoteConfig() {
-  if (secureRemoteConfig) return secureRemoteConfig
-  return {
-    url: normalizeBaseUrl(localStorage.getItem("omo:server-url") || window.__OMO_SERVER_URL__ || ""),
-    token: localStorage.getItem("omo:server-token") || "",
+  if (secureRemoteConfig) {
+    return secureRemoteConfig;
   }
+  return {
+    token: localStorage.getItem("omo:server-token") || "",
+    url: normalizeBaseUrl(
+      localStorage.getItem("omo:server-url") || window.__OMO_SERVER_URL__ || ""
+    ),
+  };
 }
 
 export async function saveRemoteConfig(url: string, token: string) {
-  const config = { url: normalizeBaseUrl(url), token }
+  const config = { token, url: normalizeBaseUrl(url) };
   if (window.omoSecure) {
-    if (config.url) await window.omoSecure.saveRemoteConfig(config.url, config.token)
-    else await window.omoSecure.clearRemoteConfig()
-    secureRemoteConfig = config
-    localStorage.removeItem("omo:server-url")
-    localStorage.removeItem("omo:server-token")
-    return
+    if (config.url) {
+      await window.omoSecure.saveRemoteConfig(config.url, config.token);
+    } else {
+      await window.omoSecure.clearRemoteConfig();
+    }
+    secureRemoteConfig = config;
+    localStorage.removeItem("omo:server-url");
+    localStorage.removeItem("omo:server-token");
+    return;
   }
-  if (config.url) localStorage.setItem("omo:server-url", config.url)
-  else localStorage.removeItem("omo:server-url")
-  if (config.token) localStorage.setItem("omo:server-token", config.token)
-  else localStorage.removeItem("omo:server-token")
+  if (config.url) {
+    localStorage.setItem("omo:server-url", config.url);
+  } else {
+    localStorage.removeItem("omo:server-url");
+  }
+  if (config.token) {
+    localStorage.setItem("omo:server-token", config.token);
+  } else {
+    localStorage.removeItem("omo:server-token");
+  }
 }
 
 export function createRemoteApi(baseUrl: string, token: string): omoApi {
-  const base = normalizeBaseUrl(baseUrl)
+  const base = normalizeBaseUrl(baseUrl);
   const headers = () => ({
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  })
+  });
   const request = async <T>(route: string, init?: RequestInit): Promise<T> => {
-    const response = await fetch(`${base}/api/v1${route}`, { ...init, headers: { ...headers(), ...init?.headers } })
-    const result = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(result.error || `Server request failed (${response.status})`)
-    return result as T
-  }
-  const post = <T>(route: string, value: unknown) => request<T>(route, { method: "POST", body: JSON.stringify(value) })
-  const query = (values: Record<string, string>) => new URLSearchParams(values).toString()
+    const response = await fetch(`${base}/api/v1${route}`, {
+      ...init,
+      headers: { ...headers(), ...init?.headers },
+    });
+    const result: unknown = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error =
+        isRecord(result) && typeof result.error === "string"
+          ? result.error
+          : `Server request failed (${response.status})`;
+      throw new Error(error);
+    }
+    return result as T;
+  };
+  const post = <T>(route: string, value: unknown) =>
+    request<T>(route, { body: JSON.stringify(value), method: "POST" });
+  const query = (values: Record<string, string>) =>
+    new URLSearchParams(values).toString();
 
-  const piListeners = new Set<EventCallback>()
-  const authListeners = new Set<(event: any) => void>()
-  const terminalListeners = new Set<(data: string) => void>()
-  const streams = new Map<string, AbortController>()
-  let terminalId = ""
-  let terminalSocket: WebSocket | undefined
-  let terminalOffset = 0
-  let terminalRetry = 1000
-  let terminalReconnect: ReturnType<typeof setTimeout> | undefined
+  const piListeners = new Set<EventCallback>();
+  const authListeners = new Set<(event: ProviderAuthEvent) => void>();
+  const terminalListeners = new Set<(data: string) => void>();
+  const streams = new Map<string, AbortController>();
+  let terminalId = "";
+  let terminalSocket: WebSocket | undefined;
+  let terminalOffset = 0;
+  let terminalRetry = 1000;
+  let terminalReconnect: ReturnType<typeof setTimeout> | undefined;
 
   const connectEvents = (sessionId: string) => {
-    if (streams.has(sessionId)) return
-    const controller = new AbortController()
-    streams.set(sessionId, controller)
-    let retry = 1000
+    if (streams.has(sessionId)) {
+      return;
+    }
+    const controller = new AbortController();
+    streams.set(sessionId, controller);
+    let retry = 1000;
+
+    const connectOnce = async (sequenceKey: string, after: number) => {
+      const response = await fetch(
+        `${base}/api/v1/events?${query({ after: String(after), sessionId })}`,
+        { headers: headers(), signal: controller.signal }
+      );
+      if (!(response.ok && response.body)) {
+        throw new Error(`Event stream failed (${response.status})`);
+      }
+      retry = 1000;
+      await readEventStream(
+        response,
+        controller.signal,
+        sequenceKey,
+        sessionId,
+        authListeners,
+        piListeners
+      );
+    };
 
     const run = async () => {
       while (!controller.signal.aborted) {
-        const sequenceKey = `omo:event-sequence:${base}:${sessionId}`
-        const after = Number(localStorage.getItem(sequenceKey) || 0)
+        const sequenceKey = `omo:event-sequence:${base}:${sessionId}`;
+        const after = Number(localStorage.getItem(sequenceKey) || 0);
         try {
-          const response = await fetch(`${base}/api/v1/events?${query({ sessionId, after: String(after) })}`, {
-            headers: headers(), signal: controller.signal,
-          })
-          if (!response.ok || !response.body) throw new Error(`Event stream failed (${response.status})`)
-          retry = 1000
-          const reader = response.body.getReader()
-          const decoder = new TextDecoder()
-          let buffer = ""
-          while (!controller.signal.aborted) {
-            const { value, done } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n")
-            let boundary = buffer.indexOf("\n\n")
-            while (boundary >= 0) {
-              const block = buffer.slice(0, boundary)
-              buffer = buffer.slice(boundary + 2)
-              const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n")
-              if (data) {
-                const record = JSON.parse(data)
-                localStorage.setItem(sequenceKey, String(record.sequence))
-                if (sessionId === "__providers") {
-                  const event = record.payload
-                  if (event?.event?.type === "auth_url") window.open(event.event.url, "_blank", "noopener,noreferrer")
-                  if (event?.event?.type === "device_code") window.open(event.event.verificationUri, "_blank", "noopener,noreferrer")
-                  authListeners.forEach((listener) => listener(event))
-                } else {
-                  piListeners.forEach((listener) => listener({ sessionId, event: record.payload }))
-                }
-              }
-              boundary = buffer.indexOf("\n\n")
-            }
-          }
+          // biome-ignore lint/performance/noAwaitInLoops: event streams reconnect sequentially.
+          await connectOnce(sequenceKey, after);
         } catch (error) {
-          if (controller.signal.aborted) break
-          console.warn("omo event stream reconnecting", error)
+          if (controller.signal.aborted) {
+            break;
+          }
+          console.warn("omo event stream reconnecting", error);
         }
-        await new Promise((resolve) => setTimeout(resolve, retry + Math.random() * retry * 0.2))
-        retry = Math.min(30000, retry * 2)
+        if (controller.signal.aborted) {
+          break;
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, retry + Math.random() * retry * 0.2)
+        );
+        retry = Math.min(30_000, retry * 2);
       }
-    }
-    void run()
-  }
+    };
+    run().catch((error: unknown) =>
+      console.warn("omo event stream stopped", error)
+    );
+  };
 
   const reconnectTerminal = async () => {
-    if (!terminalId) return
-    try {
-      const result = await post<{ ticket: string }>(`/terminals/${encodeURIComponent(terminalId)}/ticket`, {})
-      connectTerminal(result.ticket)
-    } catch (error) {
-      console.warn("Remote terminal reconnecting", error)
-      terminalReconnect = setTimeout(() => void reconnectTerminal(), terminalRetry + Math.random() * terminalRetry * 0.2)
-      terminalRetry = Math.min(30000, terminalRetry * 2)
+    if (!terminalId) {
+      return;
     }
-  }
+    try {
+      const result = await post<{ ticket: string }>(
+        `/terminals/${encodeURIComponent(terminalId)}/ticket`,
+        {}
+      );
+      connectTerminal(result.ticket);
+    } catch (error) {
+      console.warn("Remote terminal reconnecting", error);
+      terminalReconnect = setTimeout(
+        () => {
+          reconnectTerminal();
+        },
+        terminalRetry + Math.random() * terminalRetry * 0.2
+      );
+    }
+  };
+
+  const scheduleTerminalReconnect = () => {
+    terminalReconnect = setTimeout(
+      () => {
+        reconnectTerminal();
+      },
+      terminalRetry + Math.random() * terminalRetry * 0.2
+    );
+    terminalRetry = Math.min(30_000, terminalRetry * 2);
+  };
+
+  const handleTerminalMessage = (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.type !== "string") {
+      return;
+    }
+    if (payload.type === "reset" && typeof payload.offset === "number") {
+      terminalOffset = payload.offset;
+      for (const listener of terminalListeners) {
+        listener("\u001bc");
+      }
+      return;
+    }
+    if (
+      payload.type !== "output" ||
+      typeof payload.nextOffset !== "number" ||
+      typeof payload.offset !== "number"
+    ) {
+      return;
+    }
+    if (payload.nextOffset <= terminalOffset) {
+      return;
+    }
+    const skip = Math.max(0, terminalOffset - payload.offset);
+    const data = String(payload.data).slice(skip);
+    terminalOffset = payload.nextOffset;
+    for (const listener of terminalListeners) {
+      listener(data);
+    }
+  };
 
   const connectTerminal = (ticket: string) => {
-    if (!terminalId) return
-    const wsBase = base.replace(/^http:/, "ws:").replace(/^https:/, "wss:")
-    const socket = new WebSocket(`${wsBase}/api/v1/terminals/${encodeURIComponent(terminalId)}/stream?${query({ ticket, after: String(terminalOffset) })}`)
-    terminalSocket = socket
-    socket.onopen = () => { terminalRetry = 1000 }
+    if (!terminalId) {
+      return;
+    }
+    const wsBase = base.replace(httpScheme, "ws:").replace(httpsScheme, "wss:");
+    const socket = new WebSocket(
+      `${wsBase}/api/v1/terminals/${encodeURIComponent(terminalId)}/stream?${query({ after: String(terminalOffset), ticket })}`
+    );
+    terminalSocket = socket;
+    socket.onopen = () => {
+      terminalRetry = 1000;
+    };
     socket.onmessage = (event) => {
-      const message = JSON.parse(String(event.data))
-      if (message.type === "reset") {
-        terminalOffset = message.offset
-        terminalListeners.forEach((listener) => listener("\u001bc"))
-      } else if (message.type === "output") {
-        if (message.nextOffset <= terminalOffset) return
-        const skip = Math.max(0, terminalOffset - message.offset)
-        const data = String(message.data).slice(skip)
-        terminalOffset = message.nextOffset
-        terminalListeners.forEach((listener) => listener(data))
-      }
-    }
+      handleTerminalMessage(JSON.parse(String(event.data)) as unknown);
+    };
     socket.onclose = () => {
-      if (!terminalId || terminalSocket !== socket) return
-      terminalReconnect = setTimeout(() => void reconnectTerminal(), terminalRetry + Math.random() * terminalRetry * 0.2)
-      terminalRetry = Math.min(30000, terminalRetry * 2)
-    }
-  }
+      if (!terminalId || terminalSocket !== socket) {
+        return;
+      }
+      scheduleTerminalReconnect();
+    };
+  };
 
   return {
+    cwd: async () => (await request<{ cwd: string }>("/cwd")).cwd,
+    fs: {
+      list: (dir) => request(`/files?${query({ path: dir })}`),
+      read: (path, binary = false) =>
+        request(`/files/content?${query({ binary: String(binary), path })}`),
+    },
+    git: {
+      branches: (cwd) => request(`/git/branches?${query({ cwd })}`),
+      diff: async (cwd, file) =>
+        (await request<{ output: string }>(`/git/diff?${query({ cwd, file })}`))
+          .output,
+      status: async (cwd) =>
+        (await request<{ output: string }>(`/git/status?${query({ cwd })}`))
+          .output,
+    },
     pi: {
-      open: async (sessionId, cwd, sessionPath) => {
-        const result = await post<any>("/pi/open", { sessionId, cwd, sessionPath })
-        const sequenceKey = `omo:event-sequence:${base}:${sessionId}`
-        if (typeof result.eventSequence === "number" && !localStorage.getItem(sequenceKey)) {
-          localStorage.setItem(sequenceKey, String(result.eventSequence))
-        }
-        connectEvents(sessionId)
-        return result
+      abort: async (sessionId) => {
+        await post("/pi/abort", { sessionId });
       },
-      history: (sessionId, before) => post("/pi/history", { sessionId, before }),
+      commands: (sessionId, cwd, sessionPath) =>
+        post("/pi/commands", { cwd, sessionId, sessionPath }),
+      history: (sessionId, before) =>
+        post("/pi/history", { before, sessionId }),
       models: () => request("/pi/models"),
-      setModel: async (sessionId, provider, modelId) => { await post("/pi/model", { sessionId, provider, modelId }) },
-      setThinking: async (sessionId, level) => { await post("/pi/thinking", { sessionId, level }) },
-      prompt: async (sessionId, message, cwd, sessionPath) => { await post("/pi/prompt", { sessionId, message, cwd, sessionPath, requestId: crypto.randomUUID() }) },
-      abort: async (sessionId) => { await post("/pi/abort", { sessionId }) },
-      onEvent: (callback) => { piListeners.add(callback); return () => piListeners.delete(callback) },
+      onEvent: (callback) => {
+        piListeners.add(callback);
+        return () => piListeners.delete(callback);
+      },
+      open: async (sessionId, cwd, sessionPath) => {
+        const result = await post<{
+          cursor: number;
+          eventSequence?: number;
+          hasMore: boolean;
+          messages: unknown[];
+          model?: { id: string; name: string; provider: string } | null;
+          thinkingLevel?: string;
+        }>("/pi/open", {
+          cwd,
+          sessionId,
+          sessionPath,
+        });
+        const sequenceKey = `omo:event-sequence:${base}:${sessionId}`;
+        if (
+          typeof result.eventSequence === "number" &&
+          !localStorage.getItem(sequenceKey)
+        ) {
+          localStorage.setItem(sequenceKey, String(result.eventSequence));
+        }
+        connectEvents(sessionId);
+        return result;
+      },
+      prompt: async (sessionId, message, cwd, sessionPath, images) => {
+        await post("/pi/prompt", {
+          cwd,
+          images,
+          message,
+          requestId: crypto.randomUUID(),
+          sessionId,
+          sessionPath,
+        });
+      },
+      setModel: async (sessionId, provider, modelId) => {
+        await post("/pi/model", { modelId, provider, sessionId });
+      },
+      setThinking: async (sessionId, level) => {
+        await post("/pi/thinking", { level, sessionId });
+      },
+    },
+    projects: {
+      add: (path?: string) =>
+        path ? post("/projects", { cwd: path }) : Promise.resolve(null),
+      list: () => request("/projects"),
+      pickDirectory: async () => null,
+    },
+    providers: {
+      cancel: (requestId) => post("/providers/cancel", { requestId }),
+      list: () => request("/providers"),
+      login: (providerId, type) =>
+        post("/providers/login", { providerId, type }),
+      logout: (providerId) => post("/providers/logout", { providerId }),
+      onAuthEvent: (callback) => {
+        authListeners.add(callback);
+        connectEvents("__providers");
+        return () => authListeners.delete(callback);
+      },
+      quotas: (force = false) => request(`/quotas?force=${force}`),
+      respond: (requestId, value) =>
+        post("/providers/respond", { requestId, value }),
+    },
+    sessions: {
+      all: () => request("/sessions/all"),
+      import: async (sourcePath, cwd) =>
+        (await post<{ path: string }>("/sessions/import", { cwd, sourcePath }))
+          .path,
+      list: (cwd) => request(`/sessions?${query({ cwd })}`),
     },
     term: {
       create: async (cwd) => {
-        if (terminalId && terminalSocket?.readyState !== WebSocket.CLOSED) return
-        if (terminalReconnect) clearTimeout(terminalReconnect)
-        const result = await post<{ terminalId: string; offset: number; ticket: string }>("/terminals", { cwd })
-        terminalId = result.terminalId
-        terminalOffset = result.offset
-        connectTerminal(result.ticket)
+        if (terminalId && terminalSocket?.readyState !== WebSocket.CLOSED) {
+          return;
+        }
+        if (terminalReconnect) {
+          clearTimeout(terminalReconnect);
+        }
+        const result = await post<{
+          terminalId: string;
+          offset: number;
+          ticket: string;
+        }>("/terminals", { cwd });
+        const { terminalId: nextTerminalId, offset, ticket } = result;
+        terminalId = nextTerminalId;
+        terminalOffset = offset;
+        connectTerminal(ticket);
       },
       input: (data) => {
-        if (terminalSocket?.readyState === WebSocket.OPEN) terminalSocket.send(JSON.stringify({ type: "input", data }))
+        if (terminalSocket?.readyState === WebSocket.OPEN) {
+          terminalSocket.send(JSON.stringify({ data, type: "input" }));
+        }
       },
-      onData: (callback) => { terminalListeners.add(callback); return () => terminalListeners.delete(callback) },
-    },
-    fs: {
-      list: (dir) => request(`/files?${query({ path: dir })}`),
-      read: (path) => request(`/files/content?${query({ path })}`),
-    },
-    git: {
-      status: async (cwd) => (await request<{ output: string }>(`/git/status?${query({ cwd })}`)).output,
-      diff: async (cwd, file) => (await request<{ output: string }>(`/git/diff?${query({ cwd, file })}`)).output,
-      branches: (cwd) => request(`/git/branches?${query({ cwd })}`),
-    },
-    providers: {
-      quotas: (force = false) => request(`/quotas?force=${force}`),
-      list: () => request("/providers"),
-      login: (providerId, type) => post("/providers/login", { providerId, type }),
-      respond: (requestId, value) => post("/providers/respond", { requestId, value }),
-      cancel: (requestId) => post("/providers/cancel", { requestId }),
-      logout: (providerId) => post("/providers/logout", { providerId }),
-      onAuthEvent: (callback) => { authListeners.add(callback); connectEvents("__providers"); return () => authListeners.delete(callback) },
+      onData: (callback) => {
+        terminalListeners.add(callback);
+        return () => terminalListeners.delete(callback);
+      },
     },
     usage: { snapshot: () => request("/usage") },
-    projects: {
-      list: () => request("/projects"),
-      add: (path?: string) => path ? post("/projects", { cwd: path }) : Promise.resolve(null),
-      pickDirectory: async () => null,
-    },
-    sessions: {
-      list: (cwd) => request(`/sessions?${query({ cwd })}`),
-      all: () => request("/sessions/all"),
-      import: async (sourcePath, cwd) => (await post<{ path: string }>("/sessions/import", { sourcePath, cwd })).path,
-    },
-    cwd: async () => (await request<{ cwd: string }>("/cwd")).cwd,
-  }
+    windowControls: { setTitleBarOverlay: () => undefined },
+  };
 }

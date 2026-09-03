@@ -1,16 +1,17 @@
 {
   "name": "omo",
-  "productName": "omo",
   "version": "0.1.0",
   "private": true,
-  "main": "electron/main.cjs",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
-    "dev": "concurrently -k \"vite --port 5188 --strictPort\" \"wait-on http://localhost:5188 && electron .\"",
     "build": "tsc -b && vite build",
-    "start": "electron .",
+    "check": "ultracite check",
+    "dev": "concurrently -k \"vite --port 5188 --strictPort\" \"wait-on http://localhost:5188 && electron .\"",
+    "fix": "ultracite fix",
     "server": "node server/index.cjs",
-    "server:dev": "OMO_WORKSPACE_ROOTS=${OMO_WORKSPACE_ROOTS:-$PWD} node --watch server/index.cjs"
+    "server:dev": "node --watch server/index.cjs",
+    "start": "electron ."
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
@@ -52,6 +53,7 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.9",
     "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -61,7 +63,9 @@
     "tailwindcss": "^4.0.0",
     "tsx": "^4.23.13",
     "typescript": "^5.6.0",
+    "ultracite": "^7.10.7",
     "vite": "^8.0.0",
     "wait-on": "latest"
-  }
+  },
+  "productName": "omo"
 }

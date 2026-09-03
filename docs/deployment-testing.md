@@ -5,10 +5,12 @@
 仓库已实现以下验证命令：
 
 ```bash
+npm run check
 npm run build
+git diff --check
 ```
 
-该命令执行 TypeScript 项目构建和 Vite 静态构建。
+`check` 执行 Ultracite/Biome 检查；`build` 执行 TypeScript 项目构建和 Vite 静态构建。
 
 Server 相关脚本使用 Node 语法检查：
 
@@ -16,8 +18,11 @@ Server 相关脚本使用 Node 语法检查：
 node --check server/index.cjs
 node --check server/pi-service.cjs
 node --check server/event-store.cjs
+node --check server/display-messages.cjs
+node --check server/usage.cjs
 node --check server/terminal-service.cjs
 node --check server/quotas.cjs
+node --check server/workspace.cjs
 node --check electron/main.cjs
 node --check electron/preload.cjs
 ```
@@ -29,11 +34,11 @@ node --check electron/preload.cjs
 - Server 健康检查。
 - Bearer Token 对业务 API 返回 401。
 - Project 添加与列表。
-- 文件列表。
+- 文件列表和文本/图片文件大小限制。
 - Server 托管 Web 自动注入当前 Origin。
 - SQLite 事件 sequence 重放。
-- Prompt request ID 幂等记录。
-- Provider 配额接口返回 10 个 Provider。
+- Prompt request ID 幂等记录和图片附件校验。
+- Provider 配额接口返回各 Provider 的订阅窗口。
 - 远程 PTY 输入输出。
 - WebSocket 断开后通过 offset 补发终端输出。
 

@@ -6,7 +6,7 @@
 Authorization: Bearer <token>
 ```
 
-JSON 请求体上限为 2MB。错误响应格式：
+JSON 请求体上限为 16MB。错误响应格式：
 
 ```json
 { "error": "message" }
@@ -92,11 +92,14 @@ JSON 请求体上限为 2MB。错误响应格式：
   "message": "prompt",
   "cwd": "/workspace/project",
   "sessionPath": "optional",
-  "requestId": "uuid"
+  "requestId": "uuid",
+  "images": [
+    { "type": "image", "mimeType": "image/png", "data": "base64" }
+  ]
 }
 ```
 
-返回 HTTP 202。`requestId` 用于持久化幂等去重。
+返回 HTTP 202。`requestId` 用于持久化幂等去重。`images` 可携带图片附件，最多 8 个；每个附件必须使用 `image/*` MIME 类型，base64 数据最多 8,000,000 个字符。
 
 ### `POST /pi/abort`
 
@@ -175,7 +178,13 @@ Provider 认证事件使用保留的 `sessionId=__providers`。
 
 ### `GET /files/content?path=<file>`
 
-读取 UTF-8 文本。文件上限为 300KB。
+默认读取 UTF-8 文本，文件上限为 300KB。读取支持的图片扩展名为 `.png`、`.jpg`、`.jpeg`、`.gif`、`.webp` 和 `.bmp`；传入 `binary=true` 时返回：
+
+```json
+{ "data": "base64", "mimeType": "image/png" }
+```
+
+图片文件上限为 5,900,000 bytes。
 
 ## Git
 

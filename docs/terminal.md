@@ -67,7 +67,7 @@ WebSocket 关闭后，Remote API 调用 HTTP ticket 接口申请新 ticket，再
 重连等待：
 
 ```text
-1s → 2s → 4s → 8s → 15s → 30s
+1s → 2s → 4s → 8s → 16s → 30s
 ```
 
 加入最多 20% 抖动。重连期间 PTY 不关闭，因此网络断开不会停止服务器终端进程。
@@ -84,4 +84,4 @@ Server 每分钟检查终端：
 
 ## 与本地终端的区别
 
-Electron 本地终端通过 `spawn` 创建裸 shell，并使用 stdout/stderr 管道；它没有 PTY。远程终端通过 `node-pty` 支持全屏交互程序。
+Electron 本地终端通过 `spawn("powershell.exe", ["-NoLogo"])` 创建裸 shell，并使用 stdout/stderr 管道；它没有 PTY。远程终端通过 `node-pty` 支持全屏交互程序。
