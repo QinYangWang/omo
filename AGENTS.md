@@ -17,6 +17,8 @@ npm run server:dev   # omo Server watch 模式
 
 - 业务组件统一通过 `src/lib/omo.ts` 访问后端，不要直接新增 `window.omo` 调用。
 - `components.json` 使用 `base-rhea`，UI 底层组件为 Base UI；自定义 trigger 使用 `render` prop。
+- 所有 UI 必须使用 shadcn 组件（`Button`、`Input`、`Textarea`、`Select` 等），不要引入裸的 `<button>`/`<input>`/`<textarea>`/`<select>`；自定义布局用 `variant="ghost"` + `className` 覆盖。例外仅限无语义化替代的原生控件（如颜色选择器、滑块）和纯视觉指示器。
+- 组件颜色必须使用语义化 CSS 变量（`foreground`、`muted-foreground`、`accent`、`destructive`、`success`、`warning`、`info`、`sidebar-*` 等），禁止硬编码调色板色值（`text-red-400`、`bg-emerald-500`、`#fff` 等），保证主题编辑器可以统一控制所有样式。终端、编辑器等 canvas 表面从 CSS 变量读取后用 `normalizeColorToHex()` 转换。
 - Pi Agent 在本地 Electron 主进程或 omo Server 进程内运行，不使用 RPC 子进程。
 - Server 的 Project、Agent、文件、Git 和终端路径必须位于 `OMO_WORKSPACE_ROOTS` 内。
 - 组件颜色使用语义化 CSS 变量。

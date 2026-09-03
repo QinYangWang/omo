@@ -17,6 +17,13 @@ Base UI 约定：
 - Select 使用 items-first 和对象值模式。
 - Trigger、Label 等部件可以接收 `render={<element />}` 替换默认元素。
 
+## 组件与主题规范
+
+- 所有 UI 必须使用 `src/components/ui` 中的 shadcn 组件（`Button`、`Input`、`Textarea`、`Select` 等），不要引入裸的 `<button>`/`<input>`/`<textarea>`/`<select>`。自定义布局（列表项、图标按钮、导航项）用 `Button variant="ghost"` + `className` 覆盖实现。例外仅限无语义化替代的原生控件（颜色选择器 `type="color"`、滑块 `type="range"`）和纯视觉指示器（如会话大纲刻度）。
+- 颜色一律使用语义化 CSS 变量（`foreground`、`muted-foreground`、`accent`、`destructive`、`success`、`warning`、`info`、`sidebar-*` 等），禁止硬编码调色板类（`text-red-400`、`bg-emerald-500`）或十六进制色值，保证 Appearance 的主题编辑器（`src/lib/theme.tsx` + `src/lib/theme-tokens.ts`）能统一控制所有样式。
+- 新增可定制 token 时同步加入 `themeTokenGroups`。
+- 终端等 canvas 表面不支持 CSS 变量，从 `getComputedStyle` 读取后用 `normalizeColorToHex()` 转换。
+
 ## 应用壳
 
 `src/App.tsx` 使用三列布局：
