@@ -208,11 +208,37 @@ Git 命令输出缓冲上限为 8MB。
 
 ### `GET /quotas?force=true|false`
 
-返回 `@latentminds/pi-quotas` 的 Provider 配额结果。
+返回 omo 内置实现（`server/quotas.cjs`）的 Provider 配额结果，覆盖 Anthropic、OpenAI Codex、GitHub Copilot、OpenRouter、Synthetic、xAI、Z.ai、OpenCode Go、Kimi Code、Ollama Cloud 10 个 Provider，带按 Provider 的 TTL 缓存。
 
 ### `GET /usage`
 
 扫描 Pi Session JSONL，返回总 input、output、cacheRead、cacheWrite、cost，以及按 provider/model 汇总的数据。
+
+## Skills 与 Packages
+
+### `GET /skills`
+
+经 Pi SDK `loadSkillsFromDir` 列出 `~/.pi/agent/skills` 下的技能（名称、描述、文件路径）。
+
+### `GET /packages`
+
+读取 `~/.pi/agent/settings.json` 的 `packages` 列表；npm 来源会附带 `~/.pi/agent/npm/node_modules` 中的实际安装版本。
+
+### `POST /packages/install`
+
+请求体 `{ "source": "npm:@scope/pkg@1.0.0" }`。仅支持 npm 来源：在 `~/.pi/agent/npm` 执行 `npm install`，然后把 source 写入 settings.json。
+
+### `POST /packages/remove`
+
+请求体 `{ "source": "..." }`。从 settings.json 的 `packages` 中移除。
+
+### `GET /models`
+
+返回可用模型列表，每项附 `enabled`。启用状态来自 settings.json 的 `enabledModels`（支持 `provider/modelId` 或裸 `modelId` 的 glob 模式；缺省为全部启用）。
+
+### `POST /models`
+
+请求体 `{ "enabled": ["provider/modelId", ...] }`。将启用模型写入 settings.json 的 `enabledModels`；全部启用时删除该键恢复默认。聊天页的模型选择器只显示启用的模型。
 
 ## Runtime cwd
 

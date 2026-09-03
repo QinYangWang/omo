@@ -1,4 +1,18 @@
-import { ArrowLeft, Package } from "lucide-react";
+import {
+  ArrowLeft,
+  ChartColumn,
+  Copy,
+  Cpu,
+  KeyRound,
+  Package,
+  Palette,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Server,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   formatReset,
@@ -6,8 +20,21 @@ import {
   quotaColor,
   useQuotas,
 } from "@/components/ProvidersSection";
+import {
+  ServerTabs,
+  useSelectedServer,
+} from "@/components/ServerTabs";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Progress,
@@ -15,7 +42,6 @@ import {
   ProgressTrack,
 } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -24,20 +50,41 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { mockSkills } from "@/lib/data";
 import { type I18nKey, type Lang, useI18n } from "@/lib/i18n";
-import { omo } from "@/lib/omo";
-import { getRemoteConfig, saveRemoteConfig } from "@/lib/remote-api";
-import { type Theme, useTheme } from "@/lib/theme";
+import {
+  addRemoteServer,
+  getServerApi,
+  type OmoServer,
+  removeRemoteServer,
+  type ServerStatus,
+  testServerConnection,
+  updateRemoteServer,
+  useServers,
+  useServerStatuses,
+} from "@/lib/servers";
+import {
+  type OverrideMode,
+  exportThemeCss,
+  type Theme,
+  useTheme,
+} from "@/lib/theme";
+import {
+  looksLikeColor,
+  normalizeColorToHex,
+  parseNumericValue,
+  type SliderMeta,
+  themeTokenGroups,
+} from "@/lib/theme-tokens";
 import { cn } from "@/lib/utils";
 
 const sections = [
-  ["section_general", "General"],
-  ["section_appearance", "Appearance"],
-  ["section_providers", "Providers"],
-  ["section_skills", "Skills"],
-  ["section_usage", "Usage"],
-  ["section_packages", "Packages"],
+  ["section_appearance", "Appearance", Palette],
+  ["section_servers", "Servers", Server],
+  ["section_providers", "Providers", KeyRound],
+  ["section_models", "Models", Cpu],
+  ["section_skills", "Skills", Sparkles],
+  ["section_usage", "Usage", ChartColumn],
+  ["section_packages", "Packages", Package],
 ] as const;
 type Section = (typeof sections)[number][1];
 const themeLabels: Record<Theme, I18nKey> = {
@@ -45,7 +92,6 @@ const themeLabels: Record<Theme, I18nKey> = {
   light: "theme_light",
   system: "theme_system",
 };
-const trailingSlash = /\/$/;
 
 export function SettingsView({
   onBack,
@@ -55,7 +101,7 @@ export function SettingsView({
   sidebarOpen?: boolean;
 }) {
   const { t } = useI18n();
-  const [section, setSection] = useState<Section>("Providers");
+  const [section, setSection] = useState<Section>("Servers");
   return (
     <div className="flex h-full bg-background">
       {sidebarOpen ? (
@@ -64,16 +110,17 @@ export function SettingsView({
             <Input placeholder={t("search_settings")} />
           </div>
           <nav className="flex flex-col gap-0.5 px-2">
-            {sections.map(([key, s]) => (
+            {sections.map(([key, s, Icon]) => (
               <button
                 className={cn(
-                  "rounded-md px-3 py-2 text-left text-muted-foreground text-sm hover:bg-accent hover:text-foreground",
+                  "flex items-center gap-2 rounded-md px-3 py-2 text-left text-muted-foreground text-sm hover:bg-accent hover:text-foreground",
                   section === s && "bg-accent text-foreground"
                 )}
                 key={s}
                 onClick={() => setSection(s)}
                 type="button"
               >
+                <Icon className="size-4 shrink-0" />
                 {t(key as I18nKey)}
               </button>
             ))}
@@ -92,12 +139,13 @@ export function SettingsView({
       ) : null}
       {sidebarOpen ? <div className="w-px shrink-0 bg-border" /> : null}
       <ScrollArea className="min-w-0 flex-1">
-        <div className="w-full max-w-5xl px-12 py-8">
+        <div className="mx-auto w-full max-w-3xl px-6 py-8">
+          {section === "Servers" && <ServersSection />}
           {section === "Providers" && <ProvidersSection />}
+          {section === "Models" && <ModelsSection />}
           {section === "Skills" && <SkillsSection />}
           {section === "Usage" && <UsageSection />}
           {section === "Packages" && <PackagesSection />}
-          {section === "General" && <ConnectionSection />}
           {section === "Appearance" && <AppearanceSection />}
         </div>
       </ScrollArea>
@@ -105,96 +153,361 @@ export function SettingsView({
   );
 }
 
-function ConnectionSection() {
-  const current = getRemoteConfig();
-  const [url, setUrl] = useState(current.url);
-  const [token, setToken] = useState(current.token);
-  const [status, setStatus] = useState("");
+export function ServerStatusBadge({ status }: { status?: ServerStatus }) {
+  const { t } = useI18n();
+  const state = status?.state ?? "checking";
+  return (
+    <Badge className="gap-1.5" title={status?.error} variant="secondary">
+      <span
+        className={cn(
+          "size-1.5 rounded-full",
+          state === "online" && "bg-emerald-500",
+          state === "offline" && "bg-red-400",
+          state === "checking" && "animate-pulse bg-amber-400"
+        )}
+      />
+      {state === "online"
+        ? t("server_online")
+        : state === "offline"
+          ? t("server_offline")
+          : t("server_checking")}
+      {state === "online" && typeof status?.latencyMs === "number"
+        ? ` · ${status.latencyMs}ms`
+        : null}
+    </Badge>
+  );
+}
 
-  const save = async (nextUrl: string, nextToken: string) => {
+function serverLabel(server: OmoServer, hosted: boolean) {
+  if (server.kind === "remote") {
+    return server.name;
+  }
+  return hosted ? "server_hosted" : "server_local";
+}
+
+function ServerFormDialog({
+  onOpenChange,
+  open,
+  server,
+}: {
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  server: OmoServer | null;
+}) {
+  const { t } = useI18n();
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setName(server?.name ?? "");
+      setUrl(server?.url ?? "");
+      setToken(server?.token ?? "");
+      setStatus("");
+    }
+  }, [open, server]);
+
+  const test = async () => {
+    setBusy(true);
+    setStatus("…");
     try {
-      await saveRemoteConfig(nextUrl, nextToken);
-      window.location.reload();
+      const { latencyMs } = await testServerConnection(url, token);
+      setStatus(`${t("server_online")} · ${latencyMs}ms`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
     }
   };
 
-  const test = async () => {
-    setStatus("Connecting…");
+  const save = async () => {
+    setBusy(true);
+    setStatus("");
     try {
-      const response = await fetch(
-        `${url.replace(trailingSlash, "")}/api/v1/projects`,
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        }
-      );
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      if (server) {
+        await updateRemoteServer(server.id, { name, token, url });
+      } else {
+        await addRemoteServer({ name, token, url });
       }
-      setStatus("Connected");
+      onOpenChange(false);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <div className="flex max-w-2xl flex-col gap-5">
-      <div>
-        <h2 className="font-medium text-xl">Server</h2>
-        <p className="mt-1 text-muted-foreground text-sm">
-          留空使用 Electron 本地模式；填写地址后 Web 和 Electron 将连接远程 Pi
-          Server。静态 Web 由 omo Server 托管时会自动填入当前 Server URL。
-        </p>
-      </div>
-      <label className="flex flex-col gap-2 text-sm" htmlFor="server-url">
-        Server URL
-        <Input
-          id="server-url"
-          onChange={(event) => setUrl(event.target.value)}
-          placeholder="https://omo.example.com"
-          value={url}
-        />
-      </label>
-      <label className="flex flex-col gap-2 text-sm" htmlFor="server-token">
-        Access token
-        <Input
-          id="server-token"
-          onChange={(event) => setToken(event.target.value)}
-          placeholder="Bearer token"
-          type="password"
-          value={token}
-        />
-      </label>
-      {status ? (
-        <p className="text-muted-foreground text-sm">{status}</p>
-      ) : null}
-      <div className="flex gap-2">
-        <Button disabled={!url} onClick={test} variant="outline">
-          Test connection
-        </Button>
-        <Button onClick={() => save(url, token)}>Save and reconnect</Button>
-        {current.url ? (
-          <Button onClick={() => save("", "")} variant="ghost">
-            Use local
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {server ? t("server_edit") : t("server_add")}
+          </DialogTitle>
+          <DialogDescription>{t("servers_desc")}</DialogDescription>
+        </DialogHeader>
+        <label className="flex flex-col gap-2 text-sm" htmlFor="server-name">
+          {t("server_name")}
+          <Input
+            disabled={server?.kind === "local"}
+            id="server-name"
+            onChange={(event) => setName(event.target.value)}
+            placeholder="omo @ example"
+            value={name}
+          />
+        </label>
+        <label className="flex flex-col gap-2 text-sm" htmlFor="server-url">
+          {t("server_url")}
+          <Input
+            disabled={server?.kind === "local"}
+            id="server-url"
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="https://omo.example.com"
+            value={url}
+          />
+        </label>
+        <label className="flex flex-col gap-2 text-sm" htmlFor="server-token">
+          {t("server_token")}
+          <Input
+            id="server-token"
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="Bearer token"
+            type="password"
+            value={token}
+          />
+        </label>
+        {status ? (
+          <p className="text-muted-foreground text-sm">{status}</p>
+        ) : null}
+        <DialogFooter>
+          <Button disabled={!url || busy} onClick={test} variant="outline">
+            {t("server_test")}
           </Button>
+          <Button disabled={!url || busy} onClick={save}>
+            {t("server_save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ServersSection() {
+  const { t } = useI18n();
+  const servers = useServers();
+  const statuses = useServerStatuses();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<OmoServer | null>(null);
+  const hosted = !!window.__OMO_SERVER_URL__ && !window.omoSecure;
+
+  return (
+    <div className="flex max-w-2xl flex-col gap-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-medium text-xl">{t("section_servers")}</h2>
+          <p className="mt-1 text-muted-foreground text-sm">
+            {t("servers_desc")}
+          </p>
+        </div>
+        <Button
+          className="shrink-0 gap-1.5"
+          onClick={() => {
+            setEditing(null);
+            setDialogOpen(true);
+          }}
+          size="sm"
+        >
+          <Plus className="size-4" /> {t("server_add")}
+        </Button>
+      </div>
+      <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        {servers.map((server) => (
+          <div className="flex min-h-14 items-center gap-3 px-4 py-2" key={server.id}>
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium text-sm">
+                {server.kind === "local"
+                  ? t(serverLabel(server, hosted) as I18nKey)
+                  : server.name}
+              </div>
+              <div className="truncate text-muted-foreground text-xs">
+                {server.kind === "local"
+                  ? server.url || t("server_local_desc")
+                  : server.url}
+              </div>
+            </div>
+            <ServerStatusBadge status={statuses[server.id]} />
+            {server.removable || server.url ? (
+              <div className="flex gap-1">
+                <Button
+                  aria-label={t("server_edit")}
+                  onClick={() => {
+                    setEditing(server);
+                    setDialogOpen(true);
+                  }}
+                  size="icon"
+                  variant="ghost"
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+                {server.removable ? (
+                  <Button
+                    aria-label="Remove server"
+                    onClick={() => removeRemoteServer(server.id)}
+                    size="icon"
+                    variant="ghost"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {servers.every((server) => server.kind === "local") ? (
+          <p className="px-4 py-3 text-muted-foreground text-sm">
+            {t("server_no_remote")}
+          </p>
         ) : null}
       </div>
+      <ServerFormDialog
+        onOpenChange={setDialogOpen}
+        open={dialogOpen}
+        server={editing}
+      />
+    </div>
+  );
+}
+
+function TokenEditor({
+  mode,
+  name,
+  fallback,
+  slider,
+}: {
+  fallback?: string;
+  mode: OverrideMode;
+  name: string;
+  slider?: SliderMeta;
+}) {
+  const { overrides, setOverride } = useTheme();
+  const override = overrides[mode][name];
+  const computed =
+    typeof getComputedStyle !== "undefined"
+      ? getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+      : "";
+  const base = computed || fallback || "";
+  const value = override ?? base;
+  const numeric = slider ? parseNumericValue(value) : null;
+  const color =
+    !slider && looksLikeColor(value) ? normalizeColorToHex(value) : null;
+  const save = (next: string) =>
+    setOverride(name, next === base ? null : next, mode);
+  return (
+    <div className="flex items-center gap-2 py-1.5">
+      <span
+        className="w-40 shrink-0 truncate font-mono text-muted-foreground text-xs"
+        title={name}
+      >
+        {name.replace(/^--/, "")}
+      </span>
+      {color !== null ? (
+        <label
+          className="relative size-7 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border"
+          style={{ background: value }}
+          title={value}
+        >
+          <input
+            aria-label={name}
+            className="absolute inset-0 cursor-pointer opacity-0"
+            onChange={(event) => {
+              const picked = event.target.value;
+              const alpha = color.length === 9 ? color.slice(7) : "";
+              save(`${picked}${alpha}`);
+            }}
+            type="color"
+            value={color.slice(0, 7)}
+          />
+        </label>
+      ) : numeric && slider ? (
+        <input
+          aria-label={name}
+          className="h-7 w-36 shrink-0 accent-primary"
+          max={slider.max}
+          min={slider.min}
+          onChange={(event) => save(`${event.target.value}${numeric.unit}`)}
+          step={slider.step}
+          type="range"
+          value={numeric.num}
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="size-7 shrink-0 rounded-md border border-border/40"
+        />
+      )}
+      <Input
+        className="h-7 flex-1 font-mono text-xs"
+        onChange={(event) => save(event.target.value)}
+        placeholder={base}
+        value={value}
+      />
+      <Button
+        aria-label="Reset token"
+        className={cn("size-7", override === undefined && "invisible")}
+        onClick={() => setOverride(name, null, mode)}
+        size="icon"
+        variant="ghost"
+      >
+        <RotateCcw className="size-3.5" />
+      </Button>
     </div>
   );
 }
 
 function AppearanceSection() {
   const { t, lang, setLang } = useI18n();
-  const { theme, setTheme } = useTheme();
+  const {
+    theme,
+    setTheme,
+    resolvedTheme,
+    overrides,
+    importCss,
+    resetOverrides,
+  } = useTheme();
+  const [editMode, setEditMode] = useState<"dark" | "light">(resolvedTheme);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteCss, setPasteCss] = useState("");
+  const [notice, setNotice] = useState("");
   const row = (label: string, control: React.ReactNode) => (
     <div className="flex items-center justify-between border-border border-b py-3 last:border-0">
       <span className="text-sm">{label}</span>
       {control}
     </div>
   );
+
+  const exportTheme = async () => {
+    await navigator.clipboard.writeText(exportThemeCss(overrides));
+    setNotice(t("theme_copied"));
+  };
+
+  const applyPasted = () => {
+    const count = importCss(pasteCss);
+    setNotice(
+      count > 0
+        ? t("theme_imported", { count: String(count) })
+        : t("theme_import_none")
+    );
+    if (count > 0) {
+      setPasteOpen(false);
+      setPasteCss("");
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <h2 className="font-medium text-xl">{t("section_appearance")}</h2>
       <div>
         {row(
@@ -228,94 +541,457 @@ function AppearanceSection() {
           </div>
         )}
       </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h3 className="font-medium text-sm">{t("theme_custom")}</h3>
+            <p className="mt-1 text-muted-foreground text-xs">
+              {t("theme_custom_desc")}
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-1">
+            <Button onClick={() => setPasteOpen(true)} size="sm" variant="outline">
+              {t("theme_import")}
+            </Button>
+            <Button
+              className="gap-1.5"
+              onClick={exportTheme}
+              size="sm"
+              variant="outline"
+            >
+              <Copy className="size-3.5" /> {t("theme_export")}
+            </Button>
+            <Button
+              aria-label={t("theme_reset")}
+              onClick={() => resetOverrides()}
+              size="sm"
+              variant="ghost"
+            >
+              <RotateCcw className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+        {notice ? (
+          <p className="text-muted-foreground text-xs">{notice}</p>
+        ) : null}
+        <div className="flex gap-1">
+          {(["dark", "light"] as const).map((mode) => (
+            <Button
+              key={mode}
+              onClick={() => setEditMode(mode)}
+              size="sm"
+              variant={editMode === mode ? "secondary" : "ghost"}
+            >
+              {t(themeLabels[mode])}
+              {Object.keys(overrides[mode]).length > 0
+                ? ` · ${Object.keys(overrides[mode]).length}`
+                : ""}
+            </Button>
+          ))}
+        </div>
+        {themeTokenGroups.map((group) => (
+          <div key={group.key}>
+            <h4 className="mb-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+              {t(group.key as I18nKey)}
+            </h4>
+            <div className="divide-y divide-border/50">
+              {group.tokens.map((token) => (
+                <TokenEditor
+                  fallback={token.fallback}
+                  key={token.name}
+                  mode={token.shared ? "shared" : editMode}
+                  name={token.name}
+                  slider={token.slider}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <Dialog onOpenChange={setPasteOpen} open={pasteOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t("theme_import")}</DialogTitle>
+            <DialogDescription>{t("theme_paste_desc")}</DialogDescription>
+          </DialogHeader>
+          <textarea
+            autoFocus
+            className="h-56 w-full resize-none rounded-md border border-border bg-background p-3 font-mono text-xs"
+            onChange={(event) => setPasteCss(event.target.value)}
+            placeholder={":root {\n  --background: oklch(1 0 0);\n  ...\n}\n\n.dark {\n  --background: oklch(0.145 0 0);\n  ...\n}"}
+            value={pasteCss}
+          />
+          <DialogFooter>
+            <Button onClick={() => setPasteOpen(false)} variant="ghost">
+              Cancel
+            </Button>
+            <Button disabled={!pasteCss.trim()} onClick={applyPasted}>
+              {t("theme_import_apply")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function SkillsSection() {
-  const [skills, setSkills] = useState(mockSkills);
-  const [active, setActive] = useState(skills[0]?.id ?? "");
-  const skill = skills.find((s) => s.id === active) ?? skills[0];
-  if (!skill) {
-    return null;
-  }
+  const [serverId, setServerId] = useSelectedServer();
   return (
-    <div className="flex gap-6">
-      <div className="flex w-64 flex-col gap-2">
-        <Input placeholder="Search skills…" />
-        <div className="flex flex-col gap-0.5">
-          {skills.map((s) => (
-            <button
-              className={cn(
-                "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent",
-                active === s.id && "bg-accent"
-              )}
-              key={s.id}
-              onClick={() => setActive(s.id)}
-              type="button"
-            >
-              <Package className="size-4 shrink-0" />
-              <span className="min-w-0">
-                <span className="block truncate font-medium">{s.name}</span>
-                <span className="block truncate text-muted-foreground text-xs">
-                  {s.desc}
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
-        <Button size="sm" variant="outline">
-          + Install
-        </Button>
+    <div className="flex flex-col gap-5">
+      <ServerTabs onChange={setServerId} value={serverId} />
+      <ServerSkills key={serverId} serverId={serverId} />
+    </div>
+  );
+}
+
+function ServerSkills({ serverId }: { serverId: string }) {
+  const { t } = useI18n();
+  const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    getServerApi(serverId)
+      .skills.list()
+      .then(setSkills)
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : String(cause))
+      );
+  }, [serverId]);
+  const visible = skills.filter((skill) =>
+    `${skill.name} ${skill.description}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+  return (
+    <div className="flex max-w-2xl flex-col gap-5">
+      <div>
+        <h2 className="font-medium text-xl">{t("section_skills")}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">
+          {t("skills_desc")}
+        </p>
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="font-semibold">{skill.name}</h3>
-            <p className="text-muted-foreground text-sm">{skill.desc}</p>
+      <Input
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={t("search")}
+        value={query}
+      />
+      {error ? <p className="text-red-400 text-sm">{error}</p> : null}
+      <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        {visible.map((skill) => (
+          <div className="flex min-h-14 items-center gap-3 px-4 py-2" key={skill.filePath}>
+            <Package className="size-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium text-sm">{skill.name}</div>
+              <div className="truncate text-muted-foreground text-xs">
+                {skill.description || skill.filePath}
+              </div>
+            </div>
           </div>
-          <Switch
-            checked={skill.enabled}
-            onCheckedChange={(v) =>
-              setSkills((prev) =>
-                prev.map((x) =>
-                  x.id === skill.id ? { ...x, enabled: v === true } : x
-                )
-              )
-            }
-          />
-        </div>
-        <div className="text-sm">
-          <span className="text-muted-foreground">安装量 </span>
-          {skill.installs}
-        </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline">
-            Open SKILL.md
-          </Button>
-          <Button size="sm" variant="outline">
-            Update
-          </Button>
-          <Button className="ml-auto" size="sm" variant="destructive">
-            Delete
-          </Button>
-        </div>
+        ))}
+        {visible.length === 0 && !error ? (
+          <p className="px-4 py-3 text-muted-foreground text-sm">
+            {t("skills_empty")}
+          </p>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function UsageSection() {
-  const { lang, t } = useI18n();
-  const [usage, setUsage] = useState<Awaited<
-    ReturnType<typeof omo.usage.snapshot>
-  > | null>(null);
+function ModelsSection() {
+  const [serverId, setServerId] = useSelectedServer();
+  return (
+    <div className="flex flex-col gap-5">
+      <ServerTabs onChange={setServerId} value={serverId} />
+      <ServerModels key={serverId} serverId={serverId} />
+    </div>
+  );
+}
+
+function ServerModels({ serverId }: { serverId: string }) {
+  const { t } = useI18n();
+  const [models, setModels] = useState<AgentModelInfo[]>([]);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
-    omo.usage
-      .snapshot()
+    getServerApi(serverId)
+      .models.list()
+      .then(setModels)
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : String(cause))
+      );
+  }, [serverId]);
+
+  const apply = async (next: AgentModelInfo[]) => {
+    setBusy(true);
+    setError("");
+    try {
+      setModels(
+        await getServerApi(serverId).models.setEnabled(
+          next
+            .filter((model) => model.enabled)
+            .map((model) => `${model.provider}/${model.id}`)
+        )
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = (target: AgentModelInfo) =>
+    apply(
+      models.map((model) =>
+        model === target ? { ...model, enabled: !model.enabled } : model
+      )
+    );
+  const setAll = (enabled: boolean) =>
+    apply(models.map((model) => ({ ...model, enabled })));
+
+  const visible = models.filter((model) =>
+    `${model.provider} ${model.name} ${model.id}`
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+  const enabledCount = models.filter((model) => model.enabled).length;
+  return (
+    <div className="flex flex-col gap-5">
+      <div>
+        <h2 className="font-medium text-xl">{t("section_models")}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">
+          {t("models_desc")}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Input
+          className="flex-1"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("search")}
+          value={query}
+        />
+        <Button
+          disabled={busy}
+          onClick={() => setAll(true)}
+          size="sm"
+          variant="ghost"
+        >
+          {t("models_enable_all")}
+        </Button>
+        <Button
+          disabled={busy}
+          onClick={() => setAll(false)}
+          size="sm"
+          variant="ghost"
+        >
+          {t("models_disable_all")}
+        </Button>
+      </div>
+      <p className="text-muted-foreground text-xs">
+        {t("models_enabled_count", {
+          enabled: String(enabledCount),
+          total: String(models.length),
+        })}
+      </p>
+      {error ? <p className="text-red-400 text-sm">{error}</p> : null}
+      <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        {visible.map((model) => (
+          <div
+            className="flex min-h-12 items-center gap-3 px-4 py-2"
+            key={`${model.provider}/${model.id}`}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium text-sm">{model.name}</div>
+              <div className="truncate text-muted-foreground text-xs">
+                {model.provider}/{model.id}
+              </div>
+            </div>
+            <Switch
+              checked={model.enabled}
+              disabled={busy}
+              onCheckedChange={() => toggle(model)}
+            />
+          </div>
+        ))}
+        {visible.length === 0 ? (
+          <p className="px-4 py-3 text-muted-foreground text-sm">
+            {t("models_empty")}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PackagesSection() {
+  const [serverId, setServerId] = useSelectedServer();
+  return (
+    <div className="flex flex-col gap-5">
+      <ServerTabs onChange={setServerId} value={serverId} />
+      <ServerPackages key={serverId} serverId={serverId} />
+    </div>
+  );
+}
+
+function ServerPackages({ serverId }: { serverId: string }) {
+  const { t } = useI18n();
+  const [packages, setPackages] = useState<AgentPackageInfo[]>([]);
+  const [error, setError] = useState("");
+  const [installOpen, setInstallOpen] = useState(false);
+  const [source, setSource] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getServerApi(serverId)
+      .packages.list()
+      .then(setPackages)
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : String(cause))
+      );
+  }, [serverId]);
+
+  const run = async (action: () => Promise<AgentPackageInfo[]>) => {
+    setBusy(true);
+    setError("");
+    try {
+      setPackages(await action());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex max-w-2xl flex-col gap-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-medium text-xl">{t("section_packages")}</h2>
+          <p className="mt-1 text-muted-foreground text-sm">
+            {t("packages_desc")}
+          </p>
+        </div>
+        <Button
+          className="shrink-0 gap-1.5"
+          onClick={() => setInstallOpen(true)}
+          size="sm"
+        >
+          <Plus className="size-4" /> {t("package_install")}
+        </Button>
+      </div>
+      {error ? <p className="text-red-400 text-sm">{error}</p> : null}
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("server_name")}</TableHead>
+              <TableHead>{t("package_version")}</TableHead>
+              <TableHead>{t("package_source")}</TableHead>
+              <TableHead className="text-right" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {packages.map((pkg) => (
+              <TableRow key={pkg.source}>
+                <TableCell className="font-medium">{pkg.name}</TableCell>
+                <TableCell>
+                  {pkg.installedVersion ?? pkg.version ?? "—"}
+                </TableCell>
+                <TableCell>{pkg.kind}</TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    aria-label="Remove package"
+                    disabled={busy}
+                    onClick={() =>
+                      run(() => getServerApi(serverId).packages.remove(pkg.source))
+                    }
+                    size="icon"
+                    variant="ghost"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {packages.length === 0 ? (
+          <p className="px-4 py-3 text-muted-foreground text-sm">
+            {t("packages_empty")}
+          </p>
+        ) : null}
+      </div>
+      <Dialog onOpenChange={setInstallOpen} open={installOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("package_install")}</DialogTitle>
+            <DialogDescription>{t("package_install_desc")}</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            onChange={(event) => setSource(event.target.value)}
+            onKeyDown={(event) =>
+              event.key === "Enter" &&
+              source &&
+              run(async () => {
+                const next = await getServerApi(serverId).packages.install(source.trim());
+                setInstallOpen(false);
+                setSource("");
+                return next;
+              })
+            }
+            placeholder="npm:@scope/pkg@1.0.0"
+            value={source}
+          />
+          <DialogFooter>
+            <Button
+              disabled={!source.trim() || busy}
+              onClick={() =>
+                run(async () => {
+                  const next = await getServerApi(serverId).packages.install(source.trim());
+                  setInstallOpen(false);
+                  setSource("");
+                  return next;
+                })
+              }
+            >
+              {t("package_install")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+type UsageSnapshot = Awaited<
+  ReturnType<omoApi["usage"]["snapshot"]>
+>;
+
+function ServerUsageCard({
+  server,
+  status,
+}: {
+  server: OmoServer;
+  status?: ServerStatus;
+}) {
+  const { lang, t } = useI18n();
+  const [usage, setUsage] = useState<UsageSnapshot | null>(null);
+  const { quotas: quotaItems, refresh: refreshQuotas } = useQuotas(server.id);
+  const offline = status?.state === "offline";
+  useEffect(() => {
+    if (offline) {
+      setUsage(null);
+      return;
+    }
+    getServerApi(server.id)
+      .usage.snapshot()
       .then(setUsage)
       .catch((error) => console.error("Usage unavailable", error));
-  }, []);
+  }, [server.id, offline]);
   const totals = usage?.totals ?? {
     cacheRead: 0,
     cacheWrite: 0,
@@ -335,13 +1011,25 @@ function UsageSection() {
     [t("usage_cache_savings"), `$${totals.cost.toFixed(2)}`],
   ];
   const providers = usage?.providers ?? [];
-  const { quotas: quotaItems, refresh: refreshQuotas } = useQuotas();
+  const hosted = !!window.__OMO_SERVER_URL__ && !window.omoSecure;
+  const label =
+    server.kind === "local"
+      ? t(serverLabel(server, hosted) as I18nKey)
+      : server.name;
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-lg">{t("section_usage")}</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="font-semibold text-lg">{label}</h2>
+          <ServerStatusBadge status={status} />
+        </div>
         <Badge variant="secondary">{t("usage_period")}</Badge>
       </div>
+      {offline ? (
+        <div className="text-muted-foreground text-sm">
+          {status?.error || t("server_offline")}
+        </div>
+      ) : null}
       <div>
         <div className="text-muted-foreground text-xs">
           {t("usage_raw_token_cost")}
@@ -432,38 +1120,18 @@ function UsageSection() {
   );
 }
 
-function PackagesSection() {
+function UsageSection() {
+  const servers = useServers();
+  const statuses = useServerStatuses();
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-lg">Packages</h2>
-        <Button size="sm">+ Install</Button>
-      </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>名称</TableHead>
-            <TableHead>版本</TableHead>
-            <TableHead>来源</TableHead>
-            <TableHead className="text-right">操作</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow>
-            <TableCell>@latentminds/pi-quotas</TableCell>
-            <TableCell>latest</TableCell>
-            <TableCell>npm</TableCell>
-            <TableCell className="text-right">
-              <Button size="sm" variant="ghost">
-                更新
-              </Button>
-              <Button size="sm" variant="ghost">
-                删除
-              </Button>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
+    <div className="flex flex-col gap-10">
+      {servers.map((server) => (
+        <div key={server.id}>
+          <ServerUsageCard server={server} status={statuses[server.id]} />
+        </div>
+      ))}
     </div>
   );
 }
+
+

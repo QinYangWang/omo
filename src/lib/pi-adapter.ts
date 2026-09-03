@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@/lib/conversation-turns";
+import { randomUUID } from "@/lib/utils";
 
 interface PiAssistantEvent {
   delta?: string;
@@ -118,7 +119,7 @@ function applyAssistantEvent(
     case "thinking_start":
       next.push({
         content: "",
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         status: "running",
         type: "reasoning",
       });
@@ -143,7 +144,7 @@ function applyAssistantEvent(
     case "text_start":
       next.push({
         content: "",
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         timestamp: Date.now(),
         type: "markdown",
       });
@@ -209,7 +210,7 @@ export function adaptPiEvent(
       {
         content:
           typeof event.message === "string" ? event.message : String(event),
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         type: "error",
       },
     ];

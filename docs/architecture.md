@@ -36,13 +36,14 @@ src/App.tsx                 应用壳与面板布局
 import { omo } from "@/lib/omo"
 ```
 
-`src/lib/omo.ts` 根据远程配置动态选择后端：
+`src/lib/omo.ts` 的 `omo` 代理指向默认服务器（本机优先，否则第一个远程）。`src/lib/servers.ts` 管理服务器列表并为每个服务器缓存独立的 `omoApi` 实例：
 
-- 已配置 Server URL：创建并缓存 Remote API。
-- 未配置 Server URL 且存在 `window.omo`：使用 Electron IPC。
-- 没有 Electron preload 且未配置远程 URL：安装 `src/lib/web-preview.ts` 的预览 API。
+- Electron 本机：使用 `window.omo` IPC。
+- Server 托管 Web 本机：同源 Remote API（Token 存于 localStorage）。
+- 远程服务器：`src/lib/remote-api.ts` 按 URL + Token 创建。
+- 没有任何可用服务器（localhost 开发）：安装 `src/lib/web-preview.ts` 的预览 API。
 
-组件不直接调用 `window.omo`，避免将 Electron IPC 绑定到业务 UI。
+Project 带有 `serverId`，组件按项目所属服务器路由 Pi、文件、Git、会话和终端调用（详见 docs/client-modes.md）。组件不直接调用 `window.omo`，避免将 Electron IPC 绑定到业务 UI。
 
 ## 本地数据流
 

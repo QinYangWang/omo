@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/lib/i18n";
-import { omo } from "@/lib/omo";
+import { getServerApi } from "@/lib/servers";
 import "@xterm/xterm/css/xterm.css";
 
 export type Surface = "browser" | "terminal" | "files" | "review";
@@ -76,12 +76,15 @@ const surfaceDefs = () => {
 export function RightPanel({
   surface,
   onSelect,
+  serverId,
 }: {
   surface: Surface | null;
   onSelect: (s: Surface) => void;
+  serverId?: string;
   full?: boolean;
 }) {
   const { t } = useI18n();
+  const api = getServerApi(serverId);
   const surfaces = surfaceDefs();
   if (!surface) {
     return (
@@ -129,13 +132,13 @@ export function RightPanel({
           <BrowserSurface />
         </TabsContent>
         <TabsContent className="min-h-0 flex-1 p-2" value="terminal">
-          <TerminalSurface />
+          <TerminalSurface api={api} key={serverId} />
         </TabsContent>
         <TabsContent className="min-h-0 flex-1" value="files">
-          <FilesSurface />
+          <FilesSurface api={api} key={serverId} />
         </TabsContent>
         <TabsContent className="min-h-0 flex-1" value="review">
-          <ReviewSurface />
+          <ReviewSurface api={api} key={serverId} />
         </TabsContent>
       </Tabs>
     </div>
@@ -166,7 +169,7 @@ function BrowserSurface() {
   );
 }
 
-function TerminalSurface() {
+function TerminalSurface({ api }: { api: omoApi }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const dark = document.documentElement.classList.contains("dark");
@@ -185,9 +188,9 @@ function TerminalSurface() {
     }
     term.open(element);
     fit.fit();
-    omo.term.create();
-    const off = omo.term.onData((d) => term.write(d));
-    term.onData((d) => omo.term.input(d));
+    api.term.create();
+    const off = api.term.onData((d) => term.write(d));
+    term.onData((d) => api.term.input(d));
     const ro = new ResizeObserver(() => fit.fit());
     ro.observe(element);
     return () => {
@@ -195,7 +198,7 @@ function TerminalSurface() {
       ro.disconnect();
       term.dispose();
     };
-  }, []);
+  }, [api]);
   return (
     <div
       className="h-full overflow-hidden rounded-md bg-background"
@@ -223,7 +226,7 @@ function FileNodeToggle({ node }: { node: FNode }) {
   );
 }
 
-function FilesSurface() {
+function FilesSurface({ api }: { api: omoApi }) {
   const [root, setRoot] = useState<FNode[]>([]);
   const [rootPath, setRootPath] = useState("");
   const [file, setFile] = useState<{ path: string; content: string } | null>(
@@ -231,21 +234,21 @@ function FilesSurface() {
   );
 
   useEffect(() => {
-    omo.cwd().then(async (cwd) => {
+    api.cwd().then(async (cwd) => {
       setRootPath(cwd);
-      const entries = await omo.fs.list(cwd);
+      const entries = await api.fs.list(cwd);
       setRoot(entries.map((e) => ({ ...e, path: `${cwd}/${e.name}` })));
     });
-  }, []);
+  }, [api]);
 
   const toggle = async (node: FNode) => {
     if (!node.dir) {
-      const r = await omo.fs.read(node.path);
+      const r = await api.fs.read(node.path);
       setFile({ content: r.content ?? r.error ?? "", path: node.path });
       return;
     }
     if (!node.children) {
-      const entries = await omo.fs.list(node.path);
+      const entries = await api.fs.list(node.path);
       node.children = entries.map((e) => ({
         ...e,
         path: `${node.path}/${e.name}`,
@@ -308,16 +311,16 @@ function FilesSurface() {
   );
 }
 
-function ReviewSurface() {
+function ReviewSurface({ api }: { api: omoApi }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<{ file: string; xy: string }[]>([]);
   const [diff, setDiff] = useState<{ file: string; text: string } | null>(null);
   const [cwd, setCwd] = useState("");
 
   useEffect(() => {
-    omo.cwd().then(async (c) => {
+    api.cwd().then(async (c) => {
       setCwd(c);
-      const out = await omo.git.status(c);
+      const out = await api.git.status(c);
       setStatus(
         out
           .split("\n")
@@ -325,7 +328,7 @@ function ReviewSurface() {
           .map((l) => ({ file: l.slice(3), xy: l.slice(0, 2) }))
       );
     });
-  }, []);
+  }, [api]);
 
   return (
     <div className="flex h-full flex-col">
@@ -344,7 +347,7 @@ function ReviewSurface() {
                 onClick={async () =>
                   setDiff({
                     file: s.file,
-                    text: await omo.git.diff(cwd, s.file),
+                    text: await api.git.diff(cwd, s.file),
                   })
                 }
                 type="button"

@@ -1,3 +1,5 @@
+import { randomUUID } from "@/lib/utils";
+
 const trailingSlash = /\/$/;
 const httpScheme = /^http:/;
 const httpsScheme = /^https:/;
@@ -84,75 +86,8 @@ async function readEventStream(
   }
 }
 
-declare global {
-  interface Window {
-    __OMO_SERVER_URL__?: string;
-  }
-}
-
-function normalizeBaseUrl(value: string) {
+export function normalizeBaseUrl(value: string) {
   return value.trim().replace(trailingSlash, "");
-}
-
-let secureRemoteConfig: { url: string; token: string } | undefined;
-
-export async function initializeRemoteConfig() {
-  if (!window.omoSecure) {
-    return;
-  }
-  const legacy = {
-    token: localStorage.getItem("omo:server-token") || "",
-    url: normalizeBaseUrl(localStorage.getItem("omo:server-url") || ""),
-  };
-  try {
-    const stored = await window.omoSecure.loadRemoteConfig();
-    secureRemoteConfig = stored.url ? stored : legacy;
-    if (!stored.url && legacy.url) {
-      await window.omoSecure.saveRemoteConfig(legacy.url, legacy.token);
-    }
-    localStorage.removeItem("omo:server-url");
-    localStorage.removeItem("omo:server-token");
-  } catch (error) {
-    secureRemoteConfig = legacy;
-    console.error("Unable to initialize secure remote configuration", error);
-  }
-}
-
-export function getRemoteConfig() {
-  if (secureRemoteConfig) {
-    return secureRemoteConfig;
-  }
-  return {
-    token: localStorage.getItem("omo:server-token") || "",
-    url: normalizeBaseUrl(
-      localStorage.getItem("omo:server-url") || window.__OMO_SERVER_URL__ || ""
-    ),
-  };
-}
-
-export async function saveRemoteConfig(url: string, token: string) {
-  const config = { token, url: normalizeBaseUrl(url) };
-  if (window.omoSecure) {
-    if (config.url) {
-      await window.omoSecure.saveRemoteConfig(config.url, config.token);
-    } else {
-      await window.omoSecure.clearRemoteConfig();
-    }
-    secureRemoteConfig = config;
-    localStorage.removeItem("omo:server-url");
-    localStorage.removeItem("omo:server-token");
-    return;
-  }
-  if (config.url) {
-    localStorage.setItem("omo:server-url", config.url);
-  } else {
-    localStorage.removeItem("omo:server-url");
-  }
-  if (config.token) {
-    localStorage.setItem("omo:server-token", config.token);
-  } else {
-    localStorage.removeItem("omo:server-token");
-  }
 }
 
 export function createRemoteApi(baseUrl: string, token: string): omoApi {
@@ -385,7 +320,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
           cwd,
           images,
           message,
-          requestId: crypto.randomUUID(),
+          requestId: randomUUID(),
           sessionId,
           sessionPath,
         });
@@ -454,6 +389,16 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
       },
     },
     usage: { snapshot: () => request("/usage") },
+    skills: { list: () => request("/skills") },
+    models: {
+      list: () => request("/models"),
+      setEnabled: (enabled) => post("/models", { enabled }),
+    },
+    packages: {
+      install: (source) => post("/packages/install", { source }),
+      list: () => request("/packages"),
+      remove: (source) => post("/packages/remove", { source }),
+    },
     windowControls: { setTitleBarOverlay: () => undefined },
   };
 }

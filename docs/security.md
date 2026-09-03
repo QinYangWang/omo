@@ -9,6 +9,8 @@
 - `/api/v1/health`
 - 静态 Web 文件
 
+Server 托管的 Web 也需要 Token：首次打开进入引导页登录，Token 存于浏览器 localStorage 后免登。不依赖 `Sec-Fetch-Site` 等浏览器头（Safari 不发送 Fetch Metadata 头，不可靠）。
+
 `OMO_TOKEN` 为空时 API 认证关闭，Server 启动日志会输出警告。
 
 ## Workspace 限制
@@ -63,14 +65,14 @@ Ticket 属性：
 
 ## Electron 凭据
 
-Electron 将远程 Token 交给主进程的 `safeStorage`：
+Electron 将所有远程服务器的 Token 交给主进程的 `safeStorage`：
 
 ```text
 Renderer → preload IPC → safeStorage.encryptString → remote-server.json
 ```
 
-渲染层不能直接读取加密文件。操作系统加密服务不可用时，不写入明文 Token。
+`remote-server.json` 保存服务器列表 `{ servers: [{ id, name, url, encryptedToken }] }`；旧版单服务器格式在读取时自动迁移。渲染层不能直接读取加密文件。操作系统加密服务不可用时，不写入明文 Token。
 
 ## Web 凭据
 
-静态 Web 将 Token 保存于当前 Origin 的 localStorage。跨域访问由 `OMO_CORS_ORIGINS` 控制。Server 对允许的 Origin返回对应的 `Access-Control-Allow-Origin`，并允许 Authorization、Content-Type 和 Last-Event-ID 请求头。
+静态 Web 将远程服务器列表（含 Token）保存于当前 Origin 的 localStorage（`omo:servers`）；Server 托管的 Web 登录当前服务器的 Token 也以保留 id `local` 存于同一列表。跨域访问由 `OMO_CORS_ORIGINS` 控制。Server 对允许的 Origin返回对应的 `Access-Control-Allow-Origin`，并允许 Authorization、Content-Type 和 Last-Event-ID 请求头。

@@ -29,7 +29,7 @@ Electron 本地模式收到 OAuth URL 时通过系统浏览器打开。Server �
 
 ## 配额
 
-`server/quotas.cjs` 和 Electron 本地模式都使用 `@latentminds/pi-quotas`。包内 TS 源码通过 `tsx/esm/api` 注册后动态导入。
+`server/quotas.cjs` 是 omo 内置的配额实现（Server 与 Electron 共用，不再依赖 `@latentminds/pi-quotas` 与 tsx），解析器参考了 pi-quotas 与 omo-run 的 omo-usage 扩展。
 
 配额调用使用自定义 AuthStorage：
 
@@ -38,7 +38,7 @@ Electron 本地模式收到 OAuth URL 时通过系统浏览器打开。Server �
 3. 其他 Provider 查询 `ModelRuntime.getAuth()`。
 4. 支持从 `Authorization: Bearer ...` Header 提取 Key。
 
-结果包含 Pi quotas 支持的 10 个订阅 Provider。`force=true` 绕过包内缓存，否则沿用包内 TTL。
+结果覆盖 10 个订阅 Provider。`force=true` 绕过内置 TTL 缓存。
 
 ## 用量
 

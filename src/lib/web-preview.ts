@@ -1,5 +1,5 @@
 const previewProjects: Project[] = [
-  { cwd: "/workspace/omo", id: "preview", name: "omo" },
+  { cwd: "/workspace/omo", id: "preview", name: "omo", serverId: "local" },
 ];
 
 const previewSessions: PiSession[] = [
@@ -140,5 +140,43 @@ export function installWebPreviewApi() {
       }),
     },
     windowControls: { setTitleBarOverlay: () => undefined },
+    skills: {
+      list: async () => [
+        {
+          description: "Review the current changes against the code standards",
+          filePath: "/workspace/omo/.agents/skills/review/SKILL.md",
+          name: "review",
+        },
+      ],
+    },
+    models: {
+      list: async () => [
+        {
+          enabled: true,
+          id: "claude-sonnet-4",
+          name: "Claude Sonnet 4",
+          provider: "anthropic",
+        },
+        {
+          enabled: false,
+          id: "gpt-5.5",
+          name: "GPT-5.5",
+          provider: "openai-codex",
+        },
+      ],
+      setEnabled: async () => [],
+    },
+    packages: {
+      install: async () => [],
+      list: async () => [
+        {
+          kind: "npm",
+          name: "@example/pi-tools",
+          source: "npm:@example/pi-tools",
+          version: "1.2.0",
+        },
+      ],
+      remove: async () => [],
+    },
   };
 }

@@ -39,7 +39,8 @@ import {
   windowFromMessages,
 } from "@/lib/conversation-turns";
 import { useI18n } from "@/lib/i18n";
-import { omo } from "@/lib/omo";
+import { getServerApi } from "@/lib/servers";
+import { randomUUID } from "@/lib/utils";
 import {
   adaptPiEvent,
   adaptPiMessages,
@@ -51,6 +52,8 @@ interface ActiveSession {
   key: string;
   path?: string;
   project: string;
+  projectId: string;
+  serverId: string;
   title: string;
 }
 interface ImageAttachment extends ImageContent {
@@ -158,7 +161,7 @@ function applyCompletion(
           ...current,
           {
             display: itemPath,
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             image: !!fileMimeType(item.label),
             name: item.label,
             path,
@@ -257,7 +260,7 @@ async function createImageAttachment(file: File): Promise<ImageAttachment> {
   const source = await resizeImageIfNeeded(file);
   return {
     data: await readBlobAsBase64(source),
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     mimeType: source.type || file.type || "image/png",
     name: file.name || "clipboard-image",
     type: "image",
@@ -265,6 +268,7 @@ async function createImageAttachment(file: File): Promise<ImageAttachment> {
 }
 
 async function preparePrompt(
+  api: omoApi,
   value: string,
   images: ImageAttachment[],
   files: FileAttachment[]
@@ -276,7 +280,7 @@ async function preparePrompt(
   const results = await Promise.all(
     files.map(async (file) => ({
       file,
-      result: await omo.fs.read(file.path, file.image),
+      result: await api.fs.read(file.path, file.image),
     }))
   );
   for (const { file, result } of results) {
@@ -584,16 +588,17 @@ export function ChatView({
   session,
   projects,
   onSelectProject,
-  onAddProject,
+  onRequestAddProject,
   onClearProject,
 }: {
   session: ActiveSession | null;
   projects: Project[];
   onSelectProject: (project: Project) => void;
-  onAddProject: (path?: string) => Promise<Project | null | undefined>;
+  onRequestAddProject: () => void;
   onClearProject: () => void;
 }) {
   const { t } = useI18n();
+  const api = getServerApi(session?.serverId);
   const key = session?.key ?? "draft";
   const sessionCwd = session?.cwd;
   const sessionPath = session?.path;
@@ -650,7 +655,7 @@ export function ChatView({
     if (!(session && current.hasOlder)) {
       return;
     }
-    const result = await omo.pi.history(keyRef.current, current.startCursor);
+    const result = await api.pi.history(keyRef.current, current.startCursor);
     setWindow(
       prependWindow(
         current,
@@ -693,6 +698,7 @@ export function ChatView({
 
   useEffect(() => {
     loadSession(
+      api,
       key,
       sessionCwd,
       sessionPath,
@@ -702,27 +708,31 @@ export function ChatView({
       setModel,
       setThinking
     );
-  }, [key, sessionCwd, sessionPath, setWindow]);
+  }, [api, key, sessionCwd, sessionPath, setWindow]);
 
   useEffect(() => {
-    omo.pi.models().then((available) => {
-      setModels(available);
-      const preferred =
-        available.find((item) => lunaPattern.test(item.name)) ?? available[0];
-      if (preferred) {
-        setModel(
-          (current) => current || `${preferred.provider}/${preferred.id}`
-        );
-      }
-    });
-  }, []);
+    api.models
+      .list()
+      .then((available) => {
+        const enabled = available.filter((item) => item.enabled);
+        setModels(enabled);
+        const preferred =
+          enabled.find((item) => lunaPattern.test(item.name)) ?? enabled[0];
+        if (preferred) {
+          setModel(
+            (current) => current || `${preferred.provider}/${preferred.id}`
+          );
+        }
+      })
+      .catch(() => undefined);
+  }, [api]);
 
   useEffect(() => {
     if (!sessionCwd) {
       return setBranches([]);
     }
-    omo.git.branches(sessionCwd).then(setBranches);
-  }, [sessionCwd]);
+    api.git.branches(sessionCwd).then(setBranches);
+  }, [api, sessionCwd]);
 
   useEffect(() => {
     let active = true;
@@ -730,7 +740,7 @@ export function ChatView({
     if (!sessionCwd) {
       return;
     }
-    omo.pi
+    api.pi
       .commands(key, sessionCwd, sessionPath)
       .then((available) => {
         if (active) {
@@ -741,9 +751,10 @@ export function ChatView({
     return () => {
       active = false;
     };
-  }, [key, sessionCwd, sessionPath]);
+  }, [api, key, sessionCwd, sessionPath]);
 
   const { fileEntries, fileLoading, fileQuery } = useFileCompletion(
+    api,
     sessionCwd,
     completion
   );
@@ -778,14 +789,14 @@ export function ChatView({
   );
 
   useEffect(() => {
-    const unsubscribe = omo.pi.onEvent(({ sessionId: sid, event }) => {
+    const unsubscribe = api.pi.onEvent(({ sessionId: sid, event }) => {
       if (sid !== keyRef.current) {
         return;
       }
       handlePiEvent(event, keyRef.current, setStreaming, setWindow);
     });
     return unsubscribe;
-  }, [setWindow]);
+  }, [api, setWindow]);
 
   const replaceCompletion = (
     replacement: string,
@@ -866,7 +877,7 @@ export function ChatView({
     setInputError("");
     let prepared: { text: string; images: ImageContent[] };
     try {
-      prepared = await preparePrompt(value, images, activeFiles);
+      prepared = await preparePrompt(api, value, images, activeFiles);
     } catch (error) {
       setInputError(error instanceof Error ? error.message : String(error));
       return;
@@ -874,7 +885,7 @@ export function ChatView({
     const current = windows.get(key) ?? turnWindow;
     const next = appendMessages(current, [
       {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         images: prepared.images.length ? prepared.images : undefined,
         role: "user",
         text: value,
@@ -894,7 +905,7 @@ export function ChatView({
         type,
       }));
       try {
-        await omo.pi.prompt(
+        await api.pi.prompt(
           key,
           prepared.text,
           session.cwd,
@@ -923,12 +934,12 @@ export function ChatView({
       models={models}
       onAbort={async () => {
         try {
-          await omo.pi.abort(key);
+          await api.pi.abort(key);
         } finally {
           setStreaming(false);
         }
       }}
-      onAddProject={onAddProject}
+      onAddProject={onRequestAddProject}
       onChangeMode={(value) => setMode(value as "local" | "worktree")}
       onChangeModel={(value) => {
         setModel(value);
@@ -936,13 +947,13 @@ export function ChatView({
           (item) => `${item.provider}/${item.id}` === value
         );
         if (session && selected) {
-          omo.pi.setModel(key, selected.provider, selected.id);
+          api.pi.setModel(key, selected.provider, selected.id);
         }
       }}
       onChangeThinking={(value) => {
         setThinking(value);
         if (session) {
-          omo.pi.setThinking(key, value);
+          api.pi.setThinking(key, value);
         }
       }}
       onClearProject={onClearProject}
@@ -1041,7 +1052,7 @@ interface PromptInputProps {
   model: string;
   models: { id: string; name: string; provider: string }[];
   onAbort: () => Promise<void>;
-  onAddProject: (path?: string) => Promise<Project | null | undefined>;
+  onAddProject: () => void;
   onChangeMode: (value: string) => void;
   onChangeModel: (value: string) => void;
   onChangeThinking: (value: string) => void;
@@ -1103,7 +1114,7 @@ function PromptInput({
           onClear={onClearProject}
           onSelect={onSelectProject}
           projects={projects}
-          value={session?.cwd ?? ""}
+          value={session?.projectId ?? ""}
         />
         <CompactSelect
           icon={<Monitor className="size-3.5" />}
@@ -1313,6 +1324,7 @@ function completeLastAssistant(
 }
 
 async function loadSession(
+  api: omoApi,
   key: string,
   sessionCwd: string | undefined,
   sessionPath: string | undefined,
@@ -1336,7 +1348,7 @@ async function loadSession(
       hasMore,
       model: sessionModel,
       thinkingLevel,
-    } = await omo.pi.open(key, sessionCwd, sessionPath);
+    } = await api.pi.open(key, sessionCwd, sessionPath);
     setWindow(windowFromMessages(history as ChatMessage[], cursor, hasMore));
     if (sessionModel) {
       setModel(`${sessionModel.provider}/${sessionModel.id}`);
@@ -1348,7 +1360,7 @@ async function loadSession(
   } catch (error) {
     const failed: ChatMessage[] = [
       {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         role: "assistant",
         text: `Failed to open session: ${error instanceof Error ? error.message : String(error)}`,
       },
@@ -1359,6 +1371,7 @@ async function loadSession(
 }
 
 function useFileCompletion(
+  api: omoApi,
   sessionCwd: string | undefined,
   completion: CompletionContext | null
 ) {
@@ -1380,7 +1393,7 @@ function useFileCompletion(
     let active = true;
     setFileLoading(true);
     setFileEntries([]);
-    omo.fs
+    api.fs
       .list(joinWorkspacePath(sessionCwd, directory))
       .then((entries) => {
         if (active) {
@@ -1400,7 +1413,7 @@ function useFileCompletion(
     return () => {
       active = false;
     };
-  }, [completion?.kind, fileQuery, sessionCwd]);
+  }, [api, completion?.kind, fileQuery, sessionCwd]);
 
   return { fileEntries, fileLoading, fileQuery };
 }
@@ -1480,13 +1493,13 @@ function ProjectSelect({
   projects: Project[];
   value: string;
   onSelect: (project: Project) => void;
-  onAdd: () => Promise<Project | null | undefined>;
+  onAdd: () => void;
   onClear: () => void;
 }) {
   const { t } = useI18n();
   const projectItems = projects.map((project) => ({
     label: project.name,
-    value: project.cwd,
+    value: project.id,
   }));
   const actions = [
     { label: t("new_project"), value: "__new" },
@@ -1497,19 +1510,16 @@ function ProjectSelect({
     <Select
       items={items}
       itemToStringValue={(item) => item.value}
-      onValueChange={async (item) => {
+      onValueChange={(item) => {
         if (!item) {
           return;
         }
         if (item.value === "__new") {
-          const project = await onAdd();
-          if (project) {
-            onSelect(project);
-          }
+          onAdd();
         } else if (item.value === "__none") {
           onClear();
         } else {
-          const project = projects.find((entry) => entry.cwd === item.value);
+          const project = projects.find((entry) => entry.id === item.value);
           if (project) {
             onSelect(project);
           }
@@ -1523,7 +1533,7 @@ function ProjectSelect({
       >
         <Folder className="size-3.5" />
         <SelectValue placeholder={t("choose_project")}>
-          {projects.find((project) => project.cwd === value)?.name}
+          {projects.find((project) => project.id === value)?.name}
         </SelectValue>
       </SelectTrigger>
       <SelectContent

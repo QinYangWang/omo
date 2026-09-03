@@ -4,8 +4,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("omoSecure", {
   clearRemoteConfig: () => ipcRenderer.invoke("remote-config:clear"),
   loadRemoteConfig: () => ipcRenderer.invoke("remote-config:load"),
-  saveRemoteConfig: (url, token) =>
-    ipcRenderer.invoke("remote-config:save", { token, url }),
+  saveRemoteConfig: (servers) =>
+    ipcRenderer.invoke("remote-config:save", { servers }),
 });
 
 contextBridge.exposeInMainWorld("omo", {
@@ -82,6 +82,17 @@ contextBridge.exposeInMainWorld("omo", {
     },
   },
   usage: { snapshot: () => ipcRenderer.invoke("usage:snapshot") },
+  skills: { list: () => ipcRenderer.invoke("skills:list") },
+  models: {
+    list: () => ipcRenderer.invoke("models:list"),
+    setEnabled: (enabled) =>
+      ipcRenderer.invoke("models:set-enabled", { enabled }),
+  },
+  packages: {
+    install: (source) => ipcRenderer.invoke("packages:install", { source }),
+    list: () => ipcRenderer.invoke("packages:list"),
+    remove: (source) => ipcRenderer.invoke("packages:remove", { source }),
+  },
   windowControls: {
     setTitleBarOverlay: (options) =>
       ipcRenderer.send("window:set-title-bar-overlay", options),

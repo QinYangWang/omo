@@ -41,7 +41,7 @@ Server 可直接返回 `dist`。返回 HTML 时注入：
 window.__OMO_SERVER_URL__ = location.origin
 ```
 
-因此 Web 自动使用当前 omo Server。独立部署 Web 时，在 Settings → General 填写 Server URL 和 Token，并为 Server 配置 `OMO_CORS_ORIGINS`。
+因此 Web 自动使用当前 omo Server。首次打开会进入引导页，输入该 Server 的 Token 登录后才会进入（Token 存 localStorage）。独立部署 Web 时，在 Settings → Servers 添加 Server URL 和 Token，并为 Server 配置 `OMO_CORS_ORIGINS`。
 
 ## Docker
 

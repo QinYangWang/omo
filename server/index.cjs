@@ -9,6 +9,14 @@ const { createWorkspaceGuard, inside } = require("./workspace.cjs");
 const { EventStore } = require("./event-store.cjs");
 const { PiService } = require("./pi-service.cjs");
 const { usageSnapshot } = require("./usage.cjs");
+const {
+  installPackage,
+  listModels,
+  listPackages,
+  listSkills,
+  removePackage,
+  setModelsEnabled,
+} = require("./agent-config.cjs");
 const { TerminalService } = require("./terminal-service.cjs");
 const { fetchQuotas } = require("./quotas.cjs");
 
@@ -442,6 +450,53 @@ async function miscRoutes(req, res, url) {
   }
   if (route(req, url, "GET", "/api/v1/usage")) {
     json(res, 200, await usageSnapshot(config.sessionRoot));
+    return true;
+  }
+  if (route(req, url, "GET", "/api/v1/skills")) {
+    json(res, 200, await listSkills(path.dirname(config.sessionRoot)));
+    return true;
+  }
+  if (route(req, url, "GET", "/api/v1/models")) {
+    json(
+      res,
+      200,
+      listModels(path.dirname(config.sessionRoot), await pi.models())
+    );
+    return true;
+  }
+  if (route(req, url, "POST", "/api/v1/models")) {
+    const payload = await body(req);
+    json(
+      res,
+      200,
+      setModelsEnabled(
+        path.dirname(config.sessionRoot),
+        await pi.models(),
+        payload.enabled
+      )
+    );
+    return true;
+  }
+  if (route(req, url, "GET", "/api/v1/packages")) {
+    json(res, 200, listPackages(path.dirname(config.sessionRoot)));
+    return true;
+  }
+  if (route(req, url, "POST", "/api/v1/packages/install")) {
+    const payload = await body(req);
+    json(
+      res,
+      200,
+      await installPackage(path.dirname(config.sessionRoot), String(payload.source || ""))
+    );
+    return true;
+  }
+  if (route(req, url, "POST", "/api/v1/packages/remove")) {
+    const payload = await body(req);
+    json(
+      res,
+      200,
+      removePackage(path.dirname(config.sessionRoot), String(payload.source || ""))
+    );
     return true;
   }
   if (route(req, url, "GET", "/api/v1/cwd")) {

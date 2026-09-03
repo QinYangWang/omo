@@ -12,12 +12,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  Progress,
-  ProgressIndicator,
-  ProgressTrack,
-} from "@/components/ui/progress";
+  ServerTabs,
+  useSelectedServer,
+} from "@/components/ServerTabs";
 import { type Lang, useI18n } from "@/lib/i18n";
-import { omo } from "@/lib/omo";
+import { getServerApi } from "@/lib/servers";
 import { cn } from "@/lib/utils";
 
 export const quotaColor = (usedPercent: number) => {
@@ -49,65 +48,35 @@ export function formatReset(iso: string, lang: Lang = "en") {
   });
 }
 
-export function useQuotas() {
+export function useQuotas(serverId?: string) {
   const [quotas, setQuotas] = useState<QuotaItem[]>([]);
   const [installed, setInstalled] = useState(true);
-  const refresh = useCallback(async (force = false) => {
-    const result = await omo.providers.quotas(force);
-    setInstalled(result.installed);
-    setQuotas(result.items);
-  }, []);
+  const refresh = useCallback(
+    async (force = false) => {
+      const result = await getServerApi(serverId).providers.quotas(force);
+      setInstalled(result.installed);
+      setQuotas(result.items);
+    },
+    [serverId]
+  );
   useEffect(() => {
-    refresh();
+    refresh().catch(() => undefined);
   }, [refresh]);
   return { installed, quotas, refresh };
 }
 
-export function QuotaWindows({
-  providerId,
-  quotas,
-}: {
-  providerId: string;
-  quotas: QuotaItem[];
-}) {
-  const { lang } = useI18n();
-  const item = quotas.find((q) => q.provider === providerId);
-  if (!item) {
-    return null;
-  }
-  if (!item.success) {
-    return item.error?.kind === "not_applicable" ? null : (
-      <span
-        className="max-w-48 truncate text-muted-foreground text-xs"
-        title={item.error?.message}
-      >
-        {item.error?.message}
-      </span>
-    );
-  }
-  if (!item.windows.length) {
-    return null;
-  }
+export function ProvidersSection() {
+  const [serverId, setServerId] = useSelectedServer();
   return (
-    <div className="flex w-44 flex-col gap-1">
-      {item.windows.slice(0, 2).map((w) => (
-        <div className="flex items-center gap-2" key={w.label}>
-          <Progress className="flex-1" value={w.usedPercent}>
-            <ProgressTrack className="h-1.5 bg-accent">
-              <ProgressIndicator className={quotaColor(w.usedPercent)} />
-            </ProgressTrack>
-          </Progress>
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {w.label} {Math.round(w.usedPercent)}% ·{" "}
-            {formatReset(w.resetsAt, lang)}
-          </span>
-        </div>
-      ))}
+    <div className="flex flex-col gap-5">
+      <ServerTabs onChange={setServerId} value={serverId} />
+      <ServerProviders key={serverId} serverId={serverId} />
     </div>
   );
 }
 
-export function ProvidersSection() {
+function ServerProviders({ serverId }: { serverId: string }) {
+  const api = getServerApi(serverId);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string>();
@@ -115,15 +84,14 @@ export function ProvidersSection() {
   const [authPrompt, setAuthPrompt] =
     useState<Extract<ProviderAuthEvent, { kind: "prompt" }>>();
   const [answer, setAnswer] = useState("");
-  const { quotas } = useQuotas();
 
   const refresh = useCallback(
-    () => omo.providers.list().then(setProviders),
-    []
+    () => api.providers.list().then(setProviders),
+    [api]
   );
   useEffect(() => {
     refresh();
-    return omo.providers.onAuthEvent((event) => {
+    return api.providers.onAuthEvent((event) => {
       if (event.kind === "prompt") {
         setAnswer("");
         setAuthPrompt(event);
@@ -147,7 +115,7 @@ export function ProvidersSection() {
       text: type === "oauth" ? "Opening browser…" : "Waiting for credentials…",
     });
     try {
-      await omo.providers.login(provider.id, type);
+      await api.providers.login(provider.id, type);
       setMessage({ text: `${provider.name} connected` });
       await refresh();
     } catch (error) {
@@ -164,7 +132,7 @@ export function ProvidersSection() {
     if (!authPrompt) {
       return;
     }
-    await omo.providers.respond(authPrompt.requestId, value);
+    await api.providers.respond(authPrompt.requestId, value);
     setAuthPrompt(undefined);
   };
 
@@ -227,15 +195,12 @@ export function ProvidersSection() {
               <Badge variant="secondary">{provider.authType}</Badge>
             ) : null}
             {provider.connected ? (
-              <QuotaWindows providerId={provider.id} quotas={quotas} />
-            ) : null}
-            {provider.connected ? (
               <Button
                 disabled={busy === provider.id}
                 onClick={async () => {
                   setBusy(provider.id);
                   try {
-                    await omo.providers.logout(provider.id);
+                    await api.providers.logout(provider.id);
                     await refresh();
                   } finally {
                     setBusy(undefined);
@@ -277,7 +242,7 @@ export function ProvidersSection() {
       <Dialog
         onOpenChange={(open) => {
           if (!open && authPrompt) {
-            omo.providers.cancel(authPrompt.requestId);
+            api.providers.cancel(authPrompt.requestId);
             setAuthPrompt(undefined);
           }
         }}

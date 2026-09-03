@@ -2,6 +2,14 @@ interface Project {
   cwd: string;
   id: string;
   name: string;
+  /** Client-side tag: which server this project belongs to. */
+  serverId: string;
+}
+interface OmoStoredRemoteServer {
+  id: string;
+  name: string;
+  token: string;
+  url: string;
 }
 interface PiImageContent {
   data: string;
@@ -40,6 +48,25 @@ interface PiSession {
   modified: number;
   name?: string;
   path: string;
+}
+
+interface AgentSkillInfo {
+  description: string;
+  filePath: string;
+  name: string;
+}
+interface AgentModelInfo {
+  enabled: boolean;
+  id: string;
+  name: string;
+  provider: string;
+}
+interface AgentPackageInfo {
+  installedVersion?: string;
+  kind: string;
+  name: string;
+  source: string;
+  version?: string;
 }
 
 interface QuotaWindow {
@@ -210,6 +237,18 @@ interface omoApi {
       }[];
     }>;
   };
+  skills: {
+    list: () => Promise<AgentSkillInfo[]>;
+  };
+  models: {
+    list: () => Promise<AgentModelInfo[]>;
+    setEnabled: (enabled: string[]) => Promise<AgentModelInfo[]>;
+  };
+  packages: {
+    list: () => Promise<AgentPackageInfo[]>;
+    install: (source: string) => Promise<AgentPackageInfo[]>;
+    remove: (source: string) => Promise<AgentPackageInfo[]>;
+  };
   windowControls: {
     setTitleBarOverlay: (options: {
       color: string;
@@ -219,10 +258,11 @@ interface omoApi {
 }
 
 interface Window {
+  __OMO_SERVER_URL__?: string;
   omo: omoApi;
   omoSecure?: {
-    loadRemoteConfig: () => Promise<{ url: string; token: string }>;
-    saveRemoteConfig: (url: string, token: string) => Promise<boolean>;
+    loadRemoteConfig: () => Promise<OmoStoredRemoteServer[]>;
+    saveRemoteConfig: (servers: OmoStoredRemoteServer[]) => Promise<boolean>;
     clearRemoteConfig: () => Promise<boolean>;
   };
 }

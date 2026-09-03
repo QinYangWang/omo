@@ -11,9 +11,17 @@ const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs/promises");
 const { readFileSync } = require("node:fs");
-const { pathToFileURL } = require("node:url");
 const { spawn, execFile } = require("node:child_process");
 const { displayMessages } = require("../server/display-messages.cjs");
+const {
+  installPackage,
+  listModels,
+  listPackages,
+  listSkills,
+  removePackage,
+  setModelsEnabled,
+} = require("../server/agent-config.cjs");
+const { fetchQuotas: fetchProviderQuotas } = require("../server/quotas.cjs");
 const { usageSnapshot: readUsageSnapshot } = require("../server/usage.cjs");
 
 let win;
@@ -36,7 +44,6 @@ const MAX_TEXT_FILE_BYTES = 300 * 1024;
 const MAX_IMAGE_FILE_BYTES = 5_900_000;
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 const hexColor = /^#[\da-f]{6}$/i;
-const bearerPrefix = /^Bearer\s+/i;
 
 async function getModelRuntime() {
   const { ModelRuntime } = await sdkPromise;
@@ -44,56 +51,13 @@ async function getModelRuntime() {
   return modelRuntimePromise;
 }
 
-// ---------- pi-quotas (@latentminds/pi-quotas, TS 源码经 tsx 加载) ----------
-let tsxRegistered = false;
+// ---------- provider quotas (in-process implementation) ----------
 async function fetchQuotas(force) {
-  const pkgRoot = path.join(
-    os.homedir(),
-    ".pi/agent/npm/node_modules/@latentminds/pi-quotas"
+  return fetchProviderQuotas(
+    { runtime: getModelRuntime },
+    path.join(os.homedir(), ".pi/agent"),
+    force
   );
-  if (!readFileSyncOrNull(path.join(pkgRoot, "package.json"))) {
-    return { installed: false, items: [] };
-  }
-  if (!tsxRegistered) {
-    require("tsx/esm/api").register();
-    tsxRegistered = true;
-  }
-  const quotas = await import(
-    pathToFileURL(path.join(pkgRoot, "src/lib/quotas.ts")).href
-  );
-  const stored = JSON.parse(
-    readFileSyncOrNull(path.join(os.homedir(), ".pi/agent/auth.json")) || "{}"
-  );
-  const runtime = await getModelRuntime();
-  const authStorage = {
-    get: (provider) => stored[provider],
-    getApiKey: async (provider) => {
-      const cred = stored[provider];
-      if (cred?.type === "api_key" && cred.key) {
-        return cred.key;
-      }
-      const auth = (await runtime.getAuth(provider).catch(() => undefined))
-        ?.auth;
-      const header = auth?.headers?.Authorization;
-      return auth?.apiKey ?? header?.replace(bearerPrefix, "");
-    },
-  };
-  const results = await quotas.fetchAllProviderQuotas(authStorage, { force });
-  return {
-    installed: true,
-    items: results.map(({ provider, result }) => ({
-      error: result.success ? undefined : result.error,
-      label: quotas.PROVIDER_LABELS[provider],
-      provider,
-      success: result.success,
-      windows: result.success
-        ? result.data.windows.map((w) => ({
-            ...w,
-            resetsAt: new Date(w.resetsAt).toISOString(),
-          }))
-        : [],
-    })),
-  };
 }
 function readFileSyncOrNull(p) {
   try {
@@ -344,6 +308,34 @@ function createWindow() {
 
   ipcMain.handle("usage:snapshot", () => usageSnapshot());
 
+  const agentDir = path.join(os.homedir(), ".pi/agent");
+  ipcMain.handle("skills:list", () => listSkills(agentDir));
+  ipcMain.handle("models:list", async () => {
+    const runtime = await getModelRuntime();
+    const available = (await runtime.getAvailable()).map((model) => ({
+      id: model.id,
+      name: model.name || model.id,
+      provider: model.provider,
+    }));
+    return listModels(agentDir, available);
+  });
+  ipcMain.handle("models:set-enabled", async (_e, { enabled }) => {
+    const runtime = await getModelRuntime();
+    const available = (await runtime.getAvailable()).map((model) => ({
+      id: model.id,
+      name: model.name || model.id,
+      provider: model.provider,
+    }));
+    return setModelsEnabled(agentDir, available, enabled);
+  });
+  ipcMain.handle("packages:list", () => listPackages(agentDir));
+  ipcMain.handle("packages:install", (_e, { source }) =>
+    installPackage(agentDir, source)
+  );
+  ipcMain.handle("packages:remove", (_e, { source }) =>
+    removePackage(agentDir, source)
+  );
+
   // Provider auth via Pi ModelRuntime
   ipcMain.handle("providers:list", async () => {
     const runtime = await getModelRuntime();
@@ -588,35 +580,65 @@ function createWindow() {
     app.getPath("userData"),
     "remote-server.json"
   );
+  const decryptToken = (encryptedToken) => {
+    if (!encryptedToken || !safeStorage.isEncryptionAvailable()) {
+      return "";
+    }
+    try {
+      return safeStorage.decryptString(Buffer.from(encryptedToken, "base64"));
+    } catch {
+      return "";
+    }
+  };
   ipcMain.handle("remote-config:load", async () => {
     let stored;
     try {
       stored = JSON.parse(await fs.readFile(remoteConfigFile, "utf8"));
     } catch {
-      return { token: "", url: "" };
+      return [];
     }
-    let token = "";
-    if (stored.encryptedToken && safeStorage.isEncryptionAvailable()) {
-      try {
-        token = safeStorage.decryptString(
-          Buffer.from(stored.encryptedToken, "base64")
-        );
-      } catch {
-        token = "";
-      }
+    if (Array.isArray(stored.servers)) {
+      return stored.servers
+        .filter((server) => server && typeof server.url === "string")
+        .map((server) => ({
+          id: server.id || crypto.randomUUID(),
+          name: server.name || server.url,
+          token: decryptToken(server.encryptedToken),
+          url: server.url || "",
+        }));
     }
-    return { token, url: stored.url || "" };
+    // Migrate the legacy single-server configuration.
+    if (stored.url) {
+      return [
+        {
+          id: crypto.randomUUID(),
+          name: stored.url,
+          token: decryptToken(stored.encryptedToken),
+          url: stored.url,
+        },
+      ];
+    }
+    return [];
   });
-  ipcMain.handle("remote-config:save", async (_event, { url, token }) => {
-    if (token && !safeStorage.isEncryptionAvailable()) {
+  ipcMain.handle("remote-config:save", async (_event, { servers }) => {
+    const list = Array.isArray(servers) ? servers : [];
+    if (
+      list.some((server) => server.token) &&
+      !safeStorage.isEncryptionAvailable()
+    ) {
       throw new Error("OS credential encryption is unavailable");
     }
-    const encryptedToken = token
-      ? safeStorage.encryptString(token).toString("base64")
-      : "";
+    const stored = list.map((server) => ({
+      encryptedToken: server.token
+        ? safeStorage.encryptString(server.token).toString("base64")
+        : "",
+      id: server.id || crypto.randomUUID(),
+      name: server.name || server.url || "",
+      url: server.url || "",
+    }));
     await fs.writeFile(
       remoteConfigFile,
-      JSON.stringify({ encryptedToken, url }, null, 2),
+      JSON.stringify({ servers: stored }, null, 2),
       { mode: 0o600 }
     );
     return true;

@@ -64,13 +64,14 @@ Browser 在 Electron 中使用 `<webview>`。Terminal 使用 xterm.js；远程�
 
 Settings 是全屏视图，左侧导航包含：
 
-- General
 - Appearance
+- Servers
 - Providers
+- Models
 - Skills
 - Usage
 - Packages
 
-General 当前实现 Server URL、Token、连接测试和本地/远程切换。Appearance 实现主题和语言。Providers 使用 Pi Provider 认证和配额。Usage 使用 Session JSONL 聚合，包含多语言统计和订阅配额进度。Usage 不显示上下文使用分析。Skills 与 Packages 使用当前应用内的展示数据。
+Servers 管理本机连接与多个远程服务器（添加/编辑/删除、状态监测）。Appearance 实现主题模式、语言和自定义主题编辑器：逐项覆盖 shadcn / typeset CSS 变量（颜色用调色盘、数值用滑块），可粘贴完整主题 CSS 一键导入，也可导出为自定义主题。Providers 使用 Pi Provider 认证；Models 通过 pi `enabledModels` 筛选可用模型；Skills 与 Packages 展示真实的 agent 技能和 pi 扩展包。Usage 使用 Session JSONL 聚合，按服务器分组展示多语言统计和订阅配额进度。Usage 不显示上下文使用分析。Providers、Models、Skills、Packages 在多服务器时可切换目标服务器。
 
-设置页 Sidebar 可以收起，收起后顶部导航按钮移动到设置内容区。
+设置页内容居中（`mx-auto max-w-3xl`），侧栏导航项带图标。设置页 Sidebar 可以收起，收起后顶部导航按钮移动到设置内容区。

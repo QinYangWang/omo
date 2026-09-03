@@ -1,9 +1,10 @@
-import { Component, type ErrorInfo, type ReactNode, StrictMode } from "react";
+import { Component, type ErrorInfo, type ReactNode, StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
+import { OnboardingGate } from "./components/OnboardingGate";
 import { I18nProvider } from "./lib/i18n";
-import { getRemoteConfig, initializeRemoteConfig } from "./lib/remote-api";
+import { initializeServers, listServers, needsOnboarding } from "./lib/servers";
 import { ThemeProvider } from "./lib/theme";
 import { installWebPreviewApi } from "./lib/web-preview";
 
@@ -38,9 +39,19 @@ class ErrorBoundary extends Component<
   }
 }
 
+function Root({ gatedInitially }: { gatedInitially: boolean }) {
+  const [gated, setGated] = useState(gatedInitially);
+  if (gated) {
+    return <OnboardingGate onDone={() => setGated(false)} />;
+  }
+  return <App />;
+}
+
 async function bootstrap() {
-  await initializeRemoteConfig();
-  if (!(window.omo || getRemoteConfig().url)) {
+  await initializeServers();
+  const gated = await needsOnboarding();
+  if (!gated && listServers().length === 0) {
+    // Pure static web without any configured remote server.
     installWebPreviewApi();
   }
   const root = document.getElementById("root");
@@ -52,7 +63,7 @@ async function bootstrap() {
       <ErrorBoundary>
         <ThemeProvider>
           <I18nProvider>
-            <App />
+            <Root gatedInitially={gated} />
           </I18nProvider>
         </ThemeProvider>
       </ErrorBoundary>

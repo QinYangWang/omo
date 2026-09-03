@@ -7,6 +7,7 @@ import {
   PanelRight,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AddProjectDialog } from "@/components/AddProjectDialog";
 import { ChatView } from "@/components/ChatView";
 import { RightPanel, type Surface } from "@/components/RightPanel";
 import { SettingsView } from "@/components/SettingsView";
@@ -14,8 +15,13 @@ import { Sidebar } from "@/components/Sidebar";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { omo } from "@/lib/omo";
+import {
+  getDefaultServerId,
+  getServerApi,
+  useServers,
+} from "@/lib/servers";
 import { useTheme } from "@/lib/theme";
-import { cn } from "@/lib/utils";
+import { cn, randomUUID } from "@/lib/utils";
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 const macPlatformPattern = /Mac/;
@@ -57,14 +63,17 @@ function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
 
 export default function App() {
   const { t } = useI18n();
-  const { theme } = useTheme();
+  const { overrides, theme } = useTheme();
   const [view, setView] = useState<"chat" | "settings">("chat");
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<Record<string, PiSession[]>>({});
+  const [addOpen, setAddOpen] = useState(false);
   const [active, setActive] = useState<{
     key: string;
     cwd: string;
     project: string;
+    projectId: string;
+    serverId: string;
     title: string;
     path?: string;
   } | null>(null);
@@ -98,29 +107,87 @@ export default function App() {
       cancelAnimationFrame(frame);
       media.removeEventListener("change", onSchemeChange);
     };
-  }, [panelOpen, theme, view]);
+  }, [panelOpen, theme, view, overrides]);
+
+  const servers = useServers();
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.all(
+        servers.map(async (server) => {
+          try {
+            const items = await getServerApi(server.id).projects.list();
+            return items.map((project) => ({
+              ...project,
+              id: `${server.id}:${project.id}`,
+              serverId: server.id,
+            }));
+          } catch (error) {
+            console.warn(`Unable to list projects of ${server.name}`, error);
+            return [];
+          }
+        })
+      );
+      const tagged = results.flat();
+      if (cancelled) {
+        return;
+      }
+      setProjects(tagged);
+      const nextSessions: Record<string, PiSession[]> = {};
+      await Promise.all(
+        tagged.map(async (project) => {
+          try {
+            nextSessions[project.id] = await getServerApi(
+              project.serverId
+            ).sessions.list(project.cwd);
+          } catch (error) {
+            console.warn(`Unable to list sessions of ${project.name}`, error);
+          }
+        })
+      );
+      if (!cancelled) {
+        setSessions(nextSessions);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [servers]);
 
   const refreshSessions = useCallback(async (project: Project) => {
-    const list = await omo.sessions.list(project.cwd);
+    const list = await getServerApi(project.serverId).sessions.list(
+      project.cwd
+    );
     setSessions((current) => ({ ...current, [project.id]: list }));
   }, []);
 
-  useEffect(() => {
-    omo.projects.list().then((items) => {
-      setProjects(items);
-      items.forEach(refreshSessions);
-    });
-  }, [refreshSessions]);
-
-  const addProject = async (path?: string) => {
-    const project = await omo.projects.add(path);
+  const addProject = async (serverId: string, path?: string) => {
+    const project = await getServerApi(serverId).projects.add(path);
     if (!project) {
       return;
     }
+    const tagged = {
+      ...project,
+      id: `${serverId}:${project.id}`,
+      serverId,
+    };
     setProjects((items) =>
-      items.some((p) => p.id === project.id) ? items : [...items, project]
+      items.some((p) => p.id === tagged.id) ? items : [...items, tagged]
     );
-    return project;
+    return tagged;
+  };
+
+  const openAddedProject = (project: Project) => {
+    setActive({
+      cwd: project.cwd,
+      key: randomUUID(),
+      project: project.name,
+      projectId: project.id,
+      serverId: project.serverId,
+      title: "New task",
+    });
   };
 
   const clamp = (v: number, lo: number, hi: number) =>
@@ -142,6 +209,8 @@ export default function App() {
       key: entry.session.id,
       path: entry.session.path,
       project: entry.project.name,
+      projectId: entry.project.id,
+      serverId: entry.project.serverId,
       title:
         entry.session.name || entry.session.firstMessage || "Untitled session",
     });
@@ -243,28 +312,35 @@ export default function App() {
           <div className="min-h-0 flex-1">
             <Sidebar
               activeSession={active?.path ?? active?.key ?? null}
-              onAddProject={addProject}
               onImport={async (project, sourcePath) => {
-                await omo.sessions.import(sourcePath, project.cwd);
+                await getServerApi(project.serverId).sessions.import(
+                  sourcePath,
+                  project.cwd
+                );
                 await refreshSessions(project);
               }}
               onNewSession={async (project) => {
-                const key = crypto.randomUUID();
+                const key = randomUUID();
                 setActive({
                   cwd: project.cwd,
                   key,
                   project: project.name,
+                  projectId: project.id,
+                  serverId: project.serverId,
                   title: "",
                 });
-                await omo.pi.open(key, project.cwd);
+                await getServerApi(project.serverId).pi.open(key, project.cwd);
               }}
               onOpenSettings={() => setView("settings")}
+              onRequestAddProject={() => setAddOpen(true)}
               onSelectSession={(project, session) =>
                 setActive({
                   cwd: project.cwd,
                   key: session.id,
                   path: session.path,
                   project: project.name,
+                  projectId: project.id,
+                  serverId: project.serverId,
                   title:
                     session.name || session.firstMessage || "Untitled session",
                 })
@@ -313,13 +389,15 @@ export default function App() {
         </header>
         <main className="min-h-0 flex-1">
           <ChatView
-            onAddProject={addProject}
             onClearProject={() => setActive(null)}
+            onRequestAddProject={() => setAddOpen(true)}
             onSelectProject={(project) =>
               setActive({
                 cwd: project.cwd,
-                key: crypto.randomUUID(),
+                key: randomUUID(),
                 project: project.name,
+                projectId: project.id,
+                serverId: project.serverId,
                 title: "New task",
               })
             }
@@ -334,10 +412,21 @@ export default function App() {
         <>
           <Divider onDrag={(dx) => setPanelW((w) => clamp(w - dx, 280, 640))} />
           <div className="shrink-0 overflow-hidden" style={{ width: panelW }}>
-            <RightPanel full onSelect={setSurface} surface={surface} />
+            <RightPanel
+              full
+              onSelect={setSurface}
+              serverId={active?.serverId ?? getDefaultServerId()}
+              surface={surface}
+            />
           </div>
         </>
       ) : null}
+      <AddProjectDialog
+        onAdd={addProject}
+        onAdded={openAddedProject}
+        onOpenChange={setAddOpen}
+        open={addOpen}
+      />
     </div>
   );
 }
