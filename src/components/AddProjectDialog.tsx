@@ -97,7 +97,7 @@ function DirectoryPicker({
           {currentPath || "…"}
         </div>
       </div>
-      {error ? <p className="text-red-400 text-sm">{error}</p> : null}
+      {error ? <p className="text-destructive text-sm">{error}</p> : null}
       <ScrollArea className="h-72 rounded-md border border-border">
         <div className="p-1">
           {loading ? (
@@ -106,19 +106,21 @@ function DirectoryPicker({
           {loading
             ? null
             : nodes.map((node) => (
-                <button
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                <Button
+                  className="h-auto w-full justify-start gap-2 rounded-md px-2 py-1.5 font-normal text-sm"
                   key={node.path}
                   onClick={async () => {
                     setStack((items) => [...items, node.path]);
                     await load(node.path);
                   }}
-                  type="button"
+                  variant="ghost"
                 >
                   <Folder className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{node.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    {node.name}
+                  </span>
                   <ChevronRight className="size-3.5 text-muted-foreground" />
-                </button>
+                </Button>
               ))}
           {!loading && nodes.length === 0 ? (
             <p className="p-2 text-muted-foreground text-sm">

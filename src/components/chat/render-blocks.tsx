@@ -82,8 +82,8 @@ function ToolCallBlock({
           className={cn(
             "size-3.5",
             status === "running" && "animate-spin",
-            status === "error" && "text-red-400",
-            status === "done" && "text-emerald-400"
+            status === "error" && "text-destructive",
+            status === "done" && "text-success"
           )}
         />
       </summary>
@@ -112,7 +112,7 @@ function ToolCallBlock({
 
 function ErrorBlock({ content }: { content: string }) {
   return (
-    <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-400 text-sm">
+    <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive text-sm">
       {content}
     </div>
   );

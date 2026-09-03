@@ -96,13 +96,13 @@ export function Sidebar({
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-3 px-2 pb-4">
           {projects.length === 0 && (
-            <button
-              className="w-full rounded-md px-2 py-3 text-left text-muted-foreground text-sm hover:bg-accent"
+            <Button
+              className="h-auto w-full flex-col items-start gap-2 rounded-md px-2 py-3 font-normal text-muted-foreground text-sm"
               onClick={onRequestAddProject}
-              type="button"
+              variant="ghost"
             >
-              <Folder className="mb-2 size-4" /> {t("add_project")}
-            </button>
+              <Folder className="size-4" /> {t("add_project")}
+            </Button>
           )}
           {projects.map((project) => (
             <Collapsible
@@ -156,19 +156,19 @@ export function Sidebar({
                 <CollapsibleContent>
                   <div className="ml-5 border-border border-l pl-1">
                     {(sessions[project.id] ?? []).map((session) => (
-                      <button
+                      <Button
                         className={cn(
-                          "block w-full truncate rounded-md px-2 py-1.5 text-left text-muted-foreground text-sm hover:bg-accent hover:text-foreground",
+                          "h-auto w-full justify-start truncate rounded-md px-2 py-1.5 font-normal text-muted-foreground text-sm hover:text-foreground",
                           activeSession === session.path &&
                             "bg-accent text-foreground"
                         )}
                         key={session.path}
                         onClick={() => onSelectSession(project, session)}
                         title={session.name || session.firstMessage}
-                        type="button"
+                        variant="ghost"
                       >
                         {session.name || session.firstMessage || t("untitled")}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 </CollapsibleContent>
@@ -202,8 +202,8 @@ export function Sidebar({
           <ScrollArea className="max-h-96 min-w-0">
             <div className="space-y-1 pr-2">
               {projectSessions.map((session) => (
-                <button
-                  className="flex w-full min-w-0 flex-col rounded-md px-3 py-2 text-left hover:bg-accent"
+                <Button
+                  className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 font-normal"
                   key={session.path}
                   onClick={async () => {
                     if (!importProject) {
@@ -212,7 +212,7 @@ export function Sidebar({
                     await onImport(importProject, session.path);
                     setImportProject(null);
                   }}
-                  type="button"
+                  variant="ghost"
                 >
                   <div className="w-full min-w-0 truncate text-sm">
                     {session.name || session.firstMessage || t("untitled")}
@@ -220,7 +220,7 @@ export function Sidebar({
                   <div className="w-full min-w-0 truncate text-muted-foreground text-xs">
                     {session.cwd} · {session.messageCount} messages
                   </div>
-                </button>
+                </Button>
               ))}
               {projectSessions.length === 0 && (
                 <p className="p-2 text-muted-foreground text-sm">

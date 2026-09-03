@@ -13,10 +13,12 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/lib/i18n";
 import { getServerApi } from "@/lib/servers";
+import { normalizeColorToHex } from "@/lib/theme-tokens";
 import "@xterm/xterm/css/xterm.css";
 
 export type Surface = "browser" | "terminal" | "files" | "review";
@@ -32,13 +34,13 @@ const diffLines = (text: string) => {
 
 const diffLineClass = (line: string) => {
   if (line.startsWith("+")) {
-    return "block text-emerald-400";
+    return "block text-success";
   }
   if (line.startsWith("-")) {
-    return "block text-red-400";
+    return "block text-destructive";
   }
   if (line.startsWith("@@")) {
-    return "block text-blue-400";
+    return "block text-info";
   }
   return "block";
 };
@@ -97,16 +99,18 @@ export function RightPanel({
         </div>
         <div className="grid w-full grid-cols-2 gap-3">
           {surfaces.map(({ id, icon: Icon, label, desc }) => (
-            <button
-              className="flex min-h-28 flex-col gap-1 rounded-lg border border-border bg-surface p-4 text-left hover:bg-accent"
+            <Button
+              className="h-auto min-h-28 flex-col items-start justify-start gap-1 rounded-lg border border-border bg-surface p-4 text-left hover:bg-accent"
               key={id}
               onClick={() => onSelect(id)}
-              type="button"
+              variant="ghost"
             >
               <Icon className="size-4" />
               <span className="font-medium text-sm">{label}</span>
-              <span className="text-muted-foreground text-xs">{desc}</span>
-            </button>
+              <span className="whitespace-normal text-muted-foreground text-xs">
+                {desc}
+              </span>
+            </Button>
           ))}
         </div>
       </div>
@@ -150,8 +154,8 @@ function BrowserSurface() {
   const ref = useRef<WebviewElement>(null);
   return (
     <div className="flex h-full flex-col gap-2">
-      <input
-        className="h-8 rounded-md border bg-background px-2 text-sm"
+      <Input
+        className="h-8 rounded-md"
         onChange={(e) => setUrl(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
@@ -172,13 +176,17 @@ function BrowserSurface() {
 function TerminalSurface({ api }: { api: omoApi }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const dark = document.documentElement.classList.contains("dark");
+    const cssVar = (name: string) =>
+      normalizeColorToHex(
+        getComputedStyle(document.documentElement).getPropertyValue(name)
+      );
     const term = new XTerm({
       convertEol: true,
       fontSize: 13,
-      theme: dark
-        ? { background: "#1a1a1a", foreground: "#d4d4d4" }
-        : { background: "#ffffff", foreground: "#1a1a1a" },
+      theme: {
+        background: cssVar("--background") ?? "#1a1a1a",
+        foreground: cssVar("--foreground") ?? "#d4d4d4",
+      },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -261,11 +269,11 @@ function FilesSurface({ api }: { api: omoApi }) {
   const renderNodes = (nodes: FNode[], depth: number) =>
     nodes.map((n) => (
       <div key={n.path}>
-        <button
-          className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-left text-sm hover:bg-accent"
+        <Button
+          className="h-auto w-full justify-start gap-1 rounded px-1.5 py-0.5 font-normal text-sm"
           onClick={() => toggle(n)}
           style={{ paddingLeft: depth * 14 + 6 }}
-          type="button"
+          variant="ghost"
         >
           <FileNodeToggle node={n} />
           {n.dir ? (
@@ -274,7 +282,7 @@ function FilesSurface({ api }: { api: omoApi }) {
             <File className="size-3.5" />
           )}
           <span className="truncate">{n.name}</span>
-        </button>
+        </Button>
         {n.dir && n.open && n.children
           ? renderNodes(n.children, depth + 1)
           : null}
@@ -341,8 +349,8 @@ function ReviewSurface({ api }: { api: omoApi }) {
               </p>
             )}
             {status.map((s) => (
-              <button
-                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+              <Button
+                className="h-auto w-full justify-start gap-2 rounded px-2 py-1 font-normal text-sm"
                 key={s.file}
                 onClick={async () =>
                   setDiff({
@@ -350,13 +358,13 @@ function ReviewSurface({ api }: { api: omoApi }) {
                     text: await api.git.diff(cwd, s.file),
                   })
                 }
-                type="button"
+                variant="ghost"
               >
                 <span className="w-6 font-mono text-muted-foreground text-xs">
                   {s.xy.trim() || "?"}
                 </span>
                 <span className="truncate">{s.file}</span>
-              </button>
+              </Button>
             ))}
           </div>
         </ScrollArea>

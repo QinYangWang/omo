@@ -21,12 +21,12 @@ import { cn } from "@/lib/utils";
 
 export const quotaColor = (usedPercent: number) => {
   if (usedPercent > 90) {
-    return "bg-red-400";
+    return "bg-destructive";
   }
   if (usedPercent > 70) {
-    return "bg-amber-400";
+    return "bg-warning";
   }
-  return "bg-neutral-400";
+  return "bg-muted-foreground/50";
 };
 
 export function formatReset(iso: string, lang: Lang = "en") {
@@ -165,7 +165,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
         <p
           className={cn(
             "text-sm",
-            message.error ? "text-red-400" : "text-muted-foreground"
+            message.error ? "text-destructive" : "text-muted-foreground"
           )}
         >
           {message.text}
@@ -180,7 +180,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
             <span
               className={cn(
                 "size-2 rounded-full",
-                provider.connected ? "bg-emerald-500" : "bg-neutral-600"
+                provider.connected ? "bg-success" : "bg-muted-foreground/40"
               )}
             />
             <div className="min-w-0 flex-1">

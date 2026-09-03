@@ -119,7 +119,7 @@ export function OnboardingGate({ onDone }: { onDone: () => void }) {
       <div className="flex w-full max-w-sm flex-col gap-6">
         <div className="text-center">
           <Asterisk
-            className="mx-auto mb-4 size-8 text-orange-500"
+            className="mx-auto mb-4 size-8 text-warning"
             strokeWidth={1.6}
           />
           <h1 className="font-medium text-xl">{t("onboarding_title")}</h1>

@@ -36,6 +36,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Progress,
   ProgressIndicator,
@@ -111,18 +112,18 @@ export function SettingsView({
           </div>
           <nav className="flex flex-col gap-0.5 px-2">
             {sections.map(([key, s, Icon]) => (
-              <button
+              <Button
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-3 py-2 text-left text-muted-foreground text-sm hover:bg-accent hover:text-foreground",
+                  "h-auto justify-start gap-2 rounded-md px-3 py-2 font-normal text-muted-foreground text-sm hover:text-foreground",
                   section === s && "bg-accent text-foreground"
                 )}
                 key={s}
                 onClick={() => setSection(s)}
-                type="button"
+                variant="ghost"
               >
                 <Icon className="size-4 shrink-0" />
                 {t(key as I18nKey)}
-              </button>
+              </Button>
             ))}
           </nav>
           <div className="mt-auto p-2">
@@ -161,9 +162,9 @@ export function ServerStatusBadge({ status }: { status?: ServerStatus }) {
       <span
         className={cn(
           "size-1.5 rounded-full",
-          state === "online" && "bg-emerald-500",
-          state === "offline" && "bg-red-400",
-          state === "checking" && "animate-pulse bg-amber-400"
+          state === "online" && "bg-success",
+          state === "offline" && "bg-destructive",
+          state === "checking" && "animate-pulse bg-warning"
         )}
       />
       {state === "online"
@@ -614,9 +615,9 @@ function AppearanceSection() {
             <DialogTitle>{t("theme_import")}</DialogTitle>
             <DialogDescription>{t("theme_paste_desc")}</DialogDescription>
           </DialogHeader>
-          <textarea
+          <Textarea
             autoFocus
-            className="h-56 w-full resize-none rounded-md border border-border bg-background p-3 font-mono text-xs"
+            className="h-56 resize-none font-mono text-xs"
             onChange={(event) => setPasteCss(event.target.value)}
             placeholder={":root {\n  --background: oklch(1 0 0);\n  ...\n}\n\n.dark {\n  --background: oklch(0.145 0 0);\n  ...\n}"}
             value={pasteCss}
@@ -676,7 +677,7 @@ function ServerSkills({ serverId }: { serverId: string }) {
         placeholder={t("search")}
         value={query}
       />
-      {error ? <p className="text-red-400 text-sm">{error}</p> : null}
+      {error ? <p className="text-destructive text-sm">{error}</p> : null}
       <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         {visible.map((skill) => (
           <div className="flex min-h-14 items-center gap-3 px-4 py-2" key={skill.filePath}>
@@ -796,7 +797,7 @@ function ServerModels({ serverId }: { serverId: string }) {
           total: String(models.length),
         })}
       </p>
-      {error ? <p className="text-red-400 text-sm">{error}</p> : null}
+      {error ? <p className="text-destructive text-sm">{error}</p> : null}
       <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         {visible.map((model) => (
           <div
@@ -882,7 +883,7 @@ function ServerPackages({ serverId }: { serverId: string }) {
           <Plus className="size-4" /> {t("package_install")}
         </Button>
       </div>
-      {error ? <p className="text-red-400 text-sm">{error}</p> : null}
+      {error ? <p className="text-destructive text-sm">{error}</p> : null}
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <Table>
           <TableHeader>

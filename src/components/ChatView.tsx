@@ -19,6 +19,8 @@ import { type ListRange, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { RenderBlocks } from "@/components/chat/render-blocks";
 import { ProviderIcon } from "@/components/provider-icon";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -329,15 +331,16 @@ function ImagePreviews({
             width={80}
           />
           {onRemove ? (
-            <button
+            <Button
               aria-label={`Remove ${image.name || "image"}`}
-              className="absolute top-1 right-1 rounded-full bg-background/90 p-1 text-muted-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+              className="absolute top-1 right-1 size-6 rounded-full bg-background/90 text-muted-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
               onClick={() => onRemove((image as ImageAttachment).id)}
+              size="icon"
               title="Remove image"
-              type="button"
+              variant="ghost"
             >
               <X className="size-3" />
-            </button>
+            </Button>
           ) : null}
         </div>
       ))}
@@ -382,14 +385,14 @@ function CompletionMenu({
       {items.map((item, index) => {
         const Icon = completionIcon(kind, item.directory);
         return (
-          <button
+          <Button
             aria-selected={index === activeIndex}
-            className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm ${index === activeIndex ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+            className={`h-auto w-full justify-start rounded-xl px-2.5 py-2 text-sm ${index === activeIndex ? "bg-accent text-foreground" : "text-muted-foreground"}`}
             key={item.value}
             onClick={() => onSelect(item)}
             onMouseDown={(event) => event.preventDefault()}
             role="option"
-            type="button"
+            variant="ghost"
           >
             <Icon className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">
@@ -401,7 +404,7 @@ function CompletionMenu({
                 {item.description}
               </span>
             ) : null}
-          </button>
+          </Button>
         );
       })}
       <div className="px-2.5 py-1 text-[11px] text-muted-foreground">
@@ -545,34 +548,36 @@ function TurnCard({
         </div>
         <div className="mt-1 flex items-center justify-end gap-2 text-muted-foreground text-xs">
           <time>{formatTime(turn.user.timestamp)}</time>
-          <button
+          <Button
             aria-label="Copy message"
-            className="rounded p-1 opacity-60 hover:bg-accent hover:opacity-100"
+            className="size-6 opacity-60 hover:opacity-100"
             onClick={() =>
               copyToClipboard(turn.user.text).catch(() => undefined)
             }
+            size="icon"
             title="Copy message"
-            type="button"
+            variant="ghost"
           >
             <Copy className="size-3.5" />
-          </button>
+          </Button>
         </div>
         <div className="mt-2 text-[15px] leading-relaxed">
           <RenderBlocks blocks={blocks.slice(1)} />
         </div>
         {completed?.role === "assistant" && (
           <div className="mt-2 flex items-center gap-2 text-muted-foreground text-xs">
-            <button
+            <Button
               aria-label="Copy answer"
-              className="rounded p-1 opacity-60 hover:bg-accent hover:opacity-100"
+              className="size-6 opacity-60 hover:opacity-100"
               onClick={() =>
                 copyToClipboard(answer || completed.text).catch(() => undefined)
               }
+              size="icon"
               title="Copy full answer"
-              type="button"
+              variant="ghost"
             >
               <Copy className="size-3.5" />
-            </button>
+            </Button>
             <time>{formatTime(completed.completedAt)}</time>
             {completed.durationMs === undefined ? null : (
               <span>· {formatDuration(completed.durationMs)}</span>
@@ -989,7 +994,7 @@ export function ChatView({
       <div className="relative h-full overflow-hidden p-8">
         <div className="absolute top-[43%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
           <Asterisk
-            className="mx-auto mb-5 size-7 text-orange-500"
+            className="mx-auto mb-5 size-7 text-warning"
             strokeWidth={1.6}
           />
           <div className="max-w-[70vw] truncate whitespace-nowrap font-normal text-xl">
@@ -1155,22 +1160,22 @@ function PromptInput({
             <div className="flex flex-wrap gap-2 px-4 pt-3 pb-1">
               <ImagePreviews images={images} onRemove={onImageRemove} />
               {fileAttachments.map((file) => (
-                <button
-                  className="group flex max-w-full items-center gap-1.5 rounded-xl border border-border bg-muted px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+                <Button
+                  className="group h-auto max-w-full rounded-xl border border-border bg-muted px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
                   key={file.id}
                   onClick={() => onFileRemove(file)}
                   title={file.path}
-                  type="button"
+                  variant="ghost"
                 >
                   <File className="size-3.5 shrink-0" />
                   <span className="truncate">@{file.display}</span>
                   <X className="size-3 shrink-0 opacity-60 group-hover:opacity-100" />
-                </button>
+                </Button>
               ))}
             </div>
           ) : null}
-          <textarea
-            className="h-12 w-full resize-none overflow-hidden border-0 bg-transparent px-4 py-4 text-[15px] outline-none placeholder:text-muted-foreground"
+          <Textarea
+            className="h-12 min-h-12 resize-none overflow-hidden rounded-none border-0 bg-transparent px-4 py-4 text-[15px] focus-visible:border-transparent focus-visible:ring-0"
             onChange={(event) =>
               onTextChange(event.target.value, event.target.selectionStart)
             }
@@ -1644,8 +1649,8 @@ function ModelSelect({
       >
         <div className="mb-1 flex h-8 items-center gap-2 rounded-md border border-border px-2">
           <Search className="size-3.5 text-muted-foreground" />
-          <input
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          <Input
+            className="h-auto border-0 bg-transparent px-0 py-0 focus-visible:border-transparent focus-visible:ring-0"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.stopPropagation()}
             placeholder="Search models…"
