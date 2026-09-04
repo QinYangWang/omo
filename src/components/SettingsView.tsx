@@ -1,4 +1,5 @@
 import {
+  Archive,
   ArrowLeft,
   ChartColumn,
   Copy,
@@ -60,6 +61,7 @@ import {
   useServerStatuses,
   useServers,
 } from "@/lib/servers";
+import { setSessionPref, useSessionPrefs } from "@/lib/session-prefs";
 import {
   exportThemeCss,
   type OverrideMode,
@@ -77,6 +79,7 @@ import { cn } from "@/lib/utils";
 
 const sections = [
   ["section_appearance", "Appearance", Palette],
+  ["section_archived", "Archived", Archive],
   ["section_servers", "Servers", Server],
   ["section_providers", "Providers", KeyRound],
   ["section_models", "Models", Cpu],
@@ -146,8 +149,56 @@ export function SettingsView({
           {section === "Usage" && <UsageSection />}
           {section === "Packages" && <PackagesSection />}
           {section === "Appearance" && <AppearanceSection />}
+          {section === "Archived" && <ArchivedSection />}
         </div>
       </ScrollArea>
+    </div>
+  );
+}
+
+function ArchivedSection() {
+  const { t } = useI18n();
+  const prefs = useSessionPrefs();
+  const archived = Object.entries(prefs).filter(([, pref]) => pref.archived);
+  return (
+    <div className="flex max-w-2xl flex-col gap-5">
+      <div>
+        <h2 className="font-medium text-xl">{t("section_archived")}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">
+          {t("archived_desc")}
+        </p>
+      </div>
+      {archived.length === 0 ? (
+        <p className="text-muted-foreground text-sm">{t("archived_empty")}</p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {archived.map(([key, pref]) => (
+            <div
+              className="flex items-center gap-2 rounded-md border border-border px-3 py-2"
+              key={key}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm">
+                  {pref.title || t("untitled")}
+                </div>
+                {pref.project ? (
+                  <div className="truncate text-muted-foreground text-xs">
+                    {pref.project}
+                  </div>
+                ) : null}
+              </div>
+              <Button
+                className="shrink-0"
+                onClick={() => setSessionPref(key, { archived: false })}
+                size="sm"
+                variant="outline"
+              >
+                {t("restore")}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

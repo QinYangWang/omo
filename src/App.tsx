@@ -262,6 +262,19 @@ export default function App() {
     return tagged;
   };
 
+  const startNewSession = async (project: Project) => {
+    const key = randomUUID();
+    setActive({
+      cwd: project.cwd,
+      key,
+      project: project.name,
+      projectId: project.id,
+      serverId: project.serverId,
+      title: "",
+    });
+    await getServerApi(project.serverId).pi.open(key, project.cwd);
+  };
+
   const openAddedProject = (project: Project) => {
     setActive({
       cwd: project.cwd,
@@ -375,17 +388,14 @@ export default function App() {
                 );
                 await refreshSessions(project);
               }}
-              onNewSession={async (project) => {
-                const key = randomUUID();
-                setActive({
-                  cwd: project.cwd,
-                  key,
-                  project: project.name,
-                  projectId: project.id,
-                  serverId: project.serverId,
-                  title: "",
-                });
-                await getServerApi(project.serverId).pi.open(key, project.cwd);
+              onNewSession={startNewSession}
+              onNewSessionAny={async () => {
+                const project =
+                  projects.find((item) => item.id === active?.projectId) ??
+                  projects[0];
+                if (project) {
+                  await startNewSession(project);
+                }
               }}
               onOpenSettings={() => setView("settings")}
               onRequestAddProject={() => setAddOpen(true)}

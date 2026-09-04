@@ -1,10 +1,11 @@
 import {
-  ChevronRight,
+  Archive,
   Folder,
   Import,
+  Pin,
   Plus,
-  Search,
   Settings,
+  SquarePen,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { type I18nKey, useI18n } from "@/lib/i18n";
 import { getServerApi, useServers } from "@/lib/servers";
+import {
+  sessionKey,
+  setSessionPref,
+  useSessionPrefs,
+} from "@/lib/session-prefs";
 import { cn } from "@/lib/utils";
 
 const COLLAPSED_SESSION_LIMIT = 5;
@@ -51,6 +57,7 @@ export function Sidebar({
   activeSession,
   onRequestAddProject,
   onNewSession,
+  onNewSessionAny,
   onSelectSession,
   onImport,
   onOpenSettings,
@@ -60,12 +67,14 @@ export function Sidebar({
   activeSession: string | null;
   onRequestAddProject: () => void;
   onNewSession: (project: Project) => void;
+  onNewSessionAny: () => void;
   onSelectSession: (project: Project, session: PiSession) => void;
   onImport: (project: Project, path: string) => Promise<void>;
   onOpenSettings: () => void;
 }) {
   const { t } = useI18n();
   const servers = useServers();
+  const prefs = useSessionPrefs();
   const [importProject, setImportProject] = useState<Project | null>(null);
   const [projectSessions, setProjectSessions] = useState<PiSession[]>([]);
   const [expandedProjects, setExpandedProjects] = useState<
@@ -96,19 +105,21 @@ export function Sidebar({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
-      <div className="px-2 pb-1">
+      <div className="space-y-0.5 px-2 pb-1">
         <Button
-          className="w-full justify-start gap-2 font-normal"
+          className="w-full justify-start gap-2 px-2 font-normal"
+          disabled={projects.length === 0}
+          onClick={onNewSessionAny}
           variant="ghost"
         >
-          <Search className="size-4" /> {t("search")}
+          <SquarePen className="size-4" /> {t("new_session")}
         </Button>
       </div>
-      <div className="flex items-center justify-between px-4 py-2 text-muted-foreground text-xs">
+      <div className="group/header flex items-center justify-between px-4 py-2 text-muted-foreground text-sm">
         <span>{t("projects")}</span>
         <Button
           aria-label={t("add_project")}
-          className="size-6"
+          className="size-6 opacity-0 hover:opacity-100 focus-visible:opacity-100 group-hover/header:opacity-60"
           onClick={onRequestAddProject}
           size="icon"
           variant="ghost"
@@ -117,7 +128,7 @@ export function Sidebar({
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-3 px-2 pb-4">
+        <div className="space-y-0.5 px-2 pb-4">
           {projects.length === 0 && (
             <Button
               className="h-auto w-full flex-col items-start gap-2 rounded-md px-2 py-3 font-normal text-muted-foreground text-sm"
@@ -128,7 +139,23 @@ export function Sidebar({
             </Button>
           )}
           {projects.map((project) => {
-            const projectSessionItems = sessions[project.id] ?? [];
+            const decorated = (sessions[project.id] ?? []).flatMap(
+              (session, index) => {
+                const pref = prefs[sessionKey(project.serverId, session.path)];
+                return pref?.archived
+                  ? []
+                  : [{ index, pinned: !!pref?.pinned, session }];
+              }
+            );
+            decorated.sort((a, b) => {
+              if (a.pinned !== b.pinned) {
+                return a.pinned ? -1 : 1;
+              }
+              return a.pinned
+                ? b.session.created - a.session.created
+                : a.index - b.index;
+            });
+            const projectSessionItems = decorated.map((item) => item.session);
             const sessionListExpanded =
               expandedSessionLists[project.id] ?? false;
             const visibleSessions = getVisibleSessions(
@@ -151,12 +178,6 @@ export function Sidebar({
                 <section>
                   <div className="group flex h-8 items-center gap-2 px-2">
                     <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                      <ChevronRight
-                        className={cn(
-                          "size-4 shrink-0 text-muted-foreground transition-transform",
-                          (expandedProjects[project.id] ?? true) && "rotate-90"
-                        )}
-                      />
                       <Folder className="size-4 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1 truncate font-medium text-sm">
                         {project.name}
@@ -179,37 +200,109 @@ export function Sidebar({
                     </Button>
                     <Button
                       aria-label={t("new_session")}
-                      className="size-6 opacity-60 hover:opacity-100"
+                      className="size-6 opacity-0 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-60"
                       onClick={() => onNewSession(project)}
                       size="icon"
                       title={t("new_session")}
                       variant="ghost"
                     >
-                      <Plus className="size-3.5" />
+                      <SquarePen className="size-3.5" />
                     </Button>
                   </div>
                   <CollapsibleContent>
-                    <div className="ml-5 border-border border-l pl-1">
-                      {visibleSessions.map((session) => (
-                        <Button
-                          className={cn(
-                            "h-auto w-full justify-start truncate rounded-md px-2 py-1.5 font-normal text-muted-foreground text-sm hover:text-foreground",
-                            (activeSession === session.path ||
-                              activeSession === session.id) &&
-                              "bg-accent text-foreground"
-                          )}
-                          key={session.path}
-                          onClick={() => onSelectSession(project, session)}
-                          title={session.name || session.firstMessage}
-                          variant="ghost"
-                        >
-                          <span className="truncate">
-                            {session.name ||
-                              session.firstMessage ||
-                              t("untitled")}
-                          </span>
-                        </Button>
-                      ))}
+                    <div className="pl-6">
+                      {visibleSessions.map((session) => {
+                        const key = sessionKey(project.serverId, session.path);
+                        const pinned = !!prefs[key]?.pinned;
+                        const isActive =
+                          activeSession === session.path ||
+                          activeSession === session.id;
+                        const snapshot = {
+                          project: project.name,
+                          title:
+                            session.name ||
+                            session.firstMessage ||
+                            t("untitled"),
+                        };
+                        return (
+                          <Button
+                            className={cn(
+                              "group relative h-auto w-full justify-start rounded-md px-2 py-1.5 font-normal text-muted-foreground text-sm hover:text-foreground",
+                              isActive && "bg-accent text-foreground"
+                            )}
+                            key={session.path}
+                            onClick={() => onSelectSession(project, session)}
+                            title={session.name || session.firstMessage}
+                            variant="ghost"
+                          >
+                            <span
+                              className={cn(
+                                "truncate",
+                                pinned && "group-hover:pr-6"
+                              )}
+                            >
+                              {session.name ||
+                                session.firstMessage ||
+                                t("untitled")}
+                            </span>
+                            <span
+                              className={cn(
+                                "absolute right-1 flex items-center rounded-md",
+                                pinned
+                                  ? "opacity-100"
+                                  : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                              )}
+                            >
+                              <Button
+                                aria-label={t(
+                                  pinned ? "unpin_session" : "pin_session"
+                                )}
+                                className={cn(
+                                  "size-6",
+                                  !pinned && "opacity-60 hover:opacity-100"
+                                )}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSessionPref(key, {
+                                    ...snapshot,
+                                    pinned: !pinned,
+                                  });
+                                }}
+                                render={<span />}
+                                size="icon"
+                                title={t(
+                                  pinned ? "unpin_session" : "pin_session"
+                                )}
+                                variant="ghost"
+                              >
+                                <Pin
+                                  className={cn(
+                                    "size-3.5",
+                                    pinned && "fill-current"
+                                  )}
+                                />
+                              </Button>
+                              <Button
+                                aria-label={t("archive_session")}
+                                className="size-6 opacity-60 hover:opacity-100"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSessionPref(key, {
+                                    ...snapshot,
+                                    archived: true,
+                                  });
+                                }}
+                                render={<span />}
+                                size="icon"
+                                title={t("archive_session")}
+                                variant="ghost"
+                              >
+                                <Archive className="size-3.5" />
+                              </Button>
+                            </span>
+                          </Button>
+                        );
+                      })}
                       {projectSessionItems.length > COLLAPSED_SESSION_LIMIT ? (
                         <Button
                           className="h-7 w-full justify-start px-2 font-normal text-muted-foreground text-xs"

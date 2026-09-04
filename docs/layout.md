@@ -26,16 +26,23 @@ Sidebar 收起后完全隐藏，三个按钮移动到会话标题栏左侧。
 
 从上到下：
 
-- 搜索按钮
-- PROJECTS 标题和添加按钮
+- 新会话按钮（作用于当前项目，无活动项目时取第一个项目）
+- PROJECTS 标题；添加按钮只在悬停该行时显示
 - Project 分组
 - 每个 Project 下的 Session 列表
-- Session 导入和新建按钮
+- Session 导入和新建按钮（悬停项目行时显示）
 - 底部设置入口
 
 Project 对应本地或远程执行端目录。添加项目通过目录选择完成：Electron 本地模式使用系统目录选择器，远程模式使用 Server workspace 目录树；纯静态 Web 不提供本地目录选择。
 
 Session 条目显示名称或首条消息。创建 Project 后不自动导入 Session；导入按钮只列出当前 Project cwd 下的 Pi Session。
+
+会话行悬停（或键盘聚焦）时在标题上方浮层显示置顶和归档按钮，不挤压标题文字：
+
+- 置顶：会话固定在项目列表最前，多个置顶按会话创建时间从新到旧排序。
+- 归档：仅从侧边栏隐藏，不影响用量统计；可在设置的「已归档」分区恢复。
+
+置顶与归档状态持久化在 localStorage（`omo:sessionPrefs`，key 为 `serverId:sessionPath`），见 `src/lib/session-prefs.ts`。
 
 ## Chat
 
@@ -65,12 +72,15 @@ Browser 在 Electron 中使用 `<webview>`。Terminal 使用 xterm.js；远程�
 Settings 是全屏视图，左侧导航包含：
 
 - Appearance
+- Archived
 - Servers
 - Providers
 - Models
 - Skills
 - Usage
 - Packages
+
+Archived 分区列出所有已归档会话并可恢复到侧边栏。
 
 Servers 管理本机连接与多个远程服务器（添加/编辑/删除、状态监测）。Appearance 实现主题模式、语言和自定义主题编辑器：逐项覆盖 shadcn / typeset CSS 变量（颜色用调色盘、数值用滑块），可粘贴完整主题 CSS 一键导入，也可导出为自定义主题。Providers 使用 Pi Provider 认证；Models 通过 pi `enabledModels` 筛选可用模型；Skills 与 Packages 展示真实的 agent 技能和 pi 扩展包。Usage 使用 Session JSONL 聚合，按服务器分组展示多语言统计和订阅配额进度。Usage 不显示上下文使用分析。Providers、Models、Skills、Packages 在多服务器时可切换目标服务器。
 
