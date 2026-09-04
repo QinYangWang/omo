@@ -96,6 +96,12 @@ export function installWebPreviewApi() {
       prompt: async () => undefined,
       setModel: async () => undefined,
       setThinking: async () => undefined,
+      sync: async () => ({
+        fromTurn: -1,
+        messages: [],
+        metas: [],
+        totalTurns: 0,
+      }),
     },
     projects: {
       add: async () => null,

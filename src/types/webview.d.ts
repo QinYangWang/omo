@@ -197,6 +197,17 @@ interface omoApi {
       modelId: string
     ) => Promise<void>;
     setThinking: (sessionId: string, level: string) => Promise<void>;
+    sync: (
+      sessionId: string,
+      sessionPath: string,
+      turnCount: number,
+      tailItemCount: number
+    ) => Promise<{
+      fromTurn: number;
+      messages: unknown[];
+      metas: { absoluteIndex: number; id: string; userPreview: string }[];
+      totalTurns: number;
+    }>;
     prompt: (
       sessionId: string,
       message: string,

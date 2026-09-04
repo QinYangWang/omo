@@ -345,6 +345,8 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
       setThinking: async (sessionId, level) => {
         await post("/pi/thinking", { level, sessionId });
       },
+      sync: (sessionId, sessionPath, turnCount, tailItemCount) =>
+        post("/pi/sync", { sessionId, sessionPath, tailItemCount, turnCount }),
     },
     projects: {
       add: (path?: string) =>

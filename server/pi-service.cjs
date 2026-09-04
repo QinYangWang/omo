@@ -1,4 +1,5 @@
 "use strict";
+const fs = require("node:fs");
 const {
   createHistorySnapshot,
   historyPage,
@@ -14,6 +15,7 @@ class PiService {
     this.sessionWorkspace = sessionWorkspace;
     this.sessions = new Map();
     this.history = new Map();
+    this.fileWatchers = new Map();
     this.authPrompts = new Map();
     this.sdk = import("@earendil-works/pi-coding-agent");
     this.runtimePromise = undefined;
@@ -65,6 +67,7 @@ class PiService {
       const resolvedSessionPath =
         await this.sessionWorkspace.resolveExisting(sessionPath);
       const { SessionManager } = await this.sdk;
+      this.watchSessionFile(sessionId, resolvedSessionPath);
       const manager = SessionManager.open(resolvedSessionPath);
       const history = createHistorySnapshot(sessionHistoryMessages(manager));
       this.history.set(sessionId, history);
@@ -107,6 +110,75 @@ class PiService {
       sessionId: session.sessionId,
       thinkingLevel: session.thinkingLevel,
     };
+  }
+
+  /** Notify subscribers when the session JSONL changes on disk (e.g. TUI). */
+  watchSessionFile(sessionId, filePath) {
+    if (this.fileWatchers.has(filePath)) {
+      return;
+    }
+    let timer;
+    let lastSize = 0;
+    try {
+      lastSize = fs.statSync(filePath).size;
+    } catch {
+      // File may not exist yet for brand-new sessions.
+    }
+    let watcher;
+    try {
+      watcher = fs.watch(filePath, { persistent: false }, () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          try {
+            const size = fs.statSync(filePath).size;
+            if (size === lastSize) {
+              return;
+            }
+            lastSize = size;
+            this.events.append(sessionId, {
+              path: filePath,
+              type: "omo_session_file",
+            });
+          } catch {
+            // Session file deleted or temporarily unavailable.
+          }
+        }, 250);
+      });
+    } catch {
+      return;
+    }
+    watcher.on("error", () => undefined);
+    this.fileWatchers.set(filePath, watcher);
+  }
+
+  /**
+   * Re-read the session file from disk and return entries the client has
+   * not seen yet. fromTurn >= 0 means the client should replace everything
+   * from that absolute turn onward with `messages`.
+   */
+  async sync({ sessionId, sessionPath, turnCount, tailItemCount }) {
+    const resolvedSessionPath =
+      await this.sessionWorkspace.resolveExisting(sessionPath);
+    const { SessionManager } = await this.sdk;
+    const manager = SessionManager.open(resolvedSessionPath);
+    const history = createHistorySnapshot(sessionHistoryMessages(manager));
+    this.history.set(sessionId, history);
+    const totalTurns = history.turnStarts.length;
+    const knownTurns = Number(turnCount) || 0;
+    const knownTailItems = Number(tailItemCount) || 0;
+    let fromTurn = -1;
+    if (totalTurns > knownTurns) {
+      fromTurn = Math.max(0, knownTurns);
+    } else if (totalTurns > 0 && totalTurns === knownTurns) {
+      const tailStart = history.turnStarts[totalTurns - 1];
+      const tailLength = history.items.length - tailStart;
+      if (tailLength > knownTailItems) {
+        fromTurn = totalTurns - 1;
+      }
+    }
+    const messages =
+      fromTurn >= 0 ? history.items.slice(history.turnStarts[fromTurn]) : [];
+    return { fromTurn, messages, metas: history.metas, totalTurns };
   }
 
   historyPage(sessionId, before) {
@@ -174,6 +246,9 @@ class PiService {
       }
     }
     const session = await this.ensure(sessionId, cwd, sessionPath);
+    if (session.sessionFile) {
+      this.watchSessionFile(sessionId, session.sessionFile);
+    }
     const result = {
       sessionFile: session.sessionFile,
       sessionId: session.sessionId,

@@ -55,6 +55,13 @@ contextBridge.exposeInMainWorld("omo", {
       ipcRenderer.invoke("pi:set-model", { modelId, provider, sessionId }),
     setThinking: (sessionId, level) =>
       ipcRenderer.invoke("pi:set-thinking", { level, sessionId }),
+    sync: (sessionId, sessionPath, turnCount, tailItemCount) =>
+      ipcRenderer.invoke("pi:sync", {
+        sessionId,
+        sessionPath,
+        tailItemCount,
+        turnCount,
+      }),
   },
   projects: {
     add: (path) => ipcRenderer.invoke("projects:add", path),

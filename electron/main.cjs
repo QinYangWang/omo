@@ -9,6 +9,7 @@ const {
 } = require("electron");
 const path = require("node:path");
 const os = require("node:os");
+const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const { spawn, execFile } = require("node:child_process");
 const {
@@ -104,6 +105,47 @@ async function ensurePi(sessionId, cwd, sessionPath) {
   }
 }
 
+const sessionFileWatchers = new Map();
+
+/** Notify the renderer when a session JSONL changes on disk (e.g. TUI). */
+function watchSessionFile(sessionId, filePath) {
+  if (sessionFileWatchers.has(filePath)) {
+    return;
+  }
+  let timer;
+  let lastSize = 0;
+  try {
+    lastSize = fsSync.statSync(filePath).size;
+  } catch {
+    // File may not exist yet for brand-new sessions.
+  }
+  let watcher;
+  try {
+    watcher = fsSync.watch(filePath, { persistent: false }, () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        try {
+          const stat = await fs.stat(filePath);
+          if (stat.size === lastSize) {
+            return;
+          }
+          lastSize = stat.size;
+          win?.webContents.send("pi:event", {
+            event: { path: filePath, type: "omo_session_file" },
+            sessionId,
+          });
+        } catch {
+          // Session file deleted or temporarily unavailable.
+        }
+      }, 250);
+    });
+  } catch {
+    return;
+  }
+  watcher.on("error", () => undefined);
+  sessionFileWatchers.set(filePath, watcher);
+}
+
 // ---------- git ----------
 const git = (args, cwd) =>
   new Promise((resolve) =>
@@ -155,6 +197,7 @@ function createWindow() {
   ipcMain.handle("pi:open", async (_e, { sessionId, cwd, sessionPath }) => {
     const { SessionManager } = await sdkPromise;
     if (sessionPath) {
+      watchSessionFile(sessionId, sessionPath);
       const manager = SessionManager.open(sessionPath);
       const history = createHistorySnapshot(sessionHistoryMessages(manager));
       historyPages.set(sessionId, history);
@@ -253,6 +296,31 @@ function createWindow() {
     )
   );
   ipcMain.handle(
+    "pi:sync",
+    async (_e, { sessionId, sessionPath, turnCount, tailItemCount }) => {
+      const { SessionManager } = await sdkPromise;
+      const manager = SessionManager.open(sessionPath);
+      const history = createHistorySnapshot(sessionHistoryMessages(manager));
+      historyPages.set(sessionId, history);
+      const totalTurns = history.turnStarts.length;
+      const knownTurns = Number(turnCount) || 0;
+      const knownTailItems = Number(tailItemCount) || 0;
+      let fromTurn = -1;
+      if (totalTurns > knownTurns) {
+        fromTurn = Math.max(0, knownTurns);
+      } else if (totalTurns > 0 && totalTurns === knownTurns) {
+        const tailStart = history.turnStarts[totalTurns - 1];
+        const tailLength = history.items.length - tailStart;
+        if (tailLength > knownTailItems) {
+          fromTurn = totalTurns - 1;
+        }
+      }
+      const messages =
+        fromTurn >= 0 ? history.items.slice(history.turnStarts[fromTurn]) : [];
+      return { fromTurn, messages, metas: history.metas, totalTurns };
+    }
+  );
+  ipcMain.handle(
     "pi:prompt",
     async (_e, { sessionId, message, cwd, sessionPath, images }) => {
       const session = await ensurePi(
@@ -260,6 +328,9 @@ function createWindow() {
         cwd || app.getAppPath(),
         sessionPath
       );
+      if (session.sessionFile) {
+        watchSessionFile(sessionId, session.sessionFile);
+      }
       if (images !== undefined && !Array.isArray(images)) {
         throw new Error("Invalid image attachments");
       }

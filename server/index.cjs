@@ -275,6 +275,10 @@ async function piRoutes(req, res, url) {
     json(res, 200, pi.historyPage(input.sessionId, input.before));
     return true;
   }
+  if (route(req, url, "POST", "/api/v1/pi/sync")) {
+    json(res, 200, await pi.sync(await body(req)));
+    return true;
+  }
   if (route(req, url, "GET", "/api/v1/pi/models")) {
     json(res, 200, await pi.models());
     return true;

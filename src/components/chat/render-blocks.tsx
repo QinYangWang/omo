@@ -6,7 +6,7 @@ import { ThinkingReasoning } from "@/components/aicss/ThinkingReasoning";
 import type { RenderBlock } from "@/lib/pi-adapter";
 import { cn } from "@/lib/utils";
 
-function MarkdownBlock({ content }: { content: string }) {
+export function MarkdownBlock({ content }: { content: string }) {
   return (
     <TextResponse>
       <div className="typeset typeset-docs w-full max-w-full">

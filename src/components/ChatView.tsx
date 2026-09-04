@@ -33,7 +33,14 @@ import {
   AiAgentInputSelectTrigger,
   AiAgentInputTextarea,
 } from "@/components/aicss/AiAgentInput";
-import { RenderBlocks } from "@/components/chat/render-blocks";
+import { Outline } from "@/components/chat/outline";
+import {
+  copyToClipboard,
+  formatDuration,
+  formatTime,
+  ImagePreviews,
+  TurnCard,
+} from "@/components/chat/turn-card";
 import { ProviderIcon } from "@/components/provider-icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,11 +58,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import {
   InputGroup,
@@ -85,15 +87,12 @@ import {
   type ConversationTurn,
   type ImageContent,
   prependWindow,
+  toTurns,
   type TurnWindow,
   windowFromMessages,
 } from "@/lib/conversation-turns";
 import { useI18n } from "@/lib/i18n";
-import {
-  adaptPiEvent,
-  adaptPiMessages,
-  type RenderBlock,
-} from "@/lib/pi-adapter";
+import { adaptPiEvent, adaptPiMessages } from "@/lib/pi-adapter";
 import { getServerApi } from "@/lib/servers";
 import { cn, randomUUID } from "@/lib/utils";
 
@@ -357,51 +356,6 @@ async function preparePrompt(
   return { images: attachedImages, text: `${fileText.join("")}${value}` };
 }
 
-function ImagePreviews({
-  images,
-  onRemove,
-  compact = false,
-}: {
-  images: ImageContent[];
-  onRemove?: (id: string) => void;
-  compact?: boolean;
-}) {
-  if (!images.length) {
-    return null;
-  }
-  return (
-    <div className="flex flex-wrap gap-2">
-      {images.map((image, index) => (
-        <div
-          className="group relative overflow-hidden rounded-md border border-border bg-muted"
-          key={image.name ? `${image.name}-${index}` : index}
-        >
-          <img
-            alt={image.name || "Attached image"}
-            className={
-              compact ? "size-11 object-cover" : "size-20 object-cover"
-            }
-            height={compact ? 44 : 80}
-            src={imageSource(image)}
-            width={compact ? 44 : 80}
-          />
-          {onRemove ? (
-            <Button
-              aria-label={`Remove ${image.name || "image"}`}
-              className="absolute top-1 right-1 size-6 rounded-md bg-background/90 text-muted-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-              onClick={() => onRemove((image as ImageAttachment).id)}
-              size="icon"
-              title="Remove image"
-              variant="ghost"
-            >
-              <X className="size-3" />
-            </Button>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 const completionIcon = (directory?: boolean) => (directory ? Folder : File);
 
@@ -475,161 +429,6 @@ function CompletionMenu({
   );
 }
 
-const formatTime = (timestamp?: number) =>
-  timestamp
-    ? new Intl.DateTimeFormat("en-US", {
-        hour: "numeric",
-        hour12: true,
-        minute: "2-digit",
-        weekday: "long",
-      }).format(timestamp)
-    : "";
-
-const formatDuration = (ms?: number) => {
-  if (ms === undefined) {
-    return "";
-  }
-  const minutes = ms / 60_000;
-  return minutes < 1 ? "<1 min" : `${Math.round(minutes)} min`;
-};
-
-const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.left = "-9999px";
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    textarea.remove();
-  }
-};
-
-function Outline({
-  metas,
-  activeId,
-  onJump,
-}: {
-  metas: TurnWindow["metas"];
-  activeId?: string;
-  onJump: (turnId: string) => void;
-}) {
-  const activeIndex = metas.findIndex((meta) => meta.id === activeId);
-  const wheelIndex = useRef(activeIndex);
-  const windowStart = useRef(0);
-
-  useEffect(() => {
-    wheelIndex.current =
-      activeIndex >= 0 ? activeIndex : Math.max(0, metas.length - 1);
-  }, [activeIndex, metas.length]);
-
-  if (!metas.length) {
-    return null;
-  }
-
-  const maxVisible = Math.min(OUTLINE_MAX_VISIBLE, metas.length);
-  // Hysteresis window: only re-center when the active chapter leaves the
-  // visible slice, so clicking a visible tick never reshuffles the outline.
-  const maxStart = Math.max(0, metas.length - maxVisible);
-  let start = windowStart.current;
-  if (activeIndex >= 0) {
-    if (activeIndex < start) {
-      start = activeIndex;
-    } else if (activeIndex >= start + maxVisible) {
-      start = activeIndex - maxVisible + 1;
-    }
-  } else {
-    start = maxStart;
-  }
-  start = Math.max(0, Math.min(maxStart, start));
-  if (start !== windowStart.current) {
-    windowStart.current = start;
-  }
-  const visible = metas.slice(start, start + maxVisible);
-  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    if (
-      event.ctrlKey ||
-      event.deltaY === 0 ||
-      Math.abs(event.deltaX) > Math.abs(event.deltaY)
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    let currentIndex = wheelIndex.current;
-    if (currentIndex < 0) {
-      currentIndex = activeIndex >= 0 ? activeIndex : metas.length - 1;
-    }
-    const nextIndex = Math.max(
-      0,
-      Math.min(metas.length - 1, currentIndex + (event.deltaY > 0 ? 1 : -1))
-    );
-    const nextMeta = metas[nextIndex];
-    if (!nextMeta || nextIndex === currentIndex) {
-      return;
-    }
-
-    wheelIndex.current = nextIndex;
-    onJump(nextMeta.id);
-  };
-
-  return (
-    <aside className="pointer-events-none absolute top-1/2 right-4 z-10 -translate-y-1/2">
-      <div
-        className="pointer-events-auto flex max-h-[min(24rem,70vh)] flex-col items-end justify-center gap-1 py-2"
-        onWheel={handleWheel}
-      >
-        {visible.map((meta) => {
-          const active = meta.id === activeId;
-          const tick = (
-            <button
-              aria-label="Go to user message"
-              className="group/tick flex h-3 w-10 items-center justify-end"
-              onClick={() => onJump(meta.id)}
-              type="button"
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "h-px rounded-full transition-all duration-150",
-                  active
-                    ? "w-6 bg-primary group-hover/tick:w-10"
-                    : "w-4 bg-muted-foreground/40 group-hover/tick:w-10 group-hover/tick:bg-muted-foreground"
-                )}
-              />
-            </button>
-          );
-          return (
-            <div className="flex h-3 items-center justify-end" key={meta.id}>
-              {meta.userPreview ? (
-                <HoverCard>
-                  <HoverCardTrigger render={tick} />
-                  <HoverCardContent className="w-64" side="left">
-                    <div className="mb-1 text-[11px] text-muted-foreground">
-                      User message
-                    </div>
-                    <p className="line-clamp-4 whitespace-pre-wrap text-foreground text-xs leading-5">
-                      {meta.userPreview}
-                    </p>
-                  </HoverCardContent>
-                </HoverCard>
-              ) : (
-                tick
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </aside>
-  );
-}
-
 function findTurnIndex(
   turnWindow: TurnWindow,
   turnId: string,
@@ -664,92 +463,6 @@ function scrollToTurn(
     offset: -8,
   });
   return true;
-}
-
-function TurnCard({
-  turn,
-  highlighted,
-}: {
-  turn: ConversationTurn;
-  highlighted?: boolean;
-}) {
-  const userBlock: RenderBlock = {
-    content: turn.user.text,
-    id: turn.user.id,
-    timestamp: turn.user.timestamp,
-    type: "markdown",
-  };
-  const blocks = [userBlock, ...adaptPiMessages(turn.items)];
-  const answer = turn.items
-    .flatMap((item) => (item.role === "assistant" ? [item.text] : []))
-    .filter(Boolean)
-    .join("\n\n");
-  const completed = turn.items.find(
-    (item) => item.role === "assistant" && item.turnEnd
-  );
-
-  return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-1">
-      <div
-        className={
-          highlighted
-            ? "rounded-lg bg-accent/40 ring-1 ring-primary/40 transition-all duration-300"
-            : "ring-1 ring-transparent transition-all duration-300"
-        }
-      >
-        <div className="flex justify-end">
-          <div
-            className={`max-w-full rounded-md bg-muted/60 px-4 py-2.5 text-[15px] leading-relaxed ${
-              highlighted ? "bg-accent" : ""
-            }`}
-          >
-            {turn.user.images ? (
-              <ImagePreviews images={turn.user.images} />
-            ) : null}
-            {turn.user.text ? <RenderBlocks blocks={[userBlock]} /> : null}
-          </div>
-        </div>
-        <div className="mt-1 flex items-center justify-end gap-2 text-muted-foreground text-xs">
-          <time>{formatTime(turn.user.timestamp)}</time>
-          <Button
-            aria-label="Copy message"
-            className="size-6 opacity-60 hover:opacity-100"
-            onClick={() =>
-              copyToClipboard(turn.user.text).catch(() => undefined)
-            }
-            size="icon"
-            title="Copy message"
-            variant="ghost"
-          >
-            <Copy className="size-3.5" />
-          </Button>
-        </div>
-        <div className="mt-2 text-[15px] leading-relaxed">
-          <RenderBlocks blocks={blocks.slice(1)} />
-        </div>
-        {completed?.role === "assistant" && (
-          <div className="mt-2 flex items-center gap-2 text-muted-foreground text-xs">
-            <Button
-              aria-label="Copy answer"
-              className="size-6 opacity-60 hover:opacity-100"
-              onClick={() =>
-                copyToClipboard(answer || completed.text).catch(() => undefined)
-              }
-              size="icon"
-              title="Copy full answer"
-              variant="ghost"
-            >
-              <Copy className="size-3.5" />
-            </Button>
-            <time>{formatTime(completed.completedAt)}</time>
-            {completed.durationMs === undefined ? null : (
-              <span>· {formatDuration(completed.durationMs)}</span>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
 }
 
 export function ChatView({
@@ -803,6 +516,12 @@ export function ChatView({
   const jumpToken = useRef(0);
   const keyRef = useRef(key);
   keyRef.current = key;
+  const sessionPathRef = useRef(sessionPath);
+  sessionPathRef.current = sessionPath;
+  const streamingRef = useRef(false);
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
 
   const visibleTurn = visibleRange
     ? turnWindow.turns[
@@ -1022,14 +741,57 @@ export function ChatView({
   );
 
   useEffect(() => {
+    streamingRef.current = streaming;
+  }, [streaming]);
+
+  // Merge file-based sync (TUI or external writes) into the window.
+  const syncFromFile = useCallback(async () => {
+    const targetKey = keyRef.current;
+    const path = sessionPathRef.current;
+    if (!path || streamingRef.current) {
+      return;
+    }
+    const current = windows.get(targetKey) ?? turnWindow;
+    const turnCount = current.start + current.turns.length;
+    const tailItemCount = current.turns.at(-1)?.items.length ?? 0;
+    try {
+      const result = await api.pi.sync(
+        targetKey,
+        path,
+        turnCount,
+        tailItemCount
+      );
+      if (keyRef.current !== targetKey) {
+        return;
+      }
+      const latest = windows.get(targetKey) ?? current;
+      setWindow(mergeSyncResult(latest, result));
+    } catch {
+      // Sync is best effort; the next file change retries.
+    }
+  }, [api, setWindow, turnWindow]);
+
+  useEffect(() => {
     const unsubscribe = api.pi.onEvent(({ sessionId: sid, event }) => {
       if (sid !== keyRef.current) {
+        return;
+      }
+      if (event.type === "omo_session_file") {
+        // Session JSONL changed on disk (e.g. the same session is active in
+        // the pi TUI). Debounce and re-read the tail from disk.
+        if (streamingRef.current) {
+          return;
+        }
+        clearTimeout(syncTimer.current);
+        syncTimer.current = setTimeout(() => {
+          syncFromFile().catch(() => undefined);
+        }, 300);
         return;
       }
       handlePiEvent(event, keyRef.current, setStreaming, setWindow);
     });
     return unsubscribe;
-  }, [api, setWindow]);
+  }, [api, setWindow, syncFromFile]);
 
   const replaceCompletion = (
     replacement: string,
@@ -1266,8 +1028,15 @@ export function ChatView({
             atBottom && !jumping.current.has(keyRef.current) ? "smooth" : false
           }
           increaseViewportBy={{ bottom: 400, top: 0 }}
-          itemContent={(_index, turn) => (
-            <TurnCard highlighted={turn.id === highlightedId} turn={turn} />
+          itemContent={(index, turn) => (
+            <TurnCard
+              highlighted={turn.id === highlightedId}
+              streaming={
+                streaming &&
+                index - turnWindow.start === turnWindow.turns.length - 1
+              }
+              turn={turn}
+            />
           )}
           rangeChanged={setVisibleRange}
           ref={virtuoso}
@@ -1751,6 +1520,46 @@ async function loadSession(
     setWindow(windowFromMessages(failed, 0, false));
     setLoading(false);
   }
+}
+
+interface PiSyncResult {
+  fromTurn: number;
+  messages: unknown[];
+  metas: { absoluteIndex: number; id: string; userPreview: string }[];
+  totalTurns: number;
+}
+
+/** Merge a file-sync tail into the window; refresh the outline regardless. */
+function mergeSyncResult(
+  current: TurnWindow,
+  result: PiSyncResult
+): TurnWindow {
+  const byIndex = new Map(
+    current.metas.map((meta) => [meta.absoluteIndex, meta])
+  );
+  for (const meta of result.metas) {
+    byIndex.set(meta.absoluteIndex, meta);
+  }
+  const metas = [...byIndex.values()].sort(
+    (left, right) => left.absoluteIndex - right.absoluteIndex
+  );
+  const total = Math.max(current.total, result.totalTurns);
+  if (result.fromTurn < 0) {
+    return { ...current, metas, total };
+  }
+  const cut = result.fromTurn - current.start;
+  if (cut < 0 || cut > current.turns.length) {
+    return { ...current, metas, total };
+  }
+  const appended = toTurns(result.messages as ChatMessage[], result.fromTurn);
+  const turns = [...current.turns.slice(0, cut), ...appended];
+  return {
+    ...current,
+    end: result.fromTurn + appended.length,
+    metas,
+    total,
+    turns,
+  };
 }
 
 async function loadUntilTurn(
