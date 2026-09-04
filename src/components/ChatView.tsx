@@ -582,12 +582,20 @@ function Outline({
           const tick = (
             <button
               aria-label="Go to user message"
-              className={`block h-px w-4 rounded-full transition-all duration-150 hover:w-10 hover:bg-foreground ${
-                active ? "bg-foreground" : "bg-muted-foreground/40"
-              }`}
+              className="group/tick flex h-3 w-10 items-center justify-end"
               onClick={() => onJump(meta.id)}
               type="button"
-            />
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "h-px rounded-full transition-all duration-150 group-hover/tick:w-10",
+                  active
+                    ? "w-6 bg-primary group-hover/tick:bg-primary"
+                    : "w-4 bg-muted-foreground/40 group-hover/tick:bg-foreground"
+                )}
+              />
+            </button>
           );
           return (
             <div className="flex h-3 items-center justify-end" key={meta.id}>
