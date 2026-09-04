@@ -51,6 +51,11 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import {
   InputGroup,
@@ -569,32 +574,38 @@ function Outline({
   return (
     <aside className="pointer-events-none absolute top-1/2 right-4 z-10 -translate-y-1/2">
       <div
-        className="pointer-events-auto flex max-h-[min(24rem,70vh)] flex-col items-end justify-center gap-1 overflow-hidden py-2"
+        className="pointer-events-auto flex max-h-[min(24rem,70vh)] flex-col items-end justify-center gap-1 py-2"
         onWheel={handleWheel}
       >
         {visible.map((meta) => {
           const active = meta.id === activeId;
+          const tick = (
+            <button
+              aria-label="Go to user message"
+              className={`block h-px w-4 rounded-full transition-all duration-150 hover:w-10 hover:bg-foreground ${
+                active ? "bg-foreground" : "bg-muted-foreground/40"
+              }`}
+              onClick={() => onJump(meta.id)}
+              type="button"
+            />
+          );
           return (
-            <div
-              className="group relative flex h-3 items-center justify-end"
-              key={meta.id}
-            >
-              <button
-                aria-label="Go to user message"
-                className={`h-px w-4 rounded-full transition-all duration-150 ${
-                  active ? "bg-foreground" : "bg-muted-foreground/40"
-                } group-hover:w-10 group-hover:bg-foreground`}
-                onClick={() => onJump(meta.id)}
-                type="button"
-              />
-              <div className="pointer-events-none absolute top-1/2 right-12 hidden w-64 -translate-y-1/2 rounded-lg border border-border bg-popover p-3 text-left shadow-lg group-hover:block">
-                <div className="mb-1 text-[11px] text-muted-foreground">
-                  User message
-                </div>
-                <p className="line-clamp-4 whitespace-pre-wrap text-foreground text-xs leading-5">
-                  {meta.userPreview}
-                </p>
-              </div>
+            <div className="flex h-3 items-center justify-end" key={meta.id}>
+              {meta.userPreview ? (
+                <HoverCard>
+                  <HoverCardTrigger render={tick} />
+                  <HoverCardContent className="w-64" side="left">
+                    <div className="mb-1 text-[11px] text-muted-foreground">
+                      User message
+                    </div>
+                    <p className="line-clamp-4 whitespace-pre-wrap text-foreground text-xs leading-5">
+                      {meta.userPreview}
+                    </p>
+                  </HoverCardContent>
+                </HoverCard>
+              ) : (
+                tick
+              )}
             </div>
           );
         })}
@@ -627,22 +638,15 @@ function scrollToTurn(
   }
   const near =
     visibleTurn !== undefined &&
-    Math.abs(targetTurn.absoluteIndex - visibleTurn.absoluteIndex) < 30;
-  const targetIndex = index;
+    Math.abs(targetTurn.absoluteIndex - visibleTurn.absoluteIndex) <= 5;
+  // Virtuoso's public API uses absolute coordinates when firstItemIndex is
+  // set, so the data-relative index must be offset by the window start.
   virtuoso?.scrollToIndex({
     align: "start",
     behavior: near ? "smooth" : "auto",
-    index: targetIndex,
+    index: turnWindow.start + index,
+    offset: -8,
   });
-  window.setTimeout(
-    () =>
-      virtuoso?.scrollToIndex({
-        align: "start",
-        behavior: "auto",
-        index: targetIndex,
-      }),
-    near ? 350 : 80
-  );
   return true;
 }
 
@@ -673,12 +677,16 @@ function TurnCard({
       <div
         className={
           highlighted
-            ? "rounded-lg bg-accent/30 transition-colors"
-            : "transition-colors"
+            ? "rounded-lg bg-accent/40 ring-1 ring-primary/40 transition-all duration-300"
+            : "ring-1 ring-transparent transition-all duration-300"
         }
       >
         <div className="flex justify-end">
-          <div className="max-w-full rounded-md bg-muted/60 px-4 py-2.5 text-[15px] leading-relaxed">
+          <div
+            className={`max-w-full rounded-md bg-muted/60 px-4 py-2.5 text-[15px] leading-relaxed ${
+              highlighted ? "bg-accent" : ""
+            }`}
+          >
             {turn.user.images ? (
               <ImagePreviews images={turn.user.images} />
             ) : null}
@@ -876,21 +884,26 @@ export function ChatView({
         return;
       }
       if (loadedOlder) {
+        // Give Virtuoso two frames to ingest the prepended turns and
+        // re-measure before scrolling, otherwise the offset estimate is
+        // based on stale heights.
         await new Promise<void>((resolve) => {
-          window.requestAnimationFrame(() => resolve());
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => resolve());
+          });
         });
       }
-      if (
-        token !== jumpToken.current ||
-        !scrollToTurn(virtuoso.current, current, index, visibleTurn)
-      ) {
+      if (token !== jumpToken.current) {
         return;
       }
+      // Immediate feedback: highlight the target and activate the outline
+      // tick before the scroll settles.
       setHighlightedId(turnId);
       window.setTimeout(
         () => setHighlightedId((id) => (id === turnId ? undefined : id)),
-        1200
+        1600
       );
+      scrollToTurn(virtuoso.current, current, index, visibleTurn);
     } finally {
       window.setTimeout(() => {
         if (jumpToken.current === token) {
@@ -1233,7 +1246,9 @@ export function ChatView({
           data={turnWindow.turns}
           defaultItemHeight={160}
           firstItemIndex={turnWindow.start}
-          followOutput="smooth"
+          followOutput={(atBottom) =>
+            atBottom && !jumping.current.has(keyRef.current) ? "smooth" : false
+          }
           increaseViewportBy={{ bottom: 400, top: 0 }}
           itemContent={(_index, turn) => (
             <TurnCard highlighted={turn.id === highlightedId} turn={turn} />
@@ -1243,7 +1258,7 @@ export function ChatView({
           startReached={loadOlder}
         />
         <Outline
-          activeId={visibleTurn?.id}
+          activeId={highlightedId ?? visibleTurn?.id}
           metas={turnWindow.metas}
           onJump={jumpTo}
         />
