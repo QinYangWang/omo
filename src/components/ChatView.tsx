@@ -520,6 +520,7 @@ function Outline({
 }) {
   const activeIndex = metas.findIndex((meta) => meta.id === activeId);
   const wheelIndex = useRef(activeIndex);
+  const windowStart = useRef(0);
 
   useEffect(() => {
     wheelIndex.current =
@@ -531,16 +532,23 @@ function Outline({
   }
 
   const maxVisible = Math.min(OUTLINE_MAX_VISIBLE, metas.length);
-  const start =
-    activeIndex >= 0
-      ? Math.max(
-          0,
-          Math.min(
-            metas.length - maxVisible,
-            activeIndex - Math.floor(maxVisible / 2)
-          )
-        )
-      : Math.max(0, metas.length - maxVisible);
+  // Hysteresis window: only re-center when the active chapter leaves the
+  // visible slice, so clicking a visible tick never reshuffles the outline.
+  const maxStart = Math.max(0, metas.length - maxVisible);
+  let start = windowStart.current;
+  if (activeIndex >= 0) {
+    if (activeIndex < start) {
+      start = activeIndex;
+    } else if (activeIndex >= start + maxVisible) {
+      start = activeIndex - maxVisible + 1;
+    }
+  } else {
+    start = maxStart;
+  }
+  start = Math.max(0, Math.min(maxStart, start));
+  if (start !== windowStart.current) {
+    windowStart.current = start;
+  }
   const visible = metas.slice(start, start + maxVisible);
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     if (
@@ -589,10 +597,10 @@ function Outline({
               <span
                 aria-hidden="true"
                 className={cn(
-                  "h-px rounded-full transition-all duration-150 group-hover/tick:w-10",
+                  "h-px rounded-full transition-all duration-150",
                   active
-                    ? "w-6 bg-primary group-hover/tick:bg-primary"
-                    : "w-4 bg-muted-foreground/40 group-hover/tick:bg-foreground"
+                    ? "w-6 bg-primary group-hover/tick:w-10"
+                    : "w-4 bg-muted-foreground/40 group-hover/tick:w-10 group-hover/tick:bg-muted-foreground"
                 )}
               />
             </button>
