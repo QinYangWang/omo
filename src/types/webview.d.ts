@@ -155,6 +155,15 @@ interface omoApi {
     diff: (cwd: string, file: string) => Promise<string>;
     branches: (cwd: string) => Promise<{ name: string; current: boolean }[]>;
   };
+  models: {
+    list: () => Promise<AgentModelInfo[]>;
+    setEnabled: (enabled: string[]) => Promise<AgentModelInfo[]>;
+  };
+  packages: {
+    list: () => Promise<AgentPackageInfo[]>;
+    install: (source: string) => Promise<AgentPackageInfo[]>;
+    remove: (source: string) => Promise<AgentPackageInfo[]>;
+  };
   pi: {
     open: (
       sessionId: string,
@@ -164,6 +173,11 @@ interface omoApi {
       messages: unknown[];
       cursor: number;
       hasMore: boolean;
+      outline?: {
+        absoluteIndex: number;
+        id: string;
+        userPreview: string;
+      }[];
       model?: { id: string; provider: string; name: string } | null;
       thinkingLevel?: string;
     }>;
@@ -214,6 +228,9 @@ interface omoApi {
     all: () => Promise<PiSession[]>;
     import: (sourcePath: string, cwd: string) => Promise<string>;
   };
+  skills: {
+    list: () => Promise<AgentSkillInfo[]>;
+  };
   term: {
     create: (cwd?: string) => Promise<void>;
     input: (data: string) => void;
@@ -236,18 +253,6 @@ interface omoApi {
         cost: number;
       }[];
     }>;
-  };
-  skills: {
-    list: () => Promise<AgentSkillInfo[]>;
-  };
-  models: {
-    list: () => Promise<AgentModelInfo[]>;
-    setEnabled: (enabled: string[]) => Promise<AgentModelInfo[]>;
-  };
-  packages: {
-    list: () => Promise<AgentPackageInfo[]>;
-    install: (source: string) => Promise<AgentPackageInfo[]>;
-    remove: (source: string) => Promise<AgentPackageInfo[]>;
   };
   windowControls: {
     setTitleBarOverlay: (options: {

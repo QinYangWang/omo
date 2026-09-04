@@ -25,6 +25,26 @@ import { type I18nKey, useI18n } from "@/lib/i18n";
 import { getServerApi, useServers } from "@/lib/servers";
 import { cn } from "@/lib/utils";
 
+const COLLAPSED_SESSION_LIMIT = 5;
+
+function getVisibleSessions(
+  sessions: PiSession[],
+  activeSession: string | null,
+  expanded: boolean
+): PiSession[] {
+  if (expanded) {
+    return sessions;
+  }
+  const visibleSessions = sessions.slice(0, COLLAPSED_SESSION_LIMIT);
+  const activeProjectSession = sessions.find(
+    (session) => activeSession === session.path || activeSession === session.id
+  );
+  if (activeProjectSession && !visibleSessions.includes(activeProjectSession)) {
+    visibleSessions.push(activeProjectSession);
+  }
+  return visibleSessions;
+}
+
 export function Sidebar({
   projects,
   sessions,
@@ -49,6 +69,9 @@ export function Sidebar({
   const [importProject, setImportProject] = useState<Project | null>(null);
   const [projectSessions, setProjectSessions] = useState<PiSession[]>([]);
   const [expandedProjects, setExpandedProjects] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedSessionLists, setExpandedSessionLists] = useState<
     Record<string, boolean>
   >({});
   const multiServer = servers.length > 1;
@@ -104,77 +127,113 @@ export function Sidebar({
               <Folder className="size-4" /> {t("add_project")}
             </Button>
           )}
-          {projects.map((project) => (
-            <Collapsible
-              key={project.id}
-              onOpenChange={(open) =>
-                setExpandedProjects((current) => ({
-                  ...current,
-                  [project.id]: open,
-                }))
-              }
-              open={expandedProjects[project.id] ?? true}
-            >
-              <section>
-                <div className="group flex h-8 items-center gap-2 px-2">
-                  <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                    <ChevronRight
-                      className={cn(
-                        "size-4 shrink-0 text-muted-foreground transition-transform",
-                        (expandedProjects[project.id] ?? true) && "rotate-90"
-                      )}
-                    />
-                    <Folder className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate font-medium text-sm">
-                      {project.name}
-                    </span>
-                    {multiServer ? (
-                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                        {serverName(project.serverId)}
-                      </span>
-                    ) : null}
-                  </CollapsibleTrigger>
-                  <Button
-                    className="size-6 opacity-60 hover:opacity-100"
-                    onClick={() => openImport(project)}
-                    size="icon"
-                    title={t("import_session")}
-                    variant="ghost"
-                  >
-                    <Import className="size-3.5" />
-                  </Button>
-                  <Button
-                    className="size-6 opacity-60 hover:opacity-100"
-                    onClick={() => onNewSession(project)}
-                    size="icon"
-                    title={t("new_session")}
-                    variant="ghost"
-                  >
-                    <Plus className="size-3.5" />
-                  </Button>
-                </div>
-                <CollapsibleContent>
-                  <div className="ml-5 border-border border-l pl-1">
-                    {(sessions[project.id] ?? []).map((session) => (
-                      <Button
+          {projects.map((project) => {
+            const projectSessionItems = sessions[project.id] ?? [];
+            const sessionListExpanded =
+              expandedSessionLists[project.id] ?? false;
+            const visibleSessions = getVisibleSessions(
+              projectSessionItems,
+              activeSession,
+              sessionListExpanded
+            );
+
+            return (
+              <Collapsible
+                key={project.id}
+                onOpenChange={(open) =>
+                  setExpandedProjects((current) => ({
+                    ...current,
+                    [project.id]: open,
+                  }))
+                }
+                open={expandedProjects[project.id] ?? true}
+              >
+                <section>
+                  <div className="group flex h-8 items-center gap-2 px-2">
+                    <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                      <ChevronRight
                         className={cn(
-                          "h-auto w-full justify-start truncate rounded-md px-2 py-1.5 font-normal text-muted-foreground text-sm hover:text-foreground",
-                          activeSession === session.path &&
-                            "bg-accent text-foreground"
+                          "size-4 shrink-0 text-muted-foreground transition-transform",
+                          (expandedProjects[project.id] ?? true) && "rotate-90"
                         )}
-                        key={session.path}
-                        onClick={() => onSelectSession(project, session)}
-                        title={session.name || session.firstMessage}
-                        variant="ghost"
-                      >
-                        {session.name || session.firstMessage || t("untitled")}
-                      </Button>
-                    ))}
+                      />
+                      <Folder className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate font-medium text-sm">
+                        {project.name}
+                      </span>
+                      {multiServer ? (
+                        <span className="shrink-0 rounded-sm border border-border px-1 py-px text-[10px] text-muted-foreground">
+                          {serverName(project.serverId)}
+                        </span>
+                      ) : null}
+                    </CollapsibleTrigger>
+                    <Button
+                      aria-label={t("import_session")}
+                      className="size-6 opacity-0 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-60"
+                      onClick={() => openImport(project)}
+                      size="icon"
+                      title={t("import_session")}
+                      variant="ghost"
+                    >
+                      <Import className="size-3.5" />
+                    </Button>
+                    <Button
+                      aria-label={t("new_session")}
+                      className="size-6 opacity-60 hover:opacity-100"
+                      onClick={() => onNewSession(project)}
+                      size="icon"
+                      title={t("new_session")}
+                      variant="ghost"
+                    >
+                      <Plus className="size-3.5" />
+                    </Button>
                   </div>
-                </CollapsibleContent>
-              </section>
-            </Collapsible>
-          ))}
+                  <CollapsibleContent>
+                    <div className="ml-5 border-border border-l pl-1">
+                      {visibleSessions.map((session) => (
+                        <Button
+                          className={cn(
+                            "h-auto w-full justify-start truncate rounded-md px-2 py-1.5 font-normal text-muted-foreground text-sm hover:text-foreground",
+                            (activeSession === session.path ||
+                              activeSession === session.id) &&
+                              "bg-accent text-foreground"
+                          )}
+                          key={session.path}
+                          onClick={() => onSelectSession(project, session)}
+                          title={session.name || session.firstMessage}
+                          variant="ghost"
+                        >
+                          <span className="truncate">
+                            {session.name ||
+                              session.firstMessage ||
+                              t("untitled")}
+                          </span>
+                        </Button>
+                      ))}
+                      {projectSessionItems.length > COLLAPSED_SESSION_LIMIT ? (
+                        <Button
+                          className="h-7 w-full justify-start px-2 font-normal text-muted-foreground text-xs"
+                          onClick={() =>
+                            setExpandedSessionLists((current) => ({
+                              ...current,
+                              [project.id]: !sessionListExpanded,
+                            }))
+                          }
+                          variant="ghost"
+                        >
+                          {sessionListExpanded
+                            ? t("show_fewer_sessions")
+                            : t("show_all_sessions", {
+                                count: String(projectSessionItems.length),
+                              })}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </CollapsibleContent>
+                </section>
+              </Collapsible>
+            );
+          })}
         </div>
       </ScrollArea>
       <div className="p-2">

@@ -1,14 +1,18 @@
-import { Check, ChevronRight, LoaderCircle, Wrench, X } from "lucide-react";
+import { Check, LoaderCircle, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { TextResponse } from "@/components/aicss/TextResponse";
+import { ThinkingReasoning } from "@/components/aicss/ThinkingReasoning";
 import type { RenderBlock } from "@/lib/pi-adapter";
 import { cn } from "@/lib/utils";
 
 function MarkdownBlock({ content }: { content: string }) {
   return (
-    <div className="typeset typeset-docs w-full max-w-full">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-    </div>
+    <TextResponse>
+      <div className="typeset typeset-docs w-full max-w-full">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    </TextResponse>
   );
 }
 
@@ -20,23 +24,9 @@ function ReasoningBlock({
   status: "running" | "done";
 }) {
   return (
-    <details
-      className="w-full rounded-lg bg-accent text-sm"
-      open={status === "running"}
-    >
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-muted-foreground hover:text-foreground">
-        <ChevronRight className="size-3.5 in-open:rotate-90" />
-        <span className="text-xs">Reasoning</span>
-        {status === "running" ? (
-          <LoaderCircle className="ml-auto size-3.5 animate-spin" />
-        ) : null}
-      </summary>
-      {content ? (
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-border border-t px-3 py-2 text-muted-foreground text-xs leading-relaxed">
-          {content}
-        </pre>
-      ) : null}
-    </details>
+    <ThinkingReasoning status={status}>
+      {content ? <pre className="whitespace-pre-wrap">{content}</pre> : null}
+    </ThinkingReasoning>
   );
 }
 

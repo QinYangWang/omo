@@ -3,12 +3,12 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/lib/i18n";
+import { normalizeBaseUrl } from "@/lib/remote-api";
 import {
   addRemoteServer,
   setLocalServerToken,
   testServerConnection,
 } from "@/lib/servers";
-import { normalizeBaseUrl } from "@/lib/remote-api";
 
 function HostedLogin({ onDone }: { onDone: () => void }) {
   const { t } = useI18n();
@@ -119,7 +119,7 @@ export function OnboardingGate({ onDone }: { onDone: () => void }) {
       <div className="flex w-full max-w-sm flex-col gap-6">
         <div className="text-center">
           <Asterisk
-            className="mx-auto mb-4 size-8 text-warning"
+            className="mx-auto mb-4 size-8 text-foreground"
             strokeWidth={1.6}
           />
           <h1 className="font-medium text-xl">{t("onboarding_title")}</h1>
@@ -127,7 +127,7 @@ export function OnboardingGate({ onDone }: { onDone: () => void }) {
             {t(hosted ? "onboarding_desc" : "onboarding_static_desc")}
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-5">
           {hosted && !showRemote ? (
             <HostedLogin onDone={onDone} />
           ) : (

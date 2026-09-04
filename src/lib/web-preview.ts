@@ -39,6 +39,35 @@ export function installWebPreviewApi() {
         `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-old UI\n+shadcn Base UI\n`,
       status: async () => " M src/components/ChatView.tsx\n M src/index.css",
     },
+    models: {
+      list: async () => [
+        {
+          enabled: true,
+          id: "claude-sonnet-4",
+          name: "Claude Sonnet 4",
+          provider: "anthropic",
+        },
+        {
+          enabled: false,
+          id: "gpt-5.5",
+          name: "GPT-5.5",
+          provider: "openai-codex",
+        },
+      ],
+      setEnabled: async () => [],
+    },
+    packages: {
+      install: async () => [],
+      list: async () => [
+        {
+          kind: "npm",
+          name: "@example/pi-tools",
+          source: "npm:@example/pi-tools",
+          version: "1.2.0",
+        },
+      ],
+      remove: async () => [],
+    },
     pi: {
       abort: async () => undefined,
       commands: async () => [
@@ -107,6 +136,15 @@ export function installWebPreviewApi() {
       import: async () => previewSessions[0].path,
       list: async () => previewSessions,
     },
+    skills: {
+      list: async () => [
+        {
+          description: "Review the current changes against the code standards",
+          filePath: "/workspace/omo/.agents/skills/review/SKILL.md",
+          name: "review",
+        },
+      ],
+    },
     term: {
       create: async () => undefined,
       input: () => undefined,
@@ -140,43 +178,5 @@ export function installWebPreviewApi() {
       }),
     },
     windowControls: { setTitleBarOverlay: () => undefined },
-    skills: {
-      list: async () => [
-        {
-          description: "Review the current changes against the code standards",
-          filePath: "/workspace/omo/.agents/skills/review/SKILL.md",
-          name: "review",
-        },
-      ],
-    },
-    models: {
-      list: async () => [
-        {
-          enabled: true,
-          id: "claude-sonnet-4",
-          name: "Claude Sonnet 4",
-          provider: "anthropic",
-        },
-        {
-          enabled: false,
-          id: "gpt-5.5",
-          name: "GPT-5.5",
-          provider: "openai-codex",
-        },
-      ],
-      setEnabled: async () => [],
-    },
-    packages: {
-      install: async () => [],
-      list: async () => [
-        {
-          kind: "npm",
-          name: "@example/pi-tools",
-          source: "npm:@example/pi-tools",
-          version: "1.2.0",
-        },
-      ],
-      remove: async () => [],
-    },
   };
 }

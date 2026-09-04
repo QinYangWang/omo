@@ -18,6 +18,7 @@ import { omo } from "@/lib/omo";
 import {
   getDefaultServerId,
   getServerApi,
+  type OmoServer,
   useServers,
 } from "@/lib/servers";
 import { useTheme } from "@/lib/theme";
@@ -25,6 +26,138 @@ import { cn, randomUUID } from "@/lib/utils";
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 const macPlatformPattern = /Mac/;
+
+function syncWindowTitle(view: "chat" | "settings", panelOpen: boolean) {
+  const styles = getComputedStyle(document.documentElement);
+  const colorVariable =
+    view === "chat" && panelOpen ? "--window-panel" : "--window-background";
+  omo.windowControls.setTitleBarOverlay({
+    color: styles.getPropertyValue(colorVariable).trim(),
+    symbolColor: styles.getPropertyValue("--window-control").trim(),
+  });
+}
+
+/** Keep the native title bar overlay color in sync with the applied theme. */
+function useTitleBarOverlay(
+  view: "chat" | "settings",
+  panelOpen: boolean,
+  theme: "dark" | "light" | "system"
+) {
+  useEffect(() => {
+    let frame = requestAnimationFrame(() => syncWindowTitle(view, panelOpen));
+    const resync = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => syncWindowTitle(view, panelOpen));
+    };
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const onSchemeChange = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => syncWindowTitle(view, panelOpen));
+    };
+    if (theme === "system") {
+      media.addEventListener("change", onSchemeChange);
+    }
+    const observer = new MutationObserver(resync);
+    observer.observe(document.head, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      media.removeEventListener("change", onSchemeChange);
+      observer.disconnect();
+    };
+  }, [panelOpen, theme, view]);
+}
+
+async function loadTaggedProjects(servers: OmoServer[]): Promise<Project[]> {
+  const results = await Promise.all(
+    servers.map(async (server) => {
+      try {
+        const items = await getServerApi(server.id).projects.list();
+        return items.map((project) => ({
+          ...project,
+          id: `${server.id}:${project.id}`,
+          serverId: server.id,
+        }));
+      } catch (error) {
+        console.warn(`Unable to list projects of ${server.name}`, error);
+        return [];
+      }
+    })
+  );
+  return results.flat();
+}
+
+async function loadSessionMap(
+  tagged: Project[]
+): Promise<Record<string, PiSession[]>> {
+  const nextSessions: Record<string, PiSession[]> = {};
+  await Promise.all(
+    tagged.map(async (project) => {
+      try {
+        nextSessions[project.id] = await getServerApi(
+          project.serverId
+        ).sessions.list(project.cwd);
+      } catch (error) {
+        console.warn(`Unable to list sessions of ${project.name}`, error);
+      }
+    })
+  );
+  return nextSessions;
+}
+
+function HeaderNav({
+  activeSessionIndex,
+  canGoNext,
+  collapsed,
+  onCollapse,
+  onNext,
+  onPrevious,
+}: {
+  activeSessionIndex: number;
+  canGoNext: boolean;
+  collapsed: boolean;
+  onCollapse: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5" style={noDrag}>
+      <Button
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        onClick={onCollapse}
+        size="icon"
+        variant="ghost"
+      >
+        {collapsed ? (
+          <PanelLeft className="size-4" />
+        ) : (
+          <PanelLeftClose className="size-4" />
+        )}
+      </Button>
+      <Button
+        aria-label="Previous session"
+        disabled={activeSessionIndex <= 0}
+        onClick={onPrevious}
+        size="icon"
+        variant="ghost"
+      >
+        <ArrowLeft className="size-4" />
+      </Button>
+      <Button
+        aria-label="Next session"
+        disabled={activeSessionIndex < 0 || !canGoNext}
+        onClick={onNext}
+        size="icon"
+        variant="ghost"
+      >
+        <ArrowRight className="size-4" />
+      </Button>
+    </div>
+  );
+}
 
 function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
   const startX = useRef(0);
@@ -63,7 +196,7 @@ function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
 
 export default function App() {
   const { t } = useI18n();
-  const { overrides, theme } = useTheme();
+  const { theme } = useTheme();
   const [view, setView] = useState<"chat" | "settings">("chat");
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<Record<string, PiSession[]>>({});
@@ -83,71 +216,21 @@ export default function App() {
   const [panelW, setPanelW] = useState(400);
   const [collapsed, setCollapsed] = useState(false);
   const isMac = macPlatformPattern.test(navigator.platform);
-
-  useEffect(() => {
-    const syncTitleBar = () => {
-      const styles = getComputedStyle(document.documentElement);
-      const colorVariable =
-        view === "chat" && panelOpen ? "--window-panel" : "--window-background";
-      omo.windowControls.setTitleBarOverlay({
-        color: styles.getPropertyValue(colorVariable).trim(),
-        symbolColor: styles.getPropertyValue("--window-control").trim(),
-      });
-    };
-    let frame = requestAnimationFrame(syncTitleBar);
-    const media = matchMedia("(prefers-color-scheme: dark)");
-    const onSchemeChange = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(syncTitleBar);
-    };
-    if (theme === "system") {
-      media.addEventListener("change", onSchemeChange);
-    }
-    return () => {
-      cancelAnimationFrame(frame);
-      media.removeEventListener("change", onSchemeChange);
-    };
-  }, [panelOpen, theme, view, overrides]);
+  useTitleBarOverlay(view, panelOpen, theme);
 
   const servers = useServers();
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const results = await Promise.all(
-        servers.map(async (server) => {
-          try {
-            const items = await getServerApi(server.id).projects.list();
-            return items.map((project) => ({
-              ...project,
-              id: `${server.id}:${project.id}`,
-              serverId: server.id,
-            }));
-          } catch (error) {
-            console.warn(`Unable to list projects of ${server.name}`, error);
-            return [];
-          }
-        })
-      );
-      const tagged = results.flat();
+      const tagged = await loadTaggedProjects(servers);
       if (cancelled) {
         return;
       }
       setProjects(tagged);
-      const nextSessions: Record<string, PiSession[]> = {};
-      await Promise.all(
-        tagged.map(async (project) => {
-          try {
-            nextSessions[project.id] = await getServerApi(
-              project.serverId
-            ).sessions.list(project.cwd);
-          } catch (error) {
-            console.warn(`Unable to list sessions of ${project.name}`, error);
-          }
-        })
-      );
+      const sessionsByProject = await loadSessionMap(tagged);
       if (!cancelled) {
-        setSessions(nextSessions);
+        setSessions(sessionsByProject);
       }
     };
     load();
@@ -216,41 +299,14 @@ export default function App() {
     });
   };
   const headerNavigation = (
-    <div className="flex items-center gap-0.5" style={noDrag}>
-      <Button
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        onClick={() => setCollapsed((value) => !value)}
-        size="icon"
-        variant="ghost"
-      >
-        {collapsed ? (
-          <PanelLeft className="size-4" />
-        ) : (
-          <PanelLeftClose className="size-4" />
-        )}
-      </Button>
-      <Button
-        aria-label="Previous session"
-        disabled={activeSessionIndex <= 0}
-        onClick={() => openSessionAt(activeSessionIndex - 1)}
-        size="icon"
-        variant="ghost"
-      >
-        <ArrowLeft className="size-4" />
-      </Button>
-      <Button
-        aria-label="Next session"
-        disabled={
-          activeSessionIndex < 0 ||
-          activeSessionIndex >= sessionEntries.length - 1
-        }
-        onClick={() => openSessionAt(activeSessionIndex + 1)}
-        size="icon"
-        variant="ghost"
-      >
-        <ArrowRight className="size-4" />
-      </Button>
-    </div>
+    <HeaderNav
+      activeSessionIndex={activeSessionIndex}
+      canGoNext={activeSessionIndex < sessionEntries.length - 1}
+      collapsed={collapsed}
+      onCollapse={() => setCollapsed((value) => !value)}
+      onNext={() => openSessionAt(activeSessionIndex + 1)}
+      onPrevious={() => openSessionAt(activeSessionIndex - 1)}
+    />
   );
 
   const titlebarLeftPadding = isMac
@@ -371,7 +427,7 @@ export default function App() {
               collapsed && "pl-2"
             )}
           >
-            {active?.title ?? t("new_task")}
+            {active?.title || t("new_task")}
           </div>
           <div className="flex items-center" style={noDrag}>
             <Button aria-label="Session info" size="icon" variant="ghost">

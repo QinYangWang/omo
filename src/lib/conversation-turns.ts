@@ -129,14 +129,16 @@ export function emptyWindow(): TurnWindow {
 export function windowFromMessages(
   messages: ChatMessage[],
   cursor: number,
-  hasMore: boolean
+  hasMore: boolean,
+  outline: TurnMeta[] = []
 ): TurnWindow {
   const turns = toTurns(messages, cursor);
-  const total = cursor + turns.length;
+  const metas = outline.length ? outline : toTurnMeta(turns);
+  const total = Math.max(cursor + turns.length, metas.length);
   return {
     end: cursor + turns.length,
     hasOlder: hasMore,
-    metas: toTurnMeta(turns),
+    metas,
     start: cursor,
     startCursor: cursor,
     total,
@@ -150,12 +152,13 @@ export function prependWindow(
   cursor: number,
   hasMore: boolean
 ): TurnWindow {
-  const turns = toTurns(older, current.start - toTurns(older).length);
+  const turns = toTurns(older, cursor);
+  const metas = mergeTurnMetas(current.metas, turns);
   return {
     ...current,
     hasOlder: hasMore,
-    metas: toTurnMeta([...turns, ...current.turns]),
-    start: current.start - turns.length,
+    metas,
+    start: cursor,
     startCursor: cursor,
     turns: [...turns, ...current.turns],
   };
@@ -174,12 +177,30 @@ export function appendMessages(
       turns.push(turn);
     }
   }
+  const metas = mergeTurnMetas(current.metas, appended);
   return {
     ...current,
     end: current.start + turns.length,
-    metas: toTurnMeta(turns),
+    metas,
+    total: Math.max(current.total, current.start + turns.length, metas.length),
     turns,
   };
+}
+
+function mergeTurnMetas(
+  current: TurnMeta[],
+  additions: ConversationTurn[]
+): TurnMeta[] {
+  if (!additions.length) {
+    return current;
+  }
+  const byIndex = new Map(current.map((meta) => [meta.absoluteIndex, meta]));
+  for (const meta of toTurnMeta(additions)) {
+    byIndex.set(meta.absoluteIndex, meta);
+  }
+  return [...byIndex.values()].sort(
+    (left, right) => left.absoluteIndex - right.absoluteIndex
+  );
 }
 
 export function updateLastTurn(
@@ -191,11 +212,16 @@ export function updateLastTurn(
   if (!last) {
     return current;
   }
-  turns[turns.length - 1] = {
+  const updatedTurn = {
     ...last,
     items: update([last.user, ...last.items]).filter(
       (item) => item.role !== "user"
     ),
   };
-  return { ...current, metas: toTurnMeta(turns), turns };
+  turns[turns.length - 1] = updatedTurn;
+  return {
+    ...current,
+    metas: mergeTurnMetas(current.metas, [updatedTurn]),
+    turns,
+  };
 }

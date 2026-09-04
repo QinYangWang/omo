@@ -19,6 +19,16 @@ contextBridge.exposeInMainWorld("omo", {
     diff: (cwd, file) => ipcRenderer.invoke("git:diff", { cwd, file }),
     status: (cwd) => ipcRenderer.invoke("git:status", cwd),
   },
+  models: {
+    list: () => ipcRenderer.invoke("models:list"),
+    setEnabled: (enabled) =>
+      ipcRenderer.invoke("models:set-enabled", { enabled }),
+  },
+  packages: {
+    install: (source) => ipcRenderer.invoke("packages:install", { source }),
+    list: () => ipcRenderer.invoke("packages:list"),
+    remove: (source) => ipcRenderer.invoke("packages:remove", { source }),
+  },
   pi: {
     abort: (sessionId) => ipcRenderer.invoke("pi:abort", { sessionId }),
     commands: (sessionId, cwd, sessionPath) =>
@@ -72,6 +82,7 @@ contextBridge.exposeInMainWorld("omo", {
       ipcRenderer.invoke("sessions:import", { cwd, sourcePath }),
     list: (cwd) => ipcRenderer.invoke("sessions:list", cwd),
   },
+  skills: { list: () => ipcRenderer.invoke("skills:list") },
   term: {
     create: (cwd) => ipcRenderer.invoke("term:create", cwd),
     input: (data) => ipcRenderer.send("term:input", data),
@@ -82,17 +93,6 @@ contextBridge.exposeInMainWorld("omo", {
     },
   },
   usage: { snapshot: () => ipcRenderer.invoke("usage:snapshot") },
-  skills: { list: () => ipcRenderer.invoke("skills:list") },
-  models: {
-    list: () => ipcRenderer.invoke("models:list"),
-    setEnabled: (enabled) =>
-      ipcRenderer.invoke("models:set-enabled", { enabled }),
-  },
-  packages: {
-    install: (source) => ipcRenderer.invoke("packages:install", { source }),
-    list: () => ipcRenderer.invoke("packages:list"),
-    remove: (source) => ipcRenderer.invoke("packages:remove", { source }),
-  },
   windowControls: {
     setTitleBarOverlay: (options) =>
       ipcRenderer.send("window:set-title-bar-overlay", options),

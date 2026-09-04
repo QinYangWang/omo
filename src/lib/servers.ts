@@ -8,7 +8,7 @@ const REMOTES_STORAGE_KEY = "omo:servers";
 const LEGACY_URL_KEY = "omo:server-url";
 const LEGACY_TOKEN_KEY = "omo:server-token";
 const STATUS_POLL_MS = 15_000;
-const STATUS_TIMEOUT_MS = 8_000;
+const STATUS_TIMEOUT_MS = 8000;
 
 export interface OmoServer {
   id: string;
@@ -110,7 +110,9 @@ function readWebRemotes(): OmoStoredRemoteServer[] {
     console.error("Unable to parse stored remote servers", error);
   }
   // Migrate the legacy single-server configuration.
-  const legacyUrl = normalizeBaseUrl(localStorage.getItem(LEGACY_URL_KEY) || "");
+  const legacyUrl = normalizeBaseUrl(
+    localStorage.getItem(LEGACY_URL_KEY) || ""
+  );
   if (legacyUrl) {
     return [
       {
@@ -217,7 +219,9 @@ export async function needsOnboarding(): Promise<boolean> {
     return false;
   }
   // The localhost Vite preview remains accessible without onboarding.
-  return !(location.hostname === "localhost" || location.hostname === "127.0.0.1");
+  return !(
+    location.hostname === "localhost" || location.hostname === "127.0.0.1"
+  );
 }
 
 export function getDefaultServerId(): string {

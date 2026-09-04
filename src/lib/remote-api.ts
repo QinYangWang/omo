@@ -279,6 +279,15 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
         (await request<{ output: string }>(`/git/status?${query({ cwd })}`))
           .output,
     },
+    models: {
+      list: () => request("/models"),
+      setEnabled: (enabled) => post("/models", { enabled }),
+    },
+    packages: {
+      install: (source) => post("/packages/install", { source }),
+      list: () => request("/packages"),
+      remove: (source) => post("/packages/remove", { source }),
+    },
     pi: {
       abort: async (sessionId) => {
         await post("/pi/abort", { sessionId });
@@ -298,6 +307,11 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
           eventSequence?: number;
           hasMore: boolean;
           messages: unknown[];
+          outline?: {
+            absoluteIndex: number;
+            id: string;
+            userPreview: string;
+          }[];
           model?: { id: string; name: string; provider: string } | null;
           thinkingLevel?: string;
         }>("/pi/open", {
@@ -360,6 +374,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
           .path,
       list: (cwd) => request(`/sessions?${query({ cwd })}`),
     },
+    skills: { list: () => request("/skills") },
     term: {
       create: async (cwd) => {
         if (terminalId && terminalSocket?.readyState !== WebSocket.CLOSED) {
@@ -389,16 +404,6 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
       },
     },
     usage: { snapshot: () => request("/usage") },
-    skills: { list: () => request("/skills") },
-    models: {
-      list: () => request("/models"),
-      setEnabled: (enabled) => post("/models", { enabled }),
-    },
-    packages: {
-      install: (source) => post("/packages/install", { source }),
-      list: () => request("/packages"),
-      remove: (source) => post("/packages/remove", { source }),
-    },
     windowControls: { setTitleBarOverlay: () => undefined },
   };
 }

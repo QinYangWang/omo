@@ -42,7 +42,9 @@ function loadOverrides(): ThemeOverrides {
         return {};
       }
       const result: Record<string, string> = {};
-      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      for (const [key, item] of Object.entries(
+        value as Record<string, unknown>
+      )) {
         if (key.startsWith("--") && typeof item === "string") {
           result[key] = item;
         }
@@ -88,6 +90,27 @@ export function exportThemeCss(overrides: ThemeOverrides): string {
 
 const blockPattern = /([^{}]+)\{([^{}]*)\}/g;
 const declarationPattern = /(--[\w-]+)\s*:\s*([^;]+);?/g;
+const rootSelectorPattern = /(^|,)\s*:root\s*$/;
+const darkSelectorPattern = /(^|,)\s*\.dark\s*$/;
+
+/** Which override bucket a parsed declaration belongs to. */
+function bucketFor(
+  name: string,
+  result: ThemeOverrides,
+  isDark: boolean,
+  isTypeset: boolean
+): Record<string, string> {
+  if (isTypesetToken(name)) {
+    return result.shared;
+  }
+  if (isDark) {
+    return result.dark;
+  }
+  if (isTypeset) {
+    return result.shared;
+  }
+  return result.light;
+}
 
 /**
  * Parse a pasted shadcn / tweakcn / typeset theme into overrides.
@@ -100,11 +123,10 @@ export function parseThemeCss(
 ): ThemeOverrides {
   const result: ThemeOverrides = { dark: {}, light: {}, shared: {} };
   let matchedKnownBlock = false;
-  for (const match of css.matchAll(blockPattern)) {
-    const selector = match[1].trim();
-    const body = match[2];
-    const isRoot = /(^|,)\s*:root\s*$/.test(selector) || selector === ":root";
-    const isDark = /(^|,)\s*\.dark\s*$/.test(selector);
+  for (const [_fullMatch, selectorBody, body] of css.matchAll(blockPattern)) {
+    const selector = selectorBody.trim();
+    const isRoot = rootSelectorPattern.test(selector) || selector === ":root";
+    const isDark = darkSelectorPattern.test(selector);
     const isTypeset = selector.includes(".typeset-docs");
     if (!(isRoot || isDark || isTypeset)) {
       continue;
@@ -112,13 +134,7 @@ export function parseThemeCss(
     matchedKnownBlock = true;
     for (const decl of body.matchAll(declarationPattern)) {
       const [, name, value] = decl;
-      const target = isTypesetToken(name)
-        ? result.shared
-        : isDark
-          ? result.dark
-          : isTypeset
-            ? result.shared
-            : result.light;
+      const target = bucketFor(name, result, isDark, isTypeset);
       target[name] = value.trim();
     }
   }
@@ -213,7 +229,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, [overrides]);
 
-  const setOverride = (name: string, value: string | null, mode: OverrideMode) => {
+  const setOverride = (
+    name: string,
+    value: string | null,
+    mode: OverrideMode
+  ) => {
     setOverrides((current) => {
       const bucket = { ...current[mode] };
       if (value === null || value === "") {

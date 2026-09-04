@@ -1,0 +1,18 @@
+.prose {
+  --typeset-flow: 1.1em;
+
+  width: 100%;
+  max-width: 100%;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.prose p {
+  text-wrap: pretty;
+}
+
+.prose :not(pre) > code {
+  background: color-mix(in oklab, var(--muted) 72%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: var(--radius-sm);
+}

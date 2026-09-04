@@ -55,7 +55,7 @@ export const themeTokenGroups: TokenGroup[] = [
       { name: "--input" },
       { name: "--ring" },
       {
-        fallback: "0.625rem",
+        fallback: "0.375rem",
         name: "--radius",
         slider: { max: 2, min: 0, step: 0.125 },
       },
@@ -109,21 +109,26 @@ export const themeTokenGroups: TokenGroup[] = [
     key: "theme_group_typography",
     tokens: [
       {
-        fallback: 'var(--font-geist)',
+        fallback: "var(--font-geist)",
         name: "--typeset-font-body",
         shared: true,
       },
       {
-        fallback: 'var(--font-geist)',
+        fallback: "var(--font-geist)",
         name: "--typeset-font-heading",
         shared: true,
       },
       {
-        fallback: 'var(--font-geist-mono)',
+        fallback: "var(--font-geist-mono)",
         name: "--typeset-font-mono",
         shared: true,
       },
-      { fallback: "15px", name: "--typeset-size", shared: true, slider: { max: 20, min: 12, step: 0.5 } },
+      {
+        fallback: "15px",
+        name: "--typeset-size",
+        shared: true,
+        slider: { max: 20, min: 12, step: 0.5 },
+      },
       {
         fallback: "1.75",
         name: "--typeset-leading",
@@ -141,6 +146,8 @@ export const themeTokenGroups: TokenGroup[] = [
 ];
 
 const colorValue = /^(#|oklch|oklab|hsla?\(|rgba?\(|color\(|var\()/i;
+const rgbTriplet =
+  /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,/\s]+([\d.]+))?\s*\)$/i;
 
 export function looksLikeColor(value: string) {
   return colorValue.test(value.trim());
@@ -171,9 +178,7 @@ export function normalizeColorToHex(value: string): string | null {
     if (serialized.startsWith("#")) {
       return serialized;
     }
-    const match = /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,/\s]+([\d.]+))?\s*\)$/i.exec(
-      serialized
-    );
+    const match = rgbTriplet.exec(serialized);
     if (!match) {
       return null;
     }

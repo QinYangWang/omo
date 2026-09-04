@@ -58,7 +58,7 @@ JSON 请求体上限为 16MB。错误响应格式：
 { "sessionId": "client-id", "cwd": "/workspace/project", "sessionPath": "optional" }
 ```
 
-返回 UI 历史分页、Pi Session 信息和当前 event sequence。
+返回 UI 历史分页、完整会话 Outline 元数据、Pi Session 信息和当前 event sequence。`cursor` 按会话轮次计数，分页不会拆开一个轮次。`outline` 的每项包含 `id`、`absoluteIndex` 和 `userPreview`，因此未加载正文的早期轮次仍可显示在大纲中。
 
 ### `POST /pi/history`
 
@@ -66,7 +66,7 @@ JSON 请求体上限为 16MB。错误响应格式：
 { "sessionId": "client-id", "before": 80 }
 ```
 
-每次最多向前返回 80 项 UI 历史。
+每次最多返回约 80 项 UI 历史，并以会话轮次的 `cursor` 作为 `before`；不会拆开一个轮次。单个超大轮次会作为最小分页单元返回，服务端必须推进 cursor，不能返回相同 cursor 的空页。
 
 ### `GET /pi/models`
 

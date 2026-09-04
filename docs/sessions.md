@@ -32,14 +32,16 @@ Prompt 在异步 Pi 任务中执行；IPC 只返回 Session 信息，消息通�
 
 ## 历史分页
 
-已有 Session 打开后，将 Pi Message 转换为 UI Message，并按 80 项分页：
+已有 Session 打开后，沿当前分支读取全部持久化的 Pi Message，转换为 UI Message，并按 80 项分页：
 
 ```text
-第一次：最后 80 项
-Load older：以当前 cursor 为终点，再向前取 80 项
+第一次：最后约 80 项（只在会话轮次边界切页）
+Load older：以当前轮次 cursor 为终点，再向前取约 80 项
 ```
 
-分页只影响 React 状态。Pi SDK 的完整 Session context 不受 UI 分页影响。
+分页只影响 React 状态。Pi SDK 的完整 Session context 不受 UI 分页影响。打开时会额外返回整条会话的大纲元数据，因此未加载正文的早期轮次也可以出现在 Outline 中。
+
+服务端先沿当前分支创建一次 history snapshot：UI Message、每个 Turn 的起始消息位置和完整 `TurnMeta` 都来自同一份快照。分页 cursor 表示 Turn 数量，不表示原始 Pi Message 数量；如果单个 Turn 本身超过页面大小，第一页仍会完整包含它并推进 cursor，避免返回空页或重复请求。
 
 ## Turn 聚合与虚拟列表
 
@@ -66,7 +68,9 @@ interface TurnMeta {
 
 Outline 直接基于 `TurnMeta` 生成，不依赖 DOM 查询。正文使用 React Virtuoso 的可变高度列表，一个 Turn 是一个虚拟列表 item。`startReached` 自动向前 prepend 更早历史，并由 Virtuoso 保持现有滚动位置；不再显示分页按钮。
 
-点击 Outline 节点时使用 `scrollToIndex()`。附近 Turn 使用 smooth scroll，远距离跳转使用 `behavior: "auto"`，随后再执行一次小幅位置校正并短暂 highlight 对应 Turn。
+`TurnWindow.start` 和 `startCursor` 保存当前正文窗口在完整会话中的绝对起点；加载更早页面时按服务端 cursor prepend，并保留完整 Outline 元数据。点击 Outline 节点时，先按 `TurnMeta.absoluteIndex` 加载到目标所在窗口，再把目标转换为当前窗口内的本地 index 传给 `scrollToIndex()`，不能直接把全局 index 当作 Virtuoso index。跳转期间暂时抑制 `startReached` 的自动加载，避免定位过程触发级联分页；连续点击时使用 token 忽略过期跳转，渲染后一帧再进行一次位置校正并短暂 highlight 对应 Turn。附近 Turn 使用 smooth scroll，远距离跳转使用 `behavior: "auto"`。
+
+会话大纲最多显示 24 条刻度。点击刻度跳转到对应用户消息；在刻度区域滚轮每次移动一个 Turn，滚轮事件不会继续滚动消息列表。顶部预加载关闭，避免上一条仅部分可见的 Turn 抢占 active 状态；底部保留预加载以减少向下滚动等待。
 
 ## Pi RenderBlock adapter
 

@@ -31,28 +31,28 @@ const SUPPORTED_PROVIDERS = [
 
 const PROVIDER_LABELS = {
   anthropic: "Anthropic",
-  "openai-codex": "OpenAI Codex",
   "github-copilot": "GitHub Copilot",
+  "kimi-coding": "Kimi Code",
+  "ollama-cloud": "Ollama Cloud",
+  "openai-codex": "OpenAI Codex",
+  "opencode-go": "OpenCode Go",
   openrouter: "OpenRouter",
   synthetic: "Synthetic",
   xai: "Grok",
   zai: "Z.ai",
-  "opencode-go": "OpenCode Go",
-  "kimi-coding": "Kimi Code",
-  "ollama-cloud": "Ollama Cloud",
 };
 
 const PROVIDER_TTLS_MS = {
   anthropic: 5 * 60_000,
-  "openai-codex": 60_000,
   "github-copilot": 5 * 60_000,
+  "kimi-coding": 60_000,
+  "ollama-cloud": 60_000,
+  "openai-codex": 60_000,
+  "opencode-go": 60_000,
   openrouter: 60_000,
   synthetic: 60_000,
   xai: 60_000,
   zai: 60_000,
-  "opencode-go": 60_000,
-  "kimi-coding": 60_000,
-  "ollama-cloud": 60_000,
 };
 
 function safePercent(used, limit) {
@@ -78,7 +78,10 @@ function parseDateish(value) {
 function monthWindowSeconds(resetAt) {
   const approxStart = new Date(resetAt);
   approxStart.setMonth(approxStart.getMonth() - 1);
-  return Math.max(1, Math.round((resetAt.getTime() - approxStart.getTime()) / 1000));
+  return Math.max(
+    1,
+    Math.round((resetAt.getTime() - approxStart.getTime()) / 1000)
+  );
 }
 
 function parseAnthropicUsage(data) {
@@ -86,21 +89,21 @@ function parseAnthropicUsage(data) {
   if (data?.five_hour) {
     windows.push({
       label: "5h",
-      usedPercent: Number(data.five_hour.utilization ?? 0),
-      resetsAt: parseDateish(data.five_hour.resets_at),
-      windowSeconds: 5 * 60 * 60,
-      usedValue: Number(data.five_hour.utilization ?? 0),
       limitValue: 100,
+      resetsAt: parseDateish(data.five_hour.resets_at),
+      usedPercent: Number(data.five_hour.utilization ?? 0),
+      usedValue: Number(data.five_hour.utilization ?? 0),
+      windowSeconds: 5 * 60 * 60,
     });
   }
   if (data?.seven_day) {
     windows.push({
       label: "7d",
-      usedPercent: Number(data.seven_day.utilization ?? 0),
-      resetsAt: parseDateish(data.seven_day.resets_at),
-      windowSeconds: 7 * 24 * 60 * 60,
-      usedValue: Number(data.seven_day.utilization ?? 0),
       limitValue: 100,
+      resetsAt: parseDateish(data.seven_day.resets_at),
+      usedPercent: Number(data.seven_day.utilization ?? 0),
+      usedValue: Number(data.seven_day.utilization ?? 0),
+      windowSeconds: 7 * 24 * 60 * 60,
     });
   }
   const modelWindows = [
@@ -110,14 +113,19 @@ function parseAnthropicUsage(data) {
   ];
   for (const [key, label] of modelWindows) {
     const entry = data?.[key];
-    if (entry && typeof entry === "object" && entry.utilization != null) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      entry.utilization !== null &&
+      entry.utilization !== undefined
+    ) {
       windows.push({
         label,
-        usedPercent: Number(entry.utilization),
-        resetsAt: parseDateish(entry.resets_at),
-        windowSeconds: 7 * 24 * 60 * 60,
-        usedValue: Number(entry.utilization),
         limitValue: 100,
+        resetsAt: parseDateish(entry.resets_at),
+        usedPercent: Number(entry.utilization),
+        usedValue: Number(entry.utilization),
+        windowSeconds: 7 * 24 * 60 * 60,
       });
     }
   }
@@ -127,26 +135,35 @@ function parseAnthropicUsage(data) {
     const usedDollars = (extra.used_credits ?? 0) / 100;
     const currency = extra.currency ?? "USD";
     windows.push({
-      label: `Extra (${currency})`,
-      usedPercent: Number(extra.utilization ?? safePercent(usedDollars, limitDollars)),
-      resetsAt: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1),
-      windowSeconds: 30 * 24 * 60 * 60,
-      usedValue: usedDollars,
-      limitValue: limitDollars,
       isCurrency: true,
+      label: `Extra (${currency})`,
+      limitValue: limitDollars,
+      resetsAt: new Date(
+        new Date().getFullYear(),
+        new Date().getMonth() + 1,
+        1
+      ),
+      usedPercent: Number(
+        extra.utilization ?? safePercent(usedDollars, limitDollars)
+      ),
+      usedValue: usedDollars,
+      windowSeconds: 30 * 24 * 60 * 60,
     });
   }
   return windows;
 }
 
 function percentLeftToUsedPercent(limit) {
-  if (limit?.percent_left != null) {
+  if (limit?.percent_left !== null && limit?.percent_left !== undefined) {
     return Math.max(0, 100 - Number(limit.percent_left));
   }
-  if (limit?.remaining_percent != null) {
+  if (
+    limit?.remaining_percent !== null &&
+    limit?.remaining_percent !== undefined
+  ) {
     return Math.max(0, 100 - Number(limit.remaining_percent));
   }
-  if (limit?.used_percent != null) {
+  if (limit?.used_percent !== null && limit?.used_percent !== undefined) {
     return Number(limit.used_percent);
   }
   return 0;
@@ -184,14 +201,17 @@ function parseCodexUsage(data) {
     rateLimit.weekly;
   const windows = [];
   if (primary) {
-    const windowSeconds = codexWindowSeconds(primary.limit_window_seconds, 5 * 60 * 60);
+    const windowSeconds = codexWindowSeconds(
+      primary.limit_window_seconds,
+      5 * 60 * 60
+    );
     windows.push({
       label: codexWindowLabel(windowSeconds),
-      usedPercent: percentLeftToUsedPercent(primary),
-      resetsAt: parseDateish(primary.reset_at ?? primary.reset_time_ms),
-      windowSeconds,
-      usedValue: percentLeftToUsedPercent(primary),
       limitValue: 100,
+      resetsAt: parseDateish(primary.reset_at ?? primary.reset_time_ms),
+      usedPercent: percentLeftToUsedPercent(primary),
+      usedValue: percentLeftToUsedPercent(primary),
+      windowSeconds,
     });
   }
   if (secondary) {
@@ -201,84 +221,104 @@ function parseCodexUsage(data) {
     );
     windows.push({
       label: codexWindowLabel(windowSeconds),
-      usedPercent: percentLeftToUsedPercent(secondary),
-      resetsAt: parseDateish(secondary.reset_at ?? secondary.reset_time_ms),
-      windowSeconds,
-      usedValue: percentLeftToUsedPercent(secondary),
       limitValue: 100,
+      resetsAt: parseDateish(secondary.reset_at ?? secondary.reset_time_ms),
+      usedPercent: percentLeftToUsedPercent(secondary),
+      usedValue: percentLeftToUsedPercent(secondary),
+      windowSeconds,
     });
   }
   const credits = data?.credits;
-  if (credits?.has_credits && credits.balance != null) {
+  if (
+    credits?.has_credits &&
+    credits.balance !== null &&
+    credits.balance !== undefined
+  ) {
     const balance = Number(credits.balance);
     windows.push({
-      label: "Credits",
-      usedPercent: 0,
-      resetsAt: new Date(0),
-      windowSeconds: 0,
-      usedValue: balance,
-      limitValue: balance,
       isCurrency: true,
+      label: "Credits",
+      limitValue: balance,
+      resetsAt: new Date(0),
+      usedPercent: 0,
+      usedValue: balance,
+      windowSeconds: 0,
+    });
+  }
+  return windows;
+}
+
+function copilotSnapshotWindows(snapshots, mappings, resetAt, periodSeconds) {
+  const windows = [];
+  for (const [key, label] of mappings) {
+    const snap = snapshots[key];
+    if (!snap || snap.unlimited) {
+      continue;
+    }
+    const entitlement = Number(snap.entitlement ?? 0);
+    const remaining = Number(snap.remaining ?? snap.quota_remaining ?? 0);
+    if (entitlement <= 0) {
+      continue;
+    }
+    windows.push({
+      label,
+      limitValue: entitlement,
+      resetsAt: resetAt,
+      usedPercent: safePercent(entitlement - remaining, entitlement),
+      usedValue: entitlement - remaining,
+      windowSeconds: periodSeconds,
+    });
+  }
+  return windows;
+}
+
+function copilotMonthlyWindows(data, resetAt, periodSeconds) {
+  const windows = [];
+  for (const [key, label] of [
+    ["chat", "Chat / month"],
+    ["completions", "Completions / month"],
+  ]) {
+    const limitValue = Number(data.monthly_quotas[key] ?? 0);
+    const remaining = Number(data.limited_user_quotas[key] ?? 0);
+    if (limitValue <= 0) {
+      continue;
+    }
+    windows.push({
+      label,
+      limitValue,
+      resetsAt: resetAt,
+      usedPercent: safePercent(limitValue - remaining, limitValue),
+      usedValue: limitValue - remaining,
+      windowSeconds: periodSeconds,
     });
   }
   return windows;
 }
 
 function parseGitHubCopilotUsage(data) {
-  const windows = [];
   const resetAt = parseDateish(
-    data?.quota_reset_date ?? data?.quota_reset_date_utc ?? data?.limited_user_reset_date
+    data?.quota_reset_date ??
+      data?.quota_reset_date_utc ??
+      data?.limited_user_reset_date
   );
   const periodSeconds = monthWindowSeconds(resetAt);
   const snapshots = data?.quota_snapshots;
   if (snapshots && typeof snapshots === "object") {
-    const mappings = [
-      ["premium_interactions", "Premium / month"],
-      ["chat", "Chat / month"],
-      ["completions", "Completions / month"],
-    ];
-    for (const [key, label] of mappings) {
-      const snap = snapshots[key];
-      if (!snap || snap.unlimited) {
-        continue;
-      }
-      const entitlement = Number(snap.entitlement ?? 0);
-      const remaining = Number(snap.remaining ?? snap.quota_remaining ?? 0);
-      if (entitlement <= 0) {
-        continue;
-      }
-      windows.push({
-        label,
-        usedPercent: safePercent(entitlement - remaining, entitlement),
-        resetsAt: resetAt,
-        windowSeconds: periodSeconds,
-        usedValue: entitlement - remaining,
-        limitValue: entitlement,
-      });
-    }
-    return windows;
+    return copilotSnapshotWindows(
+      snapshots,
+      [
+        ["premium_interactions", "Premium / month"],
+        ["chat", "Chat / month"],
+        ["completions", "Completions / month"],
+      ],
+      resetAt,
+      periodSeconds
+    );
   }
   if (data?.monthly_quotas && data?.limited_user_quotas) {
-    for (const [key, label] of [
-      ["chat", "Chat / month"],
-      ["completions", "Completions / month"],
-    ]) {
-      const limitValue = Number(data.monthly_quotas[key] ?? 0);
-      const remaining = Number(data.limited_user_quotas[key] ?? 0);
-      if (limitValue <= 0) {
-        continue;
-      }
-      windows.push({
-        label,
-        usedPercent: safePercent(limitValue - remaining, limitValue),
-        resetsAt: resetAt,
-        windowSeconds: periodSeconds,
-        usedValue: limitValue - remaining,
-        limitValue,
-      });
-    }
+    return copilotMonthlyWindows(data, resetAt, periodSeconds);
   }
-  return windows;
+  return [];
 }
 
 function nextMidnightUTC() {
@@ -317,54 +357,58 @@ function parseOpenRouterUsage(data) {
   const usageDaily = keyData.usage_daily ?? 0;
   const usageWeekly = keyData.usage_weekly ?? 0;
   const usageMonthly = keyData.usage_monthly ?? 0;
-  if (limit != null && limit > 0) {
+  if (limit !== null && limit !== undefined && limit > 0) {
     windows.push({
+      isCurrency: true,
       label: "Monthly Budget",
-      usedPercent: safePercent(usageMonthly, limit),
-      resetsAt: nextMonthStartUTC(),
-      windowSeconds: 30 * 24 * 60 * 60,
-      usedValue: usageMonthly,
       limitValue: limit,
-      isCurrency: true,
+      resetsAt: nextMonthStartUTC(),
+      usedPercent: safePercent(usageMonthly, limit),
+      usedValue: usageMonthly,
+      windowSeconds: 30 * 24 * 60 * 60,
     });
-  } else if (limitRemaining != null && limitRemaining >= 0) {
+  } else if (
+    limitRemaining !== null &&
+    limitRemaining !== undefined &&
+    limitRemaining >= 0
+  ) {
     windows.push({
-      label: "Credits Remaining",
-      usedPercent: 0,
-      resetsAt: new Date(0),
-      windowSeconds: 0,
-      usedValue: limitRemaining,
-      limitValue: limitRemaining,
       isCurrency: true,
+      label: "Credits Remaining",
+      limitValue: limitRemaining,
+      resetsAt: new Date(0),
+      usedPercent: 0,
+      usedValue: limitRemaining,
+      windowSeconds: 0,
     });
   }
   windows.push(
     {
+      isCurrency: true,
       label: "Daily",
-      usedPercent: 0,
+      limitValue: 0,
       resetsAt: nextMidnightUTC(),
-      windowSeconds: 24 * 60 * 60,
+      usedPercent: 0,
       usedValue: usageDaily,
-      limitValue: 0,
-      isCurrency: true,
+      windowSeconds: 24 * 60 * 60,
     },
     {
+      isCurrency: true,
       label: "Weekly",
-      usedPercent: 0,
-      resetsAt: nextMondayUTC(),
-      windowSeconds: 7 * 24 * 60 * 60,
-      usedValue: usageWeekly,
       limitValue: 0,
-      isCurrency: true,
+      resetsAt: nextMondayUTC(),
+      usedPercent: 0,
+      usedValue: usageWeekly,
+      windowSeconds: 7 * 24 * 60 * 60,
     },
     {
-      label: "Monthly",
-      usedPercent: 0,
-      resetsAt: nextMonthStartUTC(),
-      windowSeconds: 30 * 24 * 60 * 60,
-      usedValue: usageMonthly,
-      limitValue: 0,
       isCurrency: true,
+      label: "Monthly",
+      limitValue: 0,
+      resetsAt: nextMonthStartUTC(),
+      usedPercent: 0,
+      usedValue: usageMonthly,
+      windowSeconds: 30 * 24 * 60 * 60,
     }
   );
   return windows;
@@ -379,49 +423,58 @@ function parseSyntheticUsage(data) {
   const windows = [];
   if (data?.weeklyTokenLimit) {
     const limitValue = parseCurrency(data.weeklyTokenLimit.maxCredits);
-    const remainingValue = parseCurrency(data.weeklyTokenLimit.remainingCredits);
+    const remainingValue = parseCurrency(
+      data.weeklyTokenLimit.remainingCredits
+    );
     windows.push({
+      isCurrency: true,
       label: "Credits / week",
+      limitValue,
+      resetsAt: parseDateish(data.weeklyTokenLimit.nextRegenAt),
       usedPercent: Math.max(
         0,
         Math.min(100, 100 - data.weeklyTokenLimit.percentRemaining)
       ),
-      resetsAt: parseDateish(data.weeklyTokenLimit.nextRegenAt),
-      windowSeconds: 24 * 60 * 60,
       usedValue: limitValue - remainingValue,
-      limitValue,
-      isCurrency: true,
+      windowSeconds: 24 * 60 * 60,
     });
   }
   if (data?.rollingFiveHourLimit && data.rollingFiveHourLimit.max > 0) {
-    const used = data.rollingFiveHourLimit.max - data.rollingFiveHourLimit.remaining;
+    const used =
+      data.rollingFiveHourLimit.max - data.rollingFiveHourLimit.remaining;
     windows.push({
       label: "Requests / 5h",
-      usedPercent: safePercent(used, data.rollingFiveHourLimit.max),
-      resetsAt: parseDateish(data.rollingFiveHourLimit.nextTickAt),
-      windowSeconds: 5 * 60 * 60,
-      usedValue: Math.round(used),
       limitValue: data.rollingFiveHourLimit.max,
+      resetsAt: parseDateish(data.rollingFiveHourLimit.nextTickAt),
+      usedPercent: safePercent(used, data.rollingFiveHourLimit.max),
+      usedValue: Math.round(used),
+      windowSeconds: 5 * 60 * 60,
     });
   }
   if (data?.search?.hourly?.limit > 0) {
     windows.push({
       label: "Search / hour",
-      usedPercent: safePercent(data.search.hourly.requests, data.search.hourly.limit),
-      resetsAt: parseDateish(data.search.hourly.renewsAt),
-      windowSeconds: 60 * 60,
-      usedValue: data.search.hourly.requests,
       limitValue: data.search.hourly.limit,
+      resetsAt: parseDateish(data.search.hourly.renewsAt),
+      usedPercent: safePercent(
+        data.search.hourly.requests,
+        data.search.hourly.limit
+      ),
+      usedValue: data.search.hourly.requests,
+      windowSeconds: 60 * 60,
     });
   }
   if (data?.freeToolCalls?.limit > 0) {
     windows.push({
       label: "Free Tool Calls / day",
-      usedPercent: safePercent(data.freeToolCalls.requests, data.freeToolCalls.limit),
-      resetsAt: parseDateish(data.freeToolCalls.renewsAt),
-      windowSeconds: 24 * 60 * 60,
-      usedValue: data.freeToolCalls.requests,
       limitValue: data.freeToolCalls.limit,
+      resetsAt: parseDateish(data.freeToolCalls.renewsAt),
+      usedPercent: safePercent(
+        data.freeToolCalls.requests,
+        data.freeToolCalls.limit
+      ),
+      usedValue: data.freeToolCalls.requests,
+      windowSeconds: 24 * 60 * 60,
     });
   }
   return windows;
@@ -441,11 +494,67 @@ function parseOpenCodeGoUsage(data) {
     }
     windows.push({
       label,
-      usedPercent: entry.usagePercent,
-      resetsAt: new Date(entry.resetTimeIso),
-      windowSeconds,
-      usedValue: entry.usagePercent,
       limitValue: 100,
+      resetsAt: new Date(entry.resetTimeIso),
+      usedPercent: entry.usagePercent,
+      usedValue: entry.usagePercent,
+      windowSeconds,
+    });
+  }
+  return windows;
+}
+
+function kimiUnitWindow(timeUnit, duration) {
+  switch (timeUnit) {
+    case "TIME_UNIT_SECOND":
+      return { label: `${duration}s`, windowSeconds: duration };
+    case "TIME_UNIT_MINUTE": {
+      const windowSeconds = duration * 60;
+      const label = duration % 60 === 0 ? `${duration / 60}h` : `${duration}m`;
+      return { label, windowSeconds };
+    }
+    case "TIME_UNIT_HOUR":
+      return { label: `${duration}h`, windowSeconds: duration * 60 * 60 };
+    case "TIME_UNIT_DAY":
+      return { label: `${duration}d`, windowSeconds: duration * 24 * 60 * 60 };
+    default:
+      return null;
+  }
+}
+
+function kimiLimitWindows(limits) {
+  const windows = [];
+  for (const entry of limits) {
+    const detail = entry?.detail;
+    const window = entry?.window;
+    if (!(detail && window)) {
+      continue;
+    }
+    const limit = Number(detail.limit ?? 0);
+    const used = Number(detail.used ?? 0);
+    const duration = Number(window.duration ?? 0);
+    if (
+      !(
+        Number.isFinite(limit) &&
+        Number.isFinite(used) &&
+        Number.isFinite(duration)
+      ) ||
+      limit <= 0 ||
+      duration <= 0
+    ) {
+      continue;
+    }
+    const unit = kimiUnitWindow(window.timeUnit, duration);
+    if (!unit) {
+      continue;
+    }
+    windows.push({
+      label: unit.label,
+      limitValue: limit,
+      resetsAt: parseDateish(detail.resetTime),
+      usedPercent: safePercent(used, limit),
+      usedValue: used,
+      windowSeconds: unit.windowSeconds,
     });
   }
   return windows;
@@ -460,64 +569,63 @@ function parseKimiCodingUsage(data) {
     if (Number.isFinite(limit) && Number.isFinite(used) && limit > 0) {
       windows.push({
         label: "Weekly",
-        usedPercent: safePercent(used, limit),
-        resetsAt: parseDateish(weekly.resetTime),
-        windowSeconds: 7 * 24 * 60 * 60,
-        usedValue: used,
         limitValue: limit,
+        resetsAt: parseDateish(weekly.resetTime),
+        usedPercent: safePercent(used, limit),
+        usedValue: used,
+        windowSeconds: 7 * 24 * 60 * 60,
       });
     }
   }
   const limits = Array.isArray(data?.limits) ? data.limits : [];
-  for (const entry of limits) {
-    const detail = entry?.detail;
-    const window = entry?.window;
-    if (!(detail && window)) {
-      continue;
-    }
-    const limit = Number(detail.limit ?? 0);
-    const used = Number(detail.used ?? 0);
-    const duration = Number(window.duration ?? 0);
-    if (
-      !(Number.isFinite(limit) && Number.isFinite(used) && Number.isFinite(duration)) ||
-      limit <= 0 ||
-      duration <= 0
-    ) {
-      continue;
-    }
-    let windowSeconds;
-    let label;
-    switch (window.timeUnit) {
-      case "TIME_UNIT_SECOND":
-        windowSeconds = duration;
-        label = `${duration}s`;
-        break;
-      case "TIME_UNIT_MINUTE":
-        windowSeconds = duration * 60;
-        label = duration % 60 === 0 ? `${duration / 60}h` : `${duration}m`;
-        break;
-      case "TIME_UNIT_HOUR":
-        windowSeconds = duration * 60 * 60;
-        label = `${duration}h`;
-        break;
-      case "TIME_UNIT_DAY":
-        windowSeconds = duration * 24 * 60 * 60;
-        label = `${duration}d`;
-        break;
-      default:
-        continue;
-    }
-    windows.push({
-      label,
-      usedPercent: safePercent(used, limit),
-      resetsAt: parseDateish(detail.resetTime),
-      windowSeconds,
-      usedValue: used,
-      limitValue: limit,
-    });
-  }
+  windows.push(...kimiLimitWindows(limits));
   windows.sort((a, b) => a.windowSeconds - b.windowSeconds);
   return windows;
+}
+
+function zaiUnit(count, unit) {
+  switch (unit) {
+    case 3:
+      return { label: `${count}h`, windowSeconds: count * 60 * 60 };
+    case 4:
+      return { label: `${count}d`, windowSeconds: count * 24 * 60 * 60 };
+    case 6:
+      return {
+        label: `${count * 7}d`,
+        windowSeconds: count * 7 * 24 * 60 * 60,
+      };
+    default:
+      return { label: "Tokens", windowSeconds: 0 };
+  }
+}
+
+function zaiTokensWindow(entry) {
+  const count = Number(entry.number ?? 1) || 1;
+  const unit = zaiUnit(count, entry.unit);
+  return {
+    label: unit.label,
+    limitValue: 100,
+    resetsAt: parseDateish(entry.nextResetTime),
+    usedPercent: Number(entry.percentage ?? 0),
+    usedValue: Number(entry.percentage ?? 0),
+    windowSeconds: unit.windowSeconds,
+  };
+}
+
+function zaiTimeWindow(entry) {
+  const limit = Number(entry.usage ?? 0);
+  const used = Number(entry.currentValue ?? 0);
+  if (limit <= 0) {
+    return null;
+  }
+  return {
+    label: "Web / month",
+    limitValue: limit,
+    resetsAt: parseDateish(entry.nextResetTime),
+    usedPercent: safePercent(used, limit),
+    usedValue: used,
+    windowSeconds: 30 * 24 * 60 * 60,
+  };
 }
 
 // Z.ai GLM Coding Plan: unit 3 = HOUR, 6 = WEEK, 5 = MONTH (TIME_LIMIT only).
@@ -532,50 +640,14 @@ function parseZaiUsage(data) {
       continue;
     }
     if (entry.type === "TOKENS_LIMIT") {
-      const count = Number(entry.number ?? 1) || 1;
-      let label;
-      let windowSeconds;
-      switch (entry.unit) {
-        case 3:
-          label = `${count}h`;
-          windowSeconds = count * 60 * 60;
-          break;
-        case 4:
-          label = `${count}d`;
-          windowSeconds = count * 24 * 60 * 60;
-          break;
-        case 6:
-          label = `${count * 7}d`;
-          windowSeconds = count * 7 * 24 * 60 * 60;
-          break;
-        default:
-          label = "Tokens";
-          windowSeconds = 0;
-      }
-      collected.push({
-        label,
-        usedPercent: Number(entry.percentage ?? 0),
-        resetsAt: parseDateish(entry.nextResetTime),
-        windowSeconds,
-        usedValue: Number(entry.percentage ?? 0),
-        limitValue: 100,
-      });
+      collected.push(zaiTokensWindow(entry));
       continue;
     }
     if (entry.type === "TIME_LIMIT") {
-      const limit = Number(entry.usage ?? 0);
-      const used = Number(entry.currentValue ?? 0);
-      if (limit <= 0) {
-        continue;
+      const window = zaiTimeWindow(entry);
+      if (window) {
+        collected.push(window);
       }
-      collected.push({
-        label: "Web / month",
-        usedPercent: safePercent(used, limit),
-        resetsAt: parseDateish(entry.nextResetTime),
-        windowSeconds: 30 * 24 * 60 * 60,
-        usedValue: used,
-        limitValue: limit,
-      });
     }
   }
   collected.sort((a, b) => a.windowSeconds - b.windowSeconds);
@@ -588,22 +660,50 @@ function parseOllamaCloudUsage(data) {
   if (session && typeof session.usage === "number") {
     windows.push({
       label: "5h",
-      usedPercent: Math.max(0, Math.min(100, Math.round(session.usage * 100))),
-      resetsAt: new Date(0),
-      windowSeconds: 5 * 60 * 60,
-      usedValue: Math.max(0, Math.min(100, Math.round(session.usage * 100))),
       limitValue: 100,
+      resetsAt: new Date(0),
+      usedPercent: Math.max(0, Math.min(100, Math.round(session.usage * 100))),
+      usedValue: Math.max(0, Math.min(100, Math.round(session.usage * 100))),
+      windowSeconds: 5 * 60 * 60,
     });
   }
   const weekly = data?.limits?.weekly;
   if (weekly && typeof weekly.usage === "number") {
     windows.push({
       label: "7d",
-      usedPercent: Math.max(0, Math.min(100, Math.round(weekly.usage * 100))),
-      resetsAt: new Date(0),
-      windowSeconds: 7 * 24 * 60 * 60,
-      usedValue: Math.max(0, Math.min(100, Math.round(weekly.usage * 100))),
       limitValue: 100,
+      resetsAt: new Date(0),
+      usedPercent: Math.max(0, Math.min(100, Math.round(weekly.usage * 100))),
+      usedValue: Math.max(0, Math.min(100, Math.round(weekly.usage * 100))),
+      windowSeconds: 7 * 24 * 60 * 60,
+    });
+  }
+  return windows;
+}
+
+function xaiProductWindows(products, end, windowSeconds) {
+  const windows = [];
+  for (const product of products.slice(0, 8)) {
+    if (product?.usagePercent === null || product?.usagePercent === undefined) {
+      continue;
+    }
+    const usagePercent = Number(product.usagePercent);
+    if (!Number.isFinite(usagePercent)) {
+      continue;
+    }
+    const label = String(product?.product ?? "")
+      .replace(GROK_PREFIX, "")
+      .trim();
+    if (!label) {
+      continue;
+    }
+    windows.push({
+      label,
+      limitValue: 100,
+      resetsAt: end,
+      usedPercent: usagePercent,
+      usedValue: usagePercent,
+      windowSeconds,
     });
   }
   return windows;
@@ -614,8 +714,12 @@ function parseXaiUsage(data) {
   if (!config || typeof config !== "object") {
     return [];
   }
-  const start = parseDateish(config.currentPeriod?.start ?? config.billingPeriodStart);
-  const end = parseDateish(config.currentPeriod?.end ?? config.billingPeriodEnd);
+  const start = parseDateish(
+    config.currentPeriod?.start ?? config.billingPeriodStart
+  );
+  const end = parseDateish(
+    config.currentPeriod?.end ?? config.billingPeriodEnd
+  );
   const periodMs = end.getTime() - start.getTime();
   if (!Number.isFinite(periodMs) || periodMs <= 0) {
     return [];
@@ -627,51 +731,39 @@ function parseXaiUsage(data) {
   const periodLabel = isWeekly ? "Week" : "Month";
   const windows = [];
   const creditUsagePercent = Number(config.creditUsagePercent);
-  if (config.creditUsagePercent != null && Number.isFinite(creditUsagePercent)) {
+  if (
+    config.creditUsagePercent !== null &&
+    config.creditUsagePercent !== undefined &&
+    Number.isFinite(creditUsagePercent)
+  ) {
     windows.push({
       label: `${periodLabel} (credits)`,
+      limitValue: 100,
+      resetsAt: end,
       usedPercent: creditUsagePercent,
-      resetsAt: end,
-      windowSeconds,
       usedValue: creditUsagePercent,
-      limitValue: 100,
-    });
-  }
-  const products = Array.isArray(config.productUsage) ? config.productUsage : [];
-  for (const product of products.slice(0, 8)) {
-    if (product?.usagePercent == null) {
-      continue;
-    }
-    const usagePercent = Number(product.usagePercent);
-    if (!Number.isFinite(usagePercent)) {
-      continue;
-    }
-    const label = String(product?.product ?? "")
-      .replace(/^Grok/i, "")
-      .trim();
-    if (!label) {
-      continue;
-    }
-    windows.push({
-      label,
-      usedPercent: usagePercent,
-      resetsAt: end,
       windowSeconds,
-      usedValue: usagePercent,
-      limitValue: 100,
     });
   }
+  const products = Array.isArray(config.productUsage)
+    ? config.productUsage
+    : [];
+  windows.push(...xaiProductWindows(products, end, windowSeconds));
   const onDemandLimit = Number(config.onDemandCap?.val);
   const onDemandUsed = Number(config.onDemandUsed?.val);
-  if (Number.isFinite(onDemandLimit) && Number.isFinite(onDemandUsed) && onDemandLimit > 0) {
+  if (
+    Number.isFinite(onDemandLimit) &&
+    Number.isFinite(onDemandUsed) &&
+    onDemandLimit > 0
+  ) {
     windows.push({
-      label: "On-demand",
-      usedPercent: safePercent(onDemandUsed, onDemandLimit),
-      resetsAt: end,
-      windowSeconds,
-      usedValue: onDemandUsed,
-      limitValue: onDemandLimit,
       isCurrency: true,
+      label: "On-demand",
+      limitValue: onDemandLimit,
+      resetsAt: end,
+      usedPercent: safePercent(onDemandUsed, onDemandLimit),
+      usedValue: onDemandUsed,
+      windowSeconds,
     });
   }
   return windows;
@@ -684,7 +776,7 @@ function cleanHttpErrorMessage(body) {
   if (!trimmed) {
     return "";
   }
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+  if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) {
     return trimmed;
   }
   try {
@@ -713,13 +805,18 @@ async function fetchJson(url, init) {
       return {
         kind: "http",
         message:
-          cleanHttpErrorMessage(body) || response.statusText || `HTTP ${response.status}`,
+          cleanHttpErrorMessage(body) ||
+          response.statusText ||
+          `HTTP ${response.status}`,
         ok: false,
       };
     }
     return { data: await response.json(), ok: true };
   } catch (error) {
-    if (signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+    if (
+      signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
       return { kind: "timeout", message: "Request timed out", ok: false };
     }
     return {
@@ -731,7 +828,10 @@ async function fetchJson(url, init) {
 }
 
 const success = (windows) => ({ data: { windows }, success: true });
-const failure = (message, kind) => ({ error: { kind, message }, success: false });
+const failure = (message, kind) => ({
+  error: { kind, message },
+  success: false,
+});
 
 // ---------- OpenCode Go ---------
 
@@ -741,12 +841,44 @@ const OPEN_CODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
 // Handles both the proposed rollingUsage shape and the production
 // usage.rolling shape (parser ported from omo-run's omo-usage extension).
+function firstUsagePercent(raw) {
+  if (typeof raw.percent === "number") {
+    return raw.percent;
+  }
+  if (typeof raw.usagePercent === "number") {
+    return raw.usagePercent;
+  }
+}
+
+function usageResetAt(raw) {
+  let resetText;
+  if (typeof raw.resetsAt === "string") {
+    resetText = raw.resetsAt;
+  } else if (typeof raw.reset_at === "string") {
+    resetText = raw.reset_at;
+  }
+  if (resetText) {
+    const parsed = Date.parse(resetText);
+    if (!Number.isNaN(parsed)) {
+      return new Date(parsed);
+    }
+  } else if (
+    typeof raw.resetInSec === "number" &&
+    Number.isFinite(raw.resetInSec)
+  ) {
+    return new Date(Date.now() + raw.resetInSec * 1000);
+  }
+  return new Date(0);
+}
+
 function parseOpenCodeGoApiUsage(payload) {
   if (!payload || typeof payload !== "object") {
     return [];
   }
   const source =
-    payload.usage && typeof payload.usage === "object" ? payload.usage : payload;
+    payload.usage && typeof payload.usage === "object"
+      ? payload.usage
+      : payload;
   const windows = [];
   const groups = [
     [["rolling", "rollingUsage"], "5h Rolling", 5 * 60 * 60],
@@ -760,37 +892,17 @@ function parseOpenCodeGoApiUsage(payload) {
     if (!raw) {
       continue;
     }
-    const percent =
-      typeof raw.percent === "number"
-        ? raw.percent
-        : typeof raw.usagePercent === "number"
-          ? raw.usagePercent
-          : undefined;
+    const percent = firstUsagePercent(raw);
     if (percent === undefined || !Number.isFinite(percent)) {
       continue;
     }
-    let resetsAt = new Date(0);
-    const resetText =
-      typeof raw.resetsAt === "string"
-        ? raw.resetsAt
-        : typeof raw.reset_at === "string"
-          ? raw.reset_at
-          : undefined;
-    if (resetText) {
-      const parsed = Date.parse(resetText);
-      if (!Number.isNaN(parsed)) {
-        resetsAt = new Date(parsed);
-      }
-    } else if (typeof raw.resetInSec === "number" && Number.isFinite(raw.resetInSec)) {
-      resetsAt = new Date(Date.now() + raw.resetInSec * 1000);
-    }
     windows.push({
       label,
-      usedPercent: Math.max(0, Math.min(100, percent)),
-      resetsAt,
-      windowSeconds,
-      usedValue: Math.max(0, Math.min(100, percent)),
       limitValue: 100,
+      resetsAt: usageResetAt(raw),
+      usedPercent: Math.max(0, Math.min(100, percent)),
+      usedValue: Math.max(0, Math.min(100, percent)),
+      windowSeconds,
     });
   }
   return windows;
@@ -809,15 +921,28 @@ const GO_WINDOWS = [
   ["weeklyUsage", "weekly", 7 * 24 * 60 * 60],
   ["monthlyUsage", "monthly", 30 * 24 * 60 * 60],
 ];
+const GROK_PREFIX = /^Grok/i;
+const OAUTH_REFRESH_ERROR = /oauth|refresh token|token refresh/i;
 
 function parseWindowUsage(html, key) {
-  const pctFirst = scrapedWindowPattern(key, "usagePercent", "resetInSec").exec(html);
-  if (pctFirst) {
-    return { resetInSec: Number(pctFirst[2]), usagePercent: Number(pctFirst[1]) };
-  }
-  const resetFirst = scrapedWindowPattern(key, "resetInSec", "usagePercent").exec(html);
-  if (resetFirst) {
-    return { resetInSec: Number(resetFirst[1]), usagePercent: Number(resetFirst[2]) };
+  const variants = [
+    scrapedWindowPattern(key, "usagePercent", "resetInSec"),
+    scrapedWindowPattern(key, "resetInSec", "usagePercent"),
+  ];
+  for (const pattern of variants) {
+    const match = pattern.exec(html);
+    if (match) {
+      const isPercentFirst = pattern.source.includes("usagePercent");
+      return isPercentFirst
+        ? {
+            resetInSec: Number(match[2]),
+            usagePercent: Number(match[1]),
+          }
+        : {
+            resetInSec: Number(match[1]),
+            usagePercent: Number(match[2]),
+          };
+    }
   }
   return null;
 }
@@ -829,20 +954,29 @@ function resolveOpenCodeGoConfig() {
     return { authCookie, workspaceId };
   }
   const candidates = [
-    path.join(os.homedir(), ".config", "opencode", "opencode-quota", "opencode-go.json"),
+    path.join(
+      os.homedir(),
+      ".config",
+      "opencode",
+      "opencode-quota",
+      "opencode-go.json"
+    ),
     path.join(os.homedir(), ".config", "opencode-go", "config.json"),
   ];
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(fs.readFileSync(candidate, "utf8"));
       if (parsed?.workspaceId && parsed?.authCookie) {
-        return { authCookie: parsed.authCookie, workspaceId: parsed.workspaceId };
+        return {
+          authCookie: parsed.authCookie,
+          workspaceId: parsed.workspaceId,
+        };
       }
     } catch {
       // missing or invalid; try next
     }
   }
-  return undefined;
+  return null;
 }
 
 async function fetchOpenCodeGoDashboard() {
@@ -876,13 +1010,18 @@ async function fetchOpenCodeGoDashboard() {
       if (scraped) {
         data[field] = {
           resetInSec: Math.max(0, scraped.resetInSec),
-          resetTimeIso: new Date(now + Math.max(0, scraped.resetInSec) * 1000).toISOString(),
+          resetTimeIso: new Date(
+            now + Math.max(0, scraped.resetInSec) * 1000
+          ).toISOString(),
           usagePercent: Math.max(0, scraped.usagePercent),
         };
       }
     }
     if (!(data.rolling || data.weekly || data.monthly)) {
-      return failure("Could not parse OpenCode Go dashboard usage windows", "http");
+      return failure(
+        "Could not parse OpenCode Go dashboard usage windows",
+        "http"
+      );
     }
     return success(parseOpenCodeGoUsage(data));
   } catch (error) {
@@ -963,7 +1102,7 @@ function codexAccountId(authStorage) {
     );
     return data?.tokens?.account_id ?? data?.tokens?.accountId;
   } catch {
-    return undefined;
+    // no codex auth file on this machine
   }
 }
 
@@ -1014,11 +1153,11 @@ function ghCliToken() {
       }).trim() || undefined
     );
   } catch {
-    return undefined;
+    // gh CLI not installed or not authenticated
   }
 }
 
-async function tryGitHubUserEndpoint(authHeader) {
+function tryGitHubUserEndpoint(authHeader) {
   return fetchJson("https://api.github.com/copilot_internal/user", {
     headers: copilotHeaders(authHeader),
   });
@@ -1029,7 +1168,7 @@ function githubOAuthToken(authStorage) {
   // token rejected by api.github.com quota endpoints.
   const credential = authStorage.get("github-copilot");
   if (credential?.type !== "oauth") {
-    return undefined;
+    return;
   }
   return typeof credential.refresh === "string" && credential.refresh.length > 0
     ? credential.refresh
@@ -1052,9 +1191,12 @@ async function fetchGitHubCopilotQuotas(authStorage) {
   if (!accessToken) {
     return failure("No GitHub Copilot OAuth token found", "config");
   }
-  const exchange = await fetchJson("https://api.github.com/copilot_internal/v2/token", {
-    headers: copilotHeaders(`Bearer ${accessToken}`),
-  });
+  const exchange = await fetchJson(
+    "https://api.github.com/copilot_internal/v2/token",
+    {
+      headers: copilotHeaders(`Bearer ${accessToken}`),
+    }
+  );
   if (exchange.ok && exchange.data?.token) {
     const usage = await tryGitHubUserEndpoint(`Bearer ${exchange.data.token}`);
     if (usage.ok) {
@@ -1082,7 +1224,10 @@ async function fetchOpenRouterQuotas(authStorage) {
     return failure("No OpenRouter API key found", "config");
   }
   const result = await fetchJson("https://openrouter.ai/api/v1/key", {
-    headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
   });
   if (!result.ok) {
     return failure(result.message, result.kind);
@@ -1111,7 +1256,10 @@ async function fetchKimiCodingQuotas(authStorage) {
     return failure("No Kimi Code access token found", "config");
   }
   const result = await fetchJson("https://api.kimi.com/coding/v1/usages", {
-    headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
   });
   if (!result.ok) {
     return failure(result.message, result.kind);
@@ -1124,9 +1272,15 @@ async function fetchZaiQuotas(authStorage) {
   if (!apiKey) {
     return failure("No Z.ai API key found", "config");
   }
-  const result = await fetchJson("https://api.z.ai/api/monitor/usage/quota/limit", {
-    headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
-  });
+  const result = await fetchJson(
+    "https://api.z.ai/api/monitor/usage/quota/limit",
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+    }
+  );
   if (!result.ok) {
     return failure(result.message, result.kind);
   }
@@ -1153,9 +1307,15 @@ async function fetchXaiQuotas(authStorage) {
   if (!accessToken) {
     return failure("No xAI OAuth token found", "config");
   }
-  const result = await fetchJson("https://cli-chat-proxy.grok.com/v1/billing?format=credits", {
-    headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
-  });
+  const result = await fetchJson(
+    "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
   if (!result.ok) {
     return failure(result.message, result.kind);
   }
@@ -1164,15 +1324,15 @@ async function fetchXaiQuotas(authStorage) {
 
 const PROVIDER_FETCHERS = {
   anthropic: fetchAnthropicQuotas,
-  "openai-codex": fetchCodexQuotas,
   "github-copilot": fetchGitHubCopilotQuotas,
+  "kimi-coding": fetchKimiCodingQuotas,
+  "ollama-cloud": fetchOllamaCloudQuotas,
+  "openai-codex": fetchCodexQuotas,
+  "opencode-go": fetchOpenCodeGoQuotas,
   openrouter: fetchOpenRouterQuotas,
   synthetic: fetchSyntheticQuotas,
   xai: fetchXaiQuotas,
   zai: fetchZaiQuotas,
-  "opencode-go": fetchOpenCodeGoQuotas,
-  "kimi-coding": fetchKimiCodingQuotas,
-  "ollama-cloud": fetchOllamaCloudQuotas,
 };
 
 // ---------- cache + orchestration ----------
@@ -1182,21 +1342,29 @@ const cache = new Map();
 function toFailureResult(provider, error) {
   const message = error instanceof Error ? error.message : String(error);
   const isOAuthError =
-    error?.code === "oauth" || /oauth|refresh token|token refresh/i.test(message);
+    error?.code === "oauth" || OAUTH_REFRESH_ERROR.test(message);
   if (isOAuthError) {
     return failure(
       `${PROVIDER_LABELS[provider]} OAuth token refresh failed — re-authenticate with /login`,
       "config"
     );
   }
-  return failure(message.split("\n")[0].slice(0, 200) || "Unknown error", "network");
+  return failure(
+    message.split("\n")[0].slice(0, 200) || "Unknown error",
+    "network"
+  );
 }
 
-async function fetchProviderQuotas(authStorage, provider, force) {
+function fetchProviderQuotas(authStorage, provider, force) {
   const entry = cache.get(provider) ?? {};
   const now = Date.now();
   const ttl = PROVIDER_TTLS_MS[provider];
-  if (!force && entry.result && entry.fetchedAt && now - entry.fetchedAt < ttl) {
+  if (
+    !force &&
+    entry.result &&
+    entry.fetchedAt &&
+    now - entry.fetchedAt < ttl
+  ) {
     return entry.result;
   }
   if (!force && entry.inFlight) {
@@ -1209,9 +1377,8 @@ async function fetchProviderQuotas(authStorage, provider, force) {
       return result;
     })
     .finally(() => {
-      const current = cache.get(provider) ?? {};
-      delete current.inFlight;
-      cache.set(provider, current);
+      const { inFlight: _inFlight, ...rest } = cache.get(provider) ?? {};
+      cache.set(provider, rest);
     });
   cache.set(provider, { ...entry, inFlight: promise });
   return promise;
@@ -1241,7 +1408,8 @@ async function fetchQuotas(piService, agentDir, force = false) {
         return credential.key;
       }
       const runtime = await piService.runtime();
-      const auth = (await runtime.getAuth(provider).catch(() => undefined))?.auth;
+      const auth = (await runtime.getAuth(provider).catch(() => undefined))
+        ?.auth;
       const authorization = auth?.headers?.Authorization;
       return auth?.apiKey ?? authorization?.replace(bearerPrefix, "");
     },

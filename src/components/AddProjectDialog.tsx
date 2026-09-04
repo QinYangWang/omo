@@ -14,8 +14,8 @@ import { type I18nKey, useI18n } from "@/lib/i18n";
 import {
   getDefaultServerId,
   getServerApi,
-  useServers,
   useServerStatuses,
+  useServers,
 } from "@/lib/servers";
 import { cn } from "@/lib/utils";
 
@@ -150,7 +150,10 @@ export function AddProjectDialog({
   onOpenChange,
   open,
 }: {
-  onAdd: (serverId: string, path?: string) => Promise<Project | null | undefined>;
+  onAdd: (
+    serverId: string,
+    path?: string
+  ) => Promise<Project | null | undefined>;
   onAdded: (project: Project) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;

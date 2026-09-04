@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { type I18nKey, useI18n } from "@/lib/i18n";
-import {
-  getDefaultServerId,
-  type OmoServer,
-  useServers,
-} from "@/lib/servers";
+import { getDefaultServerId, type OmoServer, useServers } from "@/lib/servers";
 
 /** Display name for a server, with i18n labels for the local entry. */
 export function useServerLabel() {

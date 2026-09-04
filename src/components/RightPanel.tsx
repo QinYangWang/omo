@@ -97,18 +97,20 @@ export function RightPanel({
             {t("open_surface_desc")}
           </div>
         </div>
-        <div className="grid w-full grid-cols-2 gap-3">
+        <div className="flex w-full max-w-sm flex-col gap-0.5">
           {surfaces.map(({ id, icon: Icon, label, desc }) => (
             <Button
-              className="h-auto min-h-28 flex-col items-start justify-start gap-1 rounded-lg border border-border bg-surface p-4 text-left hover:bg-accent"
+              className="h-auto justify-start gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
               key={id}
               onClick={() => onSelect(id)}
               variant="ghost"
             >
-              <Icon className="size-4" />
-              <span className="font-medium text-sm">{label}</span>
-              <span className="whitespace-normal text-muted-foreground text-xs">
-                {desc}
+              <Icon className="size-4 shrink-0" />
+              <span className="min-w-0">
+                <span className="block font-medium text-sm">{label}</span>
+                <span className="block truncate text-muted-foreground text-xs">
+                  {desc}
+                </span>
               </span>
             </Button>
           ))}

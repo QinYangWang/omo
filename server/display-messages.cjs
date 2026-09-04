@@ -1,5 +1,7 @@
 "use strict";
 
+const HISTORY_PAGE_SIZE = 80;
+
 function clip(value, max) {
   const text =
     typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "");
@@ -161,4 +163,74 @@ function displayMessages(messages) {
   return items;
 }
 
-module.exports = { displayMessages };
+function sessionHistoryMessages(manager) {
+  const messages = [];
+  for (const entry of manager.getBranch()) {
+    if (entry.type === "message" && entry.message) {
+      messages.push(entry.message);
+    }
+  }
+  return messages;
+}
+
+function createHistorySnapshot(messages) {
+  const items = displayMessages(messages);
+  const turnStarts = [];
+  for (let index = 0; index < items.length; index += 1) {
+    if (index === 0 || items[index].role === "user") {
+      turnStarts.push(index);
+    }
+  }
+  const metas = turnStarts.map((messageIndex, absoluteIndex) => {
+    const message = items[messageIndex];
+    return {
+      absoluteIndex,
+      id: message.role === "user" ? message.id : `${message.id}:orphan`,
+      userPreview:
+        message.role === "user"
+          ? message.text.replace(/\s+/g, " ").trim().slice(0, 300)
+          : "",
+    };
+  });
+  return { items, metas, turnStarts };
+}
+
+function historyPage(snapshot, before) {
+  const totalTurns = snapshot.turnStarts.length;
+  const requested = Number(before);
+  const endTurn = Number.isFinite(requested)
+    ? Math.max(0, Math.min(requested, totalTurns))
+    : totalTurns;
+  const endMessage =
+    endTurn < totalTurns ? snapshot.turnStarts[endTurn] : snapshot.items.length;
+  let startTurn = endTurn;
+  while (startTurn > 0) {
+    const candidateStart = snapshot.turnStarts[startTurn - 1];
+    const candidateSize = endMessage - candidateStart;
+    const isFirstCandidate = startTurn === endTurn - 1;
+    if (
+      startTurn < endTurn &&
+      !isFirstCandidate &&
+      candidateSize > HISTORY_PAGE_SIZE
+    ) {
+      break;
+    }
+    startTurn -= 1;
+  }
+  const startMessage =
+    startTurn < totalTurns
+      ? snapshot.turnStarts[startTurn]
+      : snapshot.items.length;
+  return {
+    cursor: startTurn,
+    hasMore: startTurn > 0,
+    messages: snapshot.items.slice(startMessage, endMessage),
+  };
+}
+
+module.exports = {
+  createHistorySnapshot,
+  displayMessages,
+  historyPage,
+  sessionHistoryMessages,
+};

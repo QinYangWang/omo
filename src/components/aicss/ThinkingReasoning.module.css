@@ -1,0 +1,102 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  animation: block-in 240ms ease-out both;
+}
+
+.header {
+  align-self: flex-start;
+  margin-inline-start: -0.5rem;
+  color: var(--muted-foreground);
+}
+
+.header:disabled {
+  opacity: 1;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+
+.collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease;
+}
+
+.collapsed {
+  grid-template-rows: 0fr;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.viewport {
+  max-height: 18rem;
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  margin-top: 0.125rem;
+  overflow: auto;
+  font-family: var(--font-geist-mono);
+  font-size: 0.75rem;
+  line-height: 1.65;
+  color: var(--muted-foreground);
+  border-inline-start: 1px solid var(--border);
+}
+
+.shimmer {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 0%,
+    color-mix(in oklab, var(--muted-foreground) 35%, transparent) 50%,
+    var(--muted-foreground) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-size: 240% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes block-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root,
+  .shimmer {
+    animation: none;
+  }
+
+  .collapsible {
+    transition: none;
+  }
+}

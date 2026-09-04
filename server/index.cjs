@@ -486,7 +486,10 @@ async function miscRoutes(req, res, url) {
     json(
       res,
       200,
-      await installPackage(path.dirname(config.sessionRoot), String(payload.source || ""))
+      await installPackage(
+        path.dirname(config.sessionRoot),
+        String(payload.source || "")
+      )
     );
     return true;
   }
@@ -495,7 +498,10 @@ async function miscRoutes(req, res, url) {
     json(
       res,
       200,
-      removePackage(path.dirname(config.sessionRoot), String(payload.source || ""))
+      removePackage(
+        path.dirname(config.sessionRoot),
+        String(payload.source || "")
+      )
     );
     return true;
   }

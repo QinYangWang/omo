@@ -1,26 +1,62 @@
 import {
+  Add01Icon,
+  AiBrain01Icon,
+  ArrowUp02Icon,
+  FileAttachmentIcon,
+  Image01Icon,
+  StopIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
   Asterisk,
-  Check,
   ChevronRight,
   Copy,
   File,
   Folder,
   FolderPlus,
-  Gauge,
   GitBranch,
   LoaderCircle,
   Monitor,
   Search,
-  Slash,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ListRange, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import {
+  AiAgentInput,
+  AiAgentInputButton,
+  AiAgentInputCompletionItem,
+  AiAgentInputCompletionMenu,
+  AiAgentInputCompletionMeta,
+  AiAgentInputFooter,
+  AiAgentInputHeader,
+  AiAgentInputSelectTrigger,
+  AiAgentInputTextarea,
+} from "@/components/aicss/AiAgentInput";
 import { RenderBlocks } from "@/components/chat/render-blocks";
 import { ProviderIcon } from "@/components/provider-icon";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import {
   Select,
   SelectContent,
@@ -31,6 +67,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   appendMessages,
   type ChatMessage,
@@ -41,13 +84,13 @@ import {
   windowFromMessages,
 } from "@/lib/conversation-turns";
 import { useI18n } from "@/lib/i18n";
-import { getServerApi } from "@/lib/servers";
-import { randomUUID } from "@/lib/utils";
 import {
   adaptPiEvent,
   adaptPiMessages,
   type RenderBlock,
 } from "@/lib/pi-adapter";
+import { getServerApi } from "@/lib/servers";
+import { cn, randomUUID } from "@/lib/utils";
 
 interface ActiveSession {
   cwd: string;
@@ -89,6 +132,9 @@ interface SlashCommand {
   name: string;
   source?: string;
 }
+
+const EMPTY_PROJECT_LIMIT = 5;
+const OUTLINE_MAX_VISIBLE = 24;
 type ReplaceCompletion = (
   replacement: string,
   nextCursor: number,
@@ -309,9 +355,11 @@ async function preparePrompt(
 function ImagePreviews({
   images,
   onRemove,
+  compact = false,
 }: {
   images: ImageContent[];
   onRemove?: (id: string) => void;
+  compact?: boolean;
 }) {
   if (!images.length) {
     return null;
@@ -320,20 +368,22 @@ function ImagePreviews({
     <div className="flex flex-wrap gap-2">
       {images.map((image, index) => (
         <div
-          className="group relative overflow-hidden rounded-xl border border-border bg-muted"
+          className="group relative overflow-hidden rounded-md border border-border bg-muted"
           key={image.name ? `${image.name}-${index}` : index}
         >
           <img
             alt={image.name || "Attached image"}
-            className="size-20 object-cover"
-            height={80}
+            className={
+              compact ? "size-11 object-cover" : "size-20 object-cover"
+            }
+            height={compact ? 44 : 80}
             src={imageSource(image)}
-            width={80}
+            width={compact ? 44 : 80}
           />
           {onRemove ? (
             <Button
               aria-label={`Remove ${image.name || "image"}`}
-              className="absolute top-1 right-1 size-6 rounded-full bg-background/90 text-muted-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+              className="absolute top-1 right-1 size-6 rounded-md bg-background/90 text-muted-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
               onClick={() => onRemove((image as ImageAttachment).id)}
               size="icon"
               title="Remove image"
@@ -348,12 +398,7 @@ function ImagePreviews({
   );
 }
 
-const completionIcon = (kind: "file" | "command", directory?: boolean) => {
-  if (kind === "command") {
-    return Slash;
-  }
-  return directory ? Folder : File;
-};
+const completionIcon = (directory?: boolean) => (directory ? Folder : File);
 
 function CompletionMenu({
   kind,
@@ -368,49 +413,60 @@ function CompletionMenu({
   loading?: boolean;
   onSelect: (item: CompletionItem) => void;
 }) {
+  const { t } = useI18n();
   if (!(loading || items.length)) {
     return null;
   }
   return (
-    <div
-      aria-label={kind === "file" ? "Files" : "Commands"}
-      className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-md overflow-hidden rounded-2xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+    <AiAgentInputCompletionMenu
+      aria-label={
+        kind === "file" ? t("completion_files") : t("completion_commands")
+      }
       role="listbox"
     >
       {loading ? (
-        <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground text-xs">
-          <LoaderCircle className="size-3.5 animate-spin" /> Loading…
-        </div>
+        <AiAgentInputCompletionMeta className="flex items-center gap-2">
+          <LoaderCircle className="size-3.5 animate-spin" />
+          {t("completion_loading")}
+        </AiAgentInputCompletionMeta>
       ) : null}
-      {items.map((item, index) => {
-        const Icon = completionIcon(kind, item.directory);
-        return (
-          <Button
-            aria-selected={index === activeIndex}
-            className={`h-auto w-full justify-start rounded-xl px-2.5 py-2 text-sm ${index === activeIndex ? "bg-accent text-foreground" : "text-muted-foreground"}`}
-            key={item.value}
-            onClick={() => onSelect(item)}
-            onMouseDown={(event) => event.preventDefault()}
-            role="option"
-            variant="ghost"
-          >
-            <Icon className="size-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">
-              {kind === "command" ? `/${item.label}` : item.label}
-              {item.directory ? "/" : ""}
-            </span>
-            {item.description ? (
-              <span className="max-w-[45%] truncate text-muted-foreground text-xs">
-                {item.description}
+      <TooltipProvider delay={350}>
+        {items.map((item, index) => {
+          const Icon = kind === "file" ? completionIcon(item.directory) : null;
+          const option = (
+            <AiAgentInputCompletionItem
+              active={index === activeIndex}
+              aria-selected={index === activeIndex}
+              key={item.value}
+              onClick={() => onSelect(item)}
+              onMouseDown={(event) => event.preventDefault()}
+              role="option"
+              title={kind === "file" ? item.label : undefined}
+            >
+              {Icon ? <Icon data-icon="inline-start" /> : null}
+              <span className="min-w-0 flex-1 truncate">
+                {kind === "command" ? `/${item.label}` : item.label}
+                {item.directory ? "/" : ""}
               </span>
-            ) : null}
-          </Button>
-        );
-      })}
-      <div className="px-2.5 py-1 text-[11px] text-muted-foreground">
-        ↑↓ select · Enter insert · Esc close
-      </div>
-    </div>
+            </AiAgentInputCompletionItem>
+          );
+          if (kind !== "command" || !item.description) {
+            return option;
+          }
+          return (
+            <Tooltip key={item.value}>
+              <TooltipTrigger render={option} />
+              <TooltipContent align="start" side="right">
+                {item.description}
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </TooltipProvider>
+      <AiAgentInputCompletionMeta>
+        {t("completion_keyboard_hint")}
+      </AiAgentInputCompletionMeta>
+    </AiAgentInputCompletionMenu>
   );
 }
 
@@ -457,11 +513,19 @@ function Outline({
   activeId?: string;
   onJump: (turnId: string) => void;
 }) {
+  const activeIndex = metas.findIndex((meta) => meta.id === activeId);
+  const wheelIndex = useRef(activeIndex);
+
+  useEffect(() => {
+    wheelIndex.current =
+      activeIndex >= 0 ? activeIndex : Math.max(0, metas.length - 1);
+  }, [activeIndex, metas.length]);
+
   if (!metas.length) {
     return null;
   }
-  const activeIndex = metas.findIndex((meta) => meta.id === activeId);
-  const maxVisible = 48;
+
+  const maxVisible = Math.min(OUTLINE_MAX_VISIBLE, metas.length);
   const start =
     activeIndex >= 0
       ? Math.max(
@@ -473,14 +537,46 @@ function Outline({
         )
       : Math.max(0, metas.length - maxVisible);
   const visible = metas.slice(start, start + maxVisible);
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (
+      event.ctrlKey ||
+      event.deltaY === 0 ||
+      Math.abs(event.deltaX) > Math.abs(event.deltaY)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    let currentIndex = wheelIndex.current;
+    if (currentIndex < 0) {
+      currentIndex = activeIndex >= 0 ? activeIndex : metas.length - 1;
+    }
+    const nextIndex = Math.max(
+      0,
+      Math.min(metas.length - 1, currentIndex + (event.deltaY > 0 ? 1 : -1))
+    );
+    const nextMeta = metas[nextIndex];
+    if (!nextMeta || nextIndex === currentIndex) {
+      return;
+    }
+
+    wheelIndex.current = nextIndex;
+    onJump(nextMeta.id);
+  };
+
   return (
     <aside className="pointer-events-none absolute top-1/2 right-4 z-10 -translate-y-1/2">
-      <div className="pointer-events-auto flex flex-col items-end justify-center gap-1.5 py-2">
+      <div
+        className="pointer-events-auto flex max-h-[min(24rem,70vh)] flex-col items-end justify-center gap-1 overflow-hidden py-2"
+        onWheel={handleWheel}
+      >
         {visible.map((meta) => {
           const active = meta.id === activeId;
           return (
             <div
-              className="group relative flex h-4 items-center justify-end"
+              className="group relative flex h-3 items-center justify-end"
               key={meta.id}
             >
               <button
@@ -505,6 +601,49 @@ function Outline({
       </div>
     </aside>
   );
+}
+
+function findTurnIndex(
+  turnWindow: TurnWindow,
+  turnId: string,
+  absoluteIndex?: number
+) {
+  return turnWindow.turns.findIndex(
+    (turn) =>
+      turn.id === turnId ||
+      (absoluteIndex !== undefined && turn.absoluteIndex === absoluteIndex)
+  );
+}
+
+function scrollToTurn(
+  virtuoso: VirtuosoHandle | null,
+  turnWindow: TurnWindow,
+  index: number,
+  visibleTurn?: ConversationTurn
+) {
+  const targetTurn = turnWindow.turns[index];
+  if (!targetTurn) {
+    return false;
+  }
+  const near =
+    visibleTurn !== undefined &&
+    Math.abs(targetTurn.absoluteIndex - visibleTurn.absoluteIndex) < 30;
+  const targetIndex = index;
+  virtuoso?.scrollToIndex({
+    align: "start",
+    behavior: near ? "smooth" : "auto",
+    index: targetIndex,
+  });
+  window.setTimeout(
+    () =>
+      virtuoso?.scrollToIndex({
+        align: "start",
+        behavior: "auto",
+        index: targetIndex,
+      }),
+    near ? 350 : 80
+  );
+  return true;
 }
 
 function TurnCard({
@@ -539,7 +678,7 @@ function TurnCard({
         }
       >
         <div className="flex justify-end">
-          <div className="max-w-full rounded-2xl bg-secondary px-5 py-3 text-[15px] text-secondary-foreground leading-relaxed">
+          <div className="max-w-full rounded-md bg-muted/60 px-4 py-2.5 text-[15px] leading-relaxed">
             {turn.user.images ? (
               <ImagePreviews images={turn.user.images} />
             ) : null}
@@ -632,16 +771,19 @@ export function ChatView({
   const [visibleRange, setVisibleRange] = useState<ListRange>();
   const [highlightedId, setHighlightedId] = useState<string>();
   const virtuoso = useRef<VirtuosoHandle>(null);
+  const loadingOlder = useRef<{
+    key: string;
+    promise: Promise<TurnWindow | undefined>;
+  } | null>(null);
+  const jumping = useRef<Set<string>>(new Set());
+  const jumpToken = useRef(0);
   const keyRef = useRef(key);
   keyRef.current = key;
 
-  const turnIndex = new Map(
-    turnWindow.turns.map((turn, index) => [turn.id, index])
-  );
   const visibleTurn = visibleRange
     ? turnWindow.turns[
         Math.min(
-          Math.max(0, visibleRange.startIndex),
+          Math.max(0, visibleRange.startIndex - turnWindow.start),
           Math.max(0, turnWindow.turns.length - 1)
         )
       ]
@@ -655,50 +797,107 @@ export function ChatView({
     [key]
   );
 
-  const loadOlder = async () => {
-    const current = windows.get(keyRef.current) ?? turnWindow;
-    if (!(session && current.hasOlder)) {
-      return;
+  const loadHistoryPage = (): Promise<TurnWindow | undefined> => {
+    const targetKey = keyRef.current;
+    const inFlight = loadingOlder.current;
+    if (inFlight?.key === targetKey) {
+      return inFlight.promise;
     }
-    const result = await api.pi.history(keyRef.current, current.startCursor);
-    setWindow(
-      prependWindow(
-        current,
-        result.messages as ChatMessage[],
-        result.cursor,
-        result.hasMore
-      )
-    );
+    const current = windows.get(targetKey) ?? turnWindow;
+    if (!(session && current.hasOlder)) {
+      return Promise.resolve(undefined);
+    }
+    const promise = (async () => {
+      try {
+        const result = await api.pi.history(targetKey, current.startCursor);
+        if (keyRef.current !== targetKey) {
+          return;
+        }
+        const latest = windows.get(targetKey) ?? current;
+        if (result.cursor >= latest.start && !result.messages.length) {
+          return;
+        }
+        const next = prependWindow(
+          latest,
+          result.messages as ChatMessage[],
+          result.cursor,
+          result.hasMore
+        );
+        setWindow(next);
+        return next;
+      } catch {
+        // History loading is best effort; Virtuoso can retry at the boundary.
+      }
+    })();
+    const tracked = promise.finally(() => {
+      if (loadingOlder.current?.promise === tracked) {
+        loadingOlder.current = null;
+      }
+    });
+    loadingOlder.current = { key: targetKey, promise: tracked };
+    return tracked;
   };
 
-  const jumpTo = (turnId: string) => {
-    const index = turnIndex.get(turnId);
-    if (index === undefined) {
-      return;
+  const loadOlder = (): Promise<TurnWindow | undefined> => {
+    if (jumping.current.has(keyRef.current)) {
+      return Promise.resolve(undefined);
     }
-    const currentIndex = visibleTurn
-      ? (turnIndex.get(visibleTurn.id) ?? index)
-      : index;
-    const near = Math.abs(index - currentIndex) < 30;
-    virtuoso.current?.scrollToIndex({
-      align: "center",
-      behavior: near ? "smooth" : "auto",
-      index,
-    });
-    window.setTimeout(
-      () =>
-        virtuoso.current?.scrollToIndex({
-          align: "center",
-          behavior: "auto",
-          index,
-        }),
-      near ? 350 : 80
-    );
-    setHighlightedId(turnId);
-    window.setTimeout(
-      () => setHighlightedId((id) => (id === turnId ? undefined : id)),
-      1200
-    );
+    return loadHistoryPage();
+  };
+
+  const jumpTo = async (turnId: string) => {
+    const token = jumpToken.current + 1;
+    const targetKey = keyRef.current;
+    jumpToken.current = token;
+    jumping.current.add(targetKey);
+    try {
+      let current = windows.get(keyRef.current) ?? turnWindow;
+      const target = current.metas.find((meta) => meta.id === turnId);
+      let index = findTurnIndex(current, turnId, target?.absoluteIndex);
+      let loadedOlder = false;
+      if (
+        index < 0 &&
+        target !== undefined &&
+        target.absoluteIndex < current.start
+      ) {
+        const loaded = await loadUntilTurn(
+          current,
+          target.absoluteIndex,
+          loadHistoryPage
+        );
+        if (!loaded || token !== jumpToken.current) {
+          return;
+        }
+        current = loaded;
+        loadedOlder = true;
+        index = findTurnIndex(current, turnId, target.absoluteIndex);
+      }
+      if (index < 0 || token !== jumpToken.current) {
+        return;
+      }
+      if (loadedOlder) {
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      }
+      if (
+        token !== jumpToken.current ||
+        !scrollToTurn(virtuoso.current, current, index, visibleTurn)
+      ) {
+        return;
+      }
+      setHighlightedId(turnId);
+      window.setTimeout(
+        () => setHighlightedId((id) => (id === turnId ? undefined : id)),
+        1200
+      );
+    } finally {
+      window.setTimeout(() => {
+        if (jumpToken.current === token) {
+          jumping.current.delete(targetKey);
+        }
+      }, 700);
+    }
   };
 
   useEffect(() => {
@@ -831,6 +1030,23 @@ export function ChatView({
     }
   };
 
+  const addImageFiles = async (files: File[]) => {
+    if (!files.length) {
+      return;
+    }
+    if (images.length + files.length > MAX_IMAGE_ATTACHMENTS) {
+      setInputError("Too many image attachments");
+      return;
+    }
+    setInputError("");
+    try {
+      const attachments = await Promise.all(files.map(createImageAttachment));
+      setImages((current) => [...current, ...attachments]);
+    } catch (error) {
+      setInputError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const handlePaste = async (
     event: React.ClipboardEvent<HTMLTextAreaElement>
   ) => {
@@ -842,17 +1058,7 @@ export function ChatView({
       return;
     }
     event.preventDefault();
-    if (images.length >= MAX_IMAGE_ATTACHMENTS) {
-      setInputError("Too many image attachments");
-      return;
-    }
-    setInputError("");
-    try {
-      const attachment = await createImageAttachment(file);
-      setImages((current) => [...current, attachment]);
-    } catch (error) {
-      setInputError(error instanceof Error ? error.message : String(error));
-    }
+    await addImageFiles([file]);
   };
 
   const removeImage = (id: string) =>
@@ -934,6 +1140,7 @@ export function ChatView({
       handlePaste={handlePaste}
       images={images}
       inputError={inputError}
+      inputRef={textarea}
       mode={mode}
       model={model}
       models={models}
@@ -945,6 +1152,7 @@ export function ChatView({
         }
       }}
       onAddProject={onRequestAddProject}
+      onAttachImages={addImageFiles}
       onChangeMode={(value) => setMode(value as "local" | "worktree")}
       onChangeModel={(value) => {
         setModel(value);
@@ -990,25 +1198,29 @@ export function ChatView({
   }
 
   if (turnWindow.turns.length === 0) {
+    if (!session) {
+      return (
+        <NewTaskEmpty
+          onAddProject={onRequestAddProject}
+          onSelectProject={onSelectProject}
+          projects={projects}
+        />
+      );
+    }
     return (
-      <div className="relative h-full overflow-hidden p-8">
-        <div className="absolute top-[43%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-          <Asterisk
-            className="mx-auto mb-5 size-7 text-warning"
-            strokeWidth={1.6}
-          />
-          <div className="max-w-[70vw] truncate whitespace-nowrap font-normal text-xl">
-            {session ? session.title : t("choose_project_start")}
-          </div>
-          {session ? (
-            <div className="mt-1 text-muted-foreground text-sm">
-              @ {session.project}
-            </div>
-          ) : null}
-        </div>
-        <div className="absolute bottom-5 left-1/2 w-[min(90%,760px)] -translate-x-1/2">
-          {input}
-        </div>
+      <div className="flex h-full flex-col overflow-hidden">
+        <Empty className="min-h-0 p-8">
+          <EmptyHeader>
+            <EmptyMedia>
+              <Asterisk className="size-7" strokeWidth={1.6} />
+            </EmptyMedia>
+            <EmptyTitle>{session.title || t("new_task")}</EmptyTitle>
+            <EmptyDescription>
+              {t("working_in_project", { name: session.project })}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+        <div className="mx-auto w-full max-w-3xl p-4">{input}</div>
       </div>
     );
   }
@@ -1022,7 +1234,7 @@ export function ChatView({
           defaultItemHeight={160}
           firstItemIndex={turnWindow.start}
           followOutput="smooth"
-          increaseViewportBy={{ bottom: 400, top: 400 }}
+          increaseViewportBy={{ bottom: 400, top: 0 }}
           itemContent={(_index, turn) => (
             <TurnCard highlighted={turn.id === highlightedId} turn={turn} />
           )}
@@ -1041,6 +1253,62 @@ export function ChatView({
   );
 }
 
+function NewTaskEmpty({
+  onAddProject,
+  onSelectProject,
+  projects,
+}: {
+  onAddProject: () => void;
+  onSelectProject: (project: Project) => void;
+  projects: Project[];
+}) {
+  const { t } = useI18n();
+  const visibleProjects = projects.slice(0, EMPTY_PROJECT_LIMIT);
+
+  return (
+    <Empty className="h-full rounded-none p-6">
+      <EmptyHeader>
+        <EmptyMedia>
+          <Folder className="size-6" />
+        </EmptyMedia>
+        <EmptyTitle>{t("choose_project_start")}</EmptyTitle>
+        <EmptyDescription>{t("choose_project_desc")}</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent className="w-full max-w-sm gap-1">
+        {visibleProjects.map((project) => (
+          <Button
+            className="h-auto w-full justify-between px-3 py-2 text-left"
+            key={project.id}
+            onClick={() => onSelectProject(project)}
+            variant="ghost"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <Folder data-icon="inline-start" />
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-sm">
+                  {project.name}
+                </span>
+                <span className="block truncate text-muted-foreground text-xs">
+                  {project.cwd}
+                </span>
+              </span>
+            </span>
+            <ChevronRight data-icon="inline-end" />
+          </Button>
+        ))}
+        <Button
+          className="mt-2 w-full"
+          onClick={onAddProject}
+          variant={projects.length ? "outline" : "default"}
+        >
+          <FolderPlus data-icon="inline-start" />
+          {t("add_project")}
+        </Button>
+      </EmptyContent>
+    </Empty>
+  );
+}
+
 interface PromptInputProps {
   activeSuggestionIndex: number;
   branches: { current: boolean; name: string }[];
@@ -1053,11 +1321,13 @@ interface PromptInputProps {
   ) => Promise<void>;
   images: ImageAttachment[];
   inputError: string;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
   mode: "local" | "worktree";
   model: string;
   models: { id: string; name: string; provider: string }[];
   onAbort: () => Promise<void>;
   onAddProject: () => void;
+  onAttachImages: (files: File[]) => Promise<void>;
   onChangeMode: (value: string) => void;
   onChangeModel: (value: string) => void;
   onChangeThinking: (value: string) => void;
@@ -1086,12 +1356,14 @@ function PromptInput({
   fileLoading,
   handlePaste,
   images,
+  inputRef,
   inputError,
   mode,
   model,
   models,
   onAbort,
   onAddProject,
+  onAttachImages,
   onChangeMode,
   onChangeModel,
   onChangeThinking,
@@ -1111,9 +1383,26 @@ function PromptInput({
   thinking,
 }: PromptInputProps) {
   const { t } = useI18n();
+  const imageInput = useRef<HTMLInputElement>(null);
+  const canSubmit = Boolean(
+    streaming || text.trim() || images.length || fileAttachments.length
+  );
+  const openWorkspaceFile = () => {
+    const cursor = inputRef.current?.selectionStart ?? text.length;
+    const before = text.slice(0, cursor);
+    const insertion =
+      before && !before.endsWith(" ") && !before.endsWith("\n") ? " @" : "@";
+    const nextCursor = cursor + insertion.length;
+    const next = `${before}${insertion}${text.slice(cursor)}`;
+    onTextChange(next, nextCursor);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
   return (
     <div>
-      <div className="mb-2 flex h-8 items-center gap-1 px-1 text-muted-foreground text-xs">
+      <div className="mb-2 flex h-7 items-center gap-1 px-1 text-muted-foreground text-xs">
         <ProjectSelect
           onAdd={onAddProject}
           onClear={onClearProject}
@@ -1152,30 +1441,10 @@ function PromptInput({
             onSelect={onSelectCompletion}
           />
         ) : null}
-        <form
-          className="overflow-hidden rounded-3xl border border-border bg-background"
-          onSubmit={onSubmit}
-        >
-          {images.length > 0 || fileAttachments.length > 0 ? (
-            <div className="flex flex-wrap gap-2 px-4 pt-3 pb-1">
-              <ImagePreviews images={images} onRemove={onImageRemove} />
-              {fileAttachments.map((file) => (
-                <Button
-                  className="group h-auto max-w-full rounded-xl border border-border bg-muted px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
-                  key={file.id}
-                  onClick={() => onFileRemove(file)}
-                  title={file.path}
-                  variant="ghost"
-                >
-                  <File className="size-3.5 shrink-0" />
-                  <span className="truncate">@{file.display}</span>
-                  <X className="size-3 shrink-0 opacity-60 group-hover:opacity-100" />
-                </Button>
-              ))}
-            </div>
-          ) : null}
-          <Textarea
-            className="h-12 min-h-12 resize-none overflow-hidden rounded-none border-0 bg-transparent px-4 py-4 text-[15px] focus-visible:border-transparent focus-visible:ring-0"
+        <AiAgentInput onSubmit={onSubmit}>
+          <AiAgentInputTextarea
+            aria-invalid={inputError ? true : undefined}
+            aria-label={t("prompt_input")}
             onChange={(event) =>
               onTextChange(event.target.value, event.target.selectionStart)
             }
@@ -1216,10 +1485,86 @@ function PromptInput({
             }}
             onPaste={handlePaste}
             placeholder={t("prompt_placeholder")}
+            ref={inputRef}
             value={text}
           />
-          <div className="flex items-center justify-between gap-2 px-4 pt-0 pb-3">
-            <div className="flex min-w-0 items-center gap-2">
+          {images.length > 0 || fileAttachments.length > 0 ? (
+            <AiAgentInputHeader>
+              <div className="flex flex-wrap gap-2">
+                <ImagePreviews
+                  compact
+                  images={images}
+                  onRemove={onImageRemove}
+                />
+                {fileAttachments.map((file) => (
+                  <Button
+                    className="group h-[22px] max-w-full rounded-full px-2 text-xs"
+                    key={file.id}
+                    onClick={() => onFileRemove(file)}
+                    title={file.path}
+                    variant="outline"
+                  >
+                    <File data-icon="inline-start" />
+                    <span className="truncate">@{file.display}</span>
+                    <X data-icon="inline-end" />
+                  </Button>
+                ))}
+              </div>
+            </AiAgentInputHeader>
+          ) : null}
+          <AiAgentInputFooter>
+            <div className="flex min-w-0 items-center gap-1">
+              <Input
+                accept="image/*"
+                hidden
+                multiple
+                onChange={async (event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  event.target.value = "";
+                  await onAttachImages(files);
+                }}
+                ref={imageInput}
+                tabIndex={-1}
+                type="file"
+              />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <AiAgentInputButton
+                      aria-label={t("add_attachment")}
+                      title={t("add_attachment")}
+                      type="button"
+                    />
+                  }
+                >
+                  <HugeiconsIcon
+                    data-icon="inline-start"
+                    icon={Add01Icon}
+                    strokeWidth={1.8}
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="w-44 rounded-[10px] p-[3px] text-xs"
+                  side="top"
+                >
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      onClick={() => imageInput.current?.click()}
+                    >
+                      <HugeiconsIcon icon={Image01Icon} strokeWidth={1.8} />
+                      {t("attach_images")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={openWorkspaceFile}>
+                      <HugeiconsIcon
+                        icon={FileAttachmentIcon}
+                        strokeWidth={1.8}
+                      />
+                      {t("attach_workspace_file")}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <ModelSelect
                 models={models}
                 onChange={onChangeModel}
@@ -1227,51 +1572,46 @@ function PromptInput({
                 value={model}
               />
               <CompactSelect
+                appearance="composer"
+                contentLabel={t("reasoning")}
+                icon={<HugeiconsIcon icon={AiBrain01Icon} strokeWidth={1.8} />}
                 items={[
-                  "off",
-                  "minimal",
-                  "low",
-                  "medium",
-                  "high",
-                  "xhigh",
-                  "max",
-                ].map((value) => ({
-                  label: value[0].toUpperCase() + value.slice(1),
-                  value,
-                }))}
+                  { label: t("thinking_level_off"), value: "off" },
+                  { label: t("thinking_level_minimal"), value: "minimal" },
+                  { label: t("thinking_level_low"), value: "low" },
+                  { label: t("thinking_level_medium"), value: "medium" },
+                  { label: t("thinking_level_high"), value: "high" },
+                  { label: t("thinking_level_extra_high"), value: "xhigh" },
+                  { label: t("thinking_level_maximum"), value: "max" },
+                ]}
                 onChange={onChangeThinking}
                 value={thinking}
               />
-              <span className="hidden shrink-0 items-center gap-1.5 whitespace-nowrap px-2 text-muted-foreground text-xs lg:flex">
-                <Gauge className="size-3.5" /> 32k / 128k context
-              </span>
             </div>
-            <Button
-              className={
-                streaming
-                  ? "rounded-full border-0 bg-foreground text-background shadow-none hover:bg-foreground/90"
-                  : "rounded-full border-0 bg-accent text-muted-foreground shadow-none hover:bg-accent hover:text-foreground disabled:opacity-40"
-              }
-              disabled={
-                !(
-                  streaming ||
-                  text.trim() ||
-                  images.length ||
-                  fileAttachments.length
-                )
-              }
+            <AiAgentInputButton
+              active={canSubmit}
+              aria-label={streaming ? t("stop_generating") : t("send_message")}
+              disabled={!canSubmit}
               onClick={streaming ? onAbort : undefined}
-              size="icon-sm"
+              title={streaming ? t("stop_generating") : t("send_message")}
               type={streaming ? "button" : "submit"}
             >
               {streaming ? (
-                <X className="size-4" />
+                <HugeiconsIcon
+                  data-icon="inline-start"
+                  icon={StopIcon}
+                  strokeWidth={2}
+                />
               ) : (
-                <Check className="size-4" />
+                <HugeiconsIcon
+                  data-icon="inline-start"
+                  icon={ArrowUp02Icon}
+                  strokeWidth={2}
+                />
               )}
-            </Button>
-          </div>
-        </form>
+            </AiAgentInputButton>
+          </AiAgentInputFooter>
+        </AiAgentInput>
         {inputError ? (
           <p className="mt-2 px-3 text-destructive text-xs" role="alert">
             {inputError}
@@ -1341,7 +1681,11 @@ async function loadSession(
 ) {
   const cached = windows.get(key);
   setTurnWindow(cached ?? windowFromMessages([], 0, false));
-  if (!sessionCwd || cached) {
+  if (cached) {
+    setLoading(false);
+    return;
+  }
+  if (sessionCwd === undefined) {
     setLoading(false);
     return;
   }
@@ -1351,10 +1695,13 @@ async function loadSession(
       messages: history,
       cursor,
       hasMore,
+      outline,
       model: sessionModel,
       thinkingLevel,
     } = await api.pi.open(key, sessionCwd, sessionPath);
-    setWindow(windowFromMessages(history as ChatMessage[], cursor, hasMore));
+    setWindow(
+      windowFromMessages(history as ChatMessage[], cursor, hasMore, outline)
+    );
     if (sessionModel) {
       setModel(`${sessionModel.provider}/${sessionModel.id}`);
     }
@@ -1373,6 +1720,21 @@ async function loadSession(
     setWindow(windowFromMessages(failed, 0, false));
     setLoading(false);
   }
+}
+
+async function loadUntilTurn(
+  current: TurnWindow,
+  targetAbsoluteIndex: number,
+  loadOlder: () => Promise<TurnWindow | undefined>
+): Promise<TurnWindow | undefined> {
+  if (targetAbsoluteIndex >= current.start || !current.hasOlder) {
+    return current;
+  }
+  const next = await loadOlder();
+  if (!next || next.start >= current.start) {
+    return;
+  }
+  return loadUntilTurn(next, targetAbsoluteIndex, loadOlder);
 }
 
 function useFileCompletion(
@@ -1533,7 +1895,7 @@ function ProjectSelect({
       value={items.find((item) => item.value === value) ?? null}
     >
       <SelectTrigger
-        className="h-7 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2.5 text-muted-foreground text-xs shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
+        className="h-6 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1 rounded-[7px] border-0 bg-transparent px-2 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
         hideIcon
       >
         <Folder className="size-3.5" />
@@ -1593,6 +1955,7 @@ function ModelSelect({
   placeholder: string;
   onChange: (value: string) => void;
 }) {
+  const { t } = useI18n();
   const modelItems = models.map((item) => ({
     ...item,
     label: item.name,
@@ -1604,6 +1967,20 @@ function ModelSelect({
     () => new Set(selected ? [selected.provider] : groups)
   );
   const [query, setQuery] = useState("");
+  const selectedProvider = selected?.provider;
+  useEffect(() => {
+    if (!selectedProvider) {
+      return;
+    }
+    setExpanded((current) => {
+      if (current.has(selectedProvider)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add(selectedProvider);
+      return next;
+    });
+  }, [selectedProvider]);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const matched = normalized
@@ -1616,97 +1993,99 @@ function ModelSelect({
       : matched;
   }, [modelItems, query, selected]);
   const filteredGroups = [...new Set(filtered.map((item) => item.provider))];
-  const width = Math.min(
-    560,
-    Math.max(
-      280,
-      Math.max(...modelItems.map((item) => item.label.length), 20) * 8 + 72
-    )
-  );
-
   return (
     <Select
       items={filtered}
       itemToStringValue={(item) => item.label}
-      onValueChange={(item) => item && onChange(item.value)}
+      onOpenChange={(open) => {
+        if (!open) {
+          setQuery("");
+        }
+      }}
+      onValueChange={(item) => {
+        if (item) {
+          onChange(item.value);
+          setQuery("");
+        }
+      }}
       value={selected}
     >
-      <SelectTrigger
-        className="h-7 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-muted-foreground text-xs shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
-        hideIcon
-      >
-        <ProviderIcon
-          className="size-3.5 shrink-0"
-          provider={selected?.provider}
-        />
+      <AiAgentInputSelectTrigger title={selected?.label}>
+        <ProviderIcon className="shrink-0" provider={selected?.provider} />
         <SelectValue placeholder={placeholder}>{selected?.label}</SelectValue>
-      </SelectTrigger>
+      </AiAgentInputSelectTrigger>
       <SelectContent
         alignItemWithTrigger={false}
-        className="p-1"
+        className="max-h-[min(17.5rem,47vh)] w-[min(14.375rem,calc(100vw-2rem))] overflow-hidden rounded-[10px] bg-popover p-0"
+        side="top"
         sideOffset={6}
-        style={{ width }}
       >
-        <div className="mb-1 flex h-8 items-center gap-2 rounded-md border border-border px-2">
-          <Search className="size-3.5 text-muted-foreground" />
-          <Input
-            className="h-auto border-0 bg-transparent px-0 py-0 focus-visible:border-transparent focus-visible:ring-0"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => event.stopPropagation()}
-            placeholder="Search models…"
-            value={query}
-          />
-        </div>
-        {filteredGroups.map((provider, index) => (
-          <SelectGroup key={provider}>
-            {index > 0 && <SelectSeparator className="my-1 bg-accent" />}
-            <SelectLabel
-              className="flex w-full cursor-pointer items-center justify-start gap-1.5 rounded-md px-2 py-1.5 text-left font-medium text-muted-foreground text-sm hover:bg-accent hover:text-foreground"
-              onClick={(event) => {
-                event.preventDefault();
-                setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(provider)) {
-                    next.delete(provider);
-                  } else {
-                    next.add(provider);
-                  }
-                  return next;
-                });
-              }}
-              render={<button type="button" />}
-            >
-              <ChevronRight
-                className={`size-3 shrink-0 transition-transform ${expanded.has(provider) || query ? "rotate-90" : ""}`}
+        <div className="flex max-h-[min(17.5rem,47vh)] flex-col">
+          <div className="shrink-0 p-[3px] pb-0">
+            <InputGroup className="h-8 rounded-[7px] border-0 bg-muted shadow-none">
+              <InputGroupAddon>
+                <Search />
+              </InputGroupAddon>
+              <InputGroupInput
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => event.stopPropagation()}
+                placeholder={t("search_models")}
+                value={query}
               />
-              <ProviderIcon className="size-3.5 shrink-0" provider={provider} />
-              {provider}
-            </SelectLabel>
-            {(expanded.has(provider) || !!query) &&
-              filtered
-                .filter((item) => item.provider === provider)
-                .map((item) => (
-                  <SelectItem
-                    className="min-h-8 rounded-md pl-7 text-sm"
-                    key={`${item.provider}/${item.id}`}
-                    value={item}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <ProviderIcon
-                        className="size-3.5 shrink-0"
-                        provider={item.provider}
-                      />
-                      <span className="truncate">{item.name}</span>
-                    </span>
-                  </SelectItem>
-                ))}
-          </SelectGroup>
-        ))}
-        {filtered.length === 0 && (
-          <div className="px-3 py-2 text-muted-foreground text-sm">
-            No models found
+            </InputGroup>
           </div>
-        )}
+          <Separator className="my-[3px]" />
+          <div className="min-h-0 overflow-y-auto px-[3px] pb-[3px]">
+            {filteredGroups.map((provider, index) => (
+              <SelectGroup className="scroll-my-0 p-0" key={provider}>
+                {index > 0 && <SelectSeparator className="mx-1 my-0.5" />}
+                <SelectLabel
+                  className="flex min-h-7 w-full cursor-pointer items-center justify-start gap-1.5 rounded-md px-2 py-1 text-left font-medium text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setExpanded((current) => {
+                      const next = new Set(current);
+                      if (next.has(provider)) {
+                        next.delete(provider);
+                      } else {
+                        next.add(provider);
+                      }
+                      return next;
+                    });
+                  }}
+                  render={<button type="button" />}
+                >
+                  <ChevronRight
+                    className={`size-3 shrink-0 transition-transform ${expanded.has(provider) || query ? "rotate-90" : ""}`}
+                  />
+                  <ProviderIcon
+                    className="size-3.5 shrink-0"
+                    provider={provider}
+                  />
+                  {provider}
+                </SelectLabel>
+                {(expanded.has(provider) || !!query) &&
+                  filtered
+                    .filter((item) => item.provider === provider)
+                    .map((item) => (
+                      <SelectItem
+                        className="min-h-7 max-w-full overflow-hidden rounded-md pr-7 pl-7 text-xs [&>span:first-child]:min-w-0 [&>span:first-child]:shrink [&>span:first-child]:overflow-hidden"
+                        key={`${item.provider}/${item.id}`}
+                        title={item.name}
+                        value={item}
+                      >
+                        <span className="min-w-0 truncate">{item.name}</span>
+                      </SelectItem>
+                    ))}
+              </SelectGroup>
+            ))}
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 text-muted-foreground text-sm">
+                {t("models_no_results")}
+              </div>
+            )}
+          </div>
+        </div>
       </SelectContent>
     </Select>
   );
@@ -1718,6 +2097,8 @@ function CompactSelect({
   placeholder,
   icon,
   disabled,
+  appearance = "context",
+  contentLabel,
   onChange,
 }: {
   items: { value: string; label: string }[];
@@ -1725,8 +2106,17 @@ function CompactSelect({
   placeholder?: string;
   icon?: React.ReactNode;
   disabled?: boolean;
+  appearance?: "context" | "composer";
+  contentLabel?: string;
   onChange: (value: string) => void;
 }) {
+  const selectedLabel = items.find((item) => item.value === value)?.label;
+  const triggerContent = (
+    <>
+      {icon}
+      <SelectValue placeholder={placeholder}>{selectedLabel}</SelectValue>
+    </>
+  );
   return (
     <Select
       disabled={disabled}
@@ -1735,25 +2125,51 @@ function CompactSelect({
       onValueChange={(next) => next && onChange(next.value)}
       value={items.find((item) => item.value === value) ?? null}
     >
-      <SelectTrigger
-        className="h-7 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1.5 rounded-md border-0 bg-transparent px-2 text-muted-foreground text-xs shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
-        hideIcon
-      >
-        {icon}
-        <SelectValue placeholder={placeholder}>
-          {items.find((item) => item.value === value)?.label}
-        </SelectValue>
-      </SelectTrigger>
+      {appearance === "composer" ? (
+        <AiAgentInputSelectTrigger
+          aria-label={
+            contentLabel && selectedLabel
+              ? `${contentLabel}: ${selectedLabel}`
+              : contentLabel
+          }
+          title={
+            contentLabel && selectedLabel
+              ? `${contentLabel}: ${selectedLabel}`
+              : contentLabel
+          }
+        >
+          {triggerContent}
+        </AiAgentInputSelectTrigger>
+      ) : (
+        <SelectTrigger
+          className="h-6 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1 rounded-[7px] border-0 bg-transparent px-1.5 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
+          hideIcon
+        >
+          {triggerContent}
+        </SelectTrigger>
+      )}
       <SelectContent
         alignItemWithTrigger={false}
-        className="min-w-44 p-1"
+        className={cn(
+          appearance === "composer"
+            ? "min-w-40 rounded-[10px] p-[3px]"
+            : "min-w-44 p-1"
+        )}
+        side={appearance === "composer" ? "top" : "bottom"}
         sideOffset={6}
       >
-        {items.map((item) => (
-          <SelectItem className="text-sm" key={item.value} value={item}>
-            {item.label}
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {contentLabel ? <SelectLabel>{contentLabel}</SelectLabel> : null}
+          {items.map((item) => (
+            <SelectItem
+              className={cn(appearance === "composer" ? "text-xs" : "text-sm")}
+              key={item.value}
+              value={item}
+            >
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   );

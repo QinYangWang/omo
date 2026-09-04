@@ -1,5 +1,9 @@
 "use strict";
-const { displayMessages } = require("./display-messages.cjs");
+const {
+  createHistorySnapshot,
+  historyPage,
+  sessionHistoryMessages,
+} = require("./display-messages.cjs");
 
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 
@@ -62,19 +66,17 @@ class PiService {
         await this.sessionWorkspace.resolveExisting(sessionPath);
       const { SessionManager } = await this.sdk;
       const manager = SessionManager.open(resolvedSessionPath);
-      const all = displayMessages(manager.buildSessionContext().messages);
-      this.history.set(sessionId, all);
-      const cursor = Math.max(0, all.length - 80);
+      const history = createHistorySnapshot(sessionHistoryMessages(manager));
+      this.history.set(sessionId, history);
+      const page = historyPage(history);
       const session = await this.ensure(
         sessionId,
         resolvedCwd,
         resolvedSessionPath
       );
       return {
-        cursor,
+        ...page,
         eventSequence: this.events.latestSequence(sessionId),
-        hasMore: cursor > 0,
-        messages: all.slice(cursor),
         model: session.model
           ? {
               id: session.model.id,
@@ -82,6 +84,7 @@ class PiService {
               provider: session.model.provider,
             }
           : null,
+        outline: history.metas,
         sessionFile: resolvedSessionPath,
         sessionId: manager.getSessionId(),
         thinkingLevel: session.thinkingLevel,
@@ -107,10 +110,11 @@ class PiService {
   }
 
   historyPage(sessionId, before) {
-    const all = this.history.get(sessionId) || [];
-    const end = Math.max(0, Math.min(Number(before), all.length));
-    const cursor = Math.max(0, end - 80);
-    return { cursor, hasMore: cursor > 0, messages: all.slice(cursor, end) };
+    const history = this.history.get(sessionId);
+    return historyPage(
+      history || { items: [], metas: [], turnStarts: [] },
+      before
+    );
   }
 
   async models() {

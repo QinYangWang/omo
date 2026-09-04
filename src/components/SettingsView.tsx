@@ -20,11 +20,7 @@ import {
   quotaColor,
   useQuotas,
 } from "@/components/ProvidersSection";
-import {
-  ServerTabs,
-  useSelectedServer,
-} from "@/components/ServerTabs";
-import { Switch } from "@/components/ui/switch";
+import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,13 +32,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Progress,
   ProgressIndicator,
   ProgressTrack,
 } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -51,6 +47,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { type I18nKey, type Lang, useI18n } from "@/lib/i18n";
 import {
   addRemoteServer,
@@ -60,12 +57,12 @@ import {
   type ServerStatus,
   testServerConnection,
   updateRemoteServer,
-  useServers,
   useServerStatuses,
+  useServers,
 } from "@/lib/servers";
 import {
-  type OverrideMode,
   exportThemeCss,
+  type OverrideMode,
   type Theme,
   useTheme,
 } from "@/lib/theme";
@@ -93,6 +90,7 @@ const themeLabels: Record<Theme, I18nKey> = {
   light: "theme_light",
   system: "theme_system",
 };
+const tokenNamePattern = /^--/;
 
 export function SettingsView({
   onBack,
@@ -157,6 +155,12 @@ export function SettingsView({
 export function ServerStatusBadge({ status }: { status?: ServerStatus }) {
   const { t } = useI18n();
   const state = status?.state ?? "checking";
+  let stateLabel = t("server_checking");
+  if (state === "online") {
+    stateLabel = t("server_online");
+  } else if (state === "offline") {
+    stateLabel = t("server_offline");
+  }
   return (
     <Badge className="gap-1.5" title={status?.error} variant="secondary">
       <span
@@ -167,11 +171,7 @@ export function ServerStatusBadge({ status }: { status?: ServerStatus }) {
           state === "checking" && "animate-pulse bg-warning"
         )}
       />
-      {state === "online"
-        ? t("server_online")
-        : state === "offline"
-          ? t("server_offline")
-          : t("server_checking")}
+      {stateLabel}
       {state === "online" && typeof status?.latencyMs === "number"
         ? ` · ${status.latencyMs}ms`
         : null}
@@ -324,9 +324,12 @@ function ServersSection() {
           <Plus className="size-4" /> {t("server_add")}
         </Button>
       </div>
-      <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex flex-col divide-y divide-border">
         {servers.map((server) => (
-          <div className="flex min-h-14 items-center gap-3 px-4 py-2" key={server.id}>
+          <div
+            className="flex min-h-14 items-center gap-3 py-2"
+            key={server.id}
+          >
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium text-sm">
                 {server.kind === "local"
@@ -368,7 +371,7 @@ function ServersSection() {
           </div>
         ))}
         {servers.every((server) => server.kind === "local") ? (
-          <p className="px-4 py-3 text-muted-foreground text-sm">
+          <p className="py-3 text-muted-foreground text-sm">
             {t("server_no_remote")}
           </p>
         ) : null}
@@ -396,9 +399,11 @@ function TokenEditor({
   const { overrides, setOverride } = useTheme();
   const override = overrides[mode][name];
   const computed =
-    typeof getComputedStyle !== "undefined"
-      ? getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-      : "";
+    typeof getComputedStyle === "undefined"
+      ? ""
+      : getComputedStyle(document.documentElement)
+          .getPropertyValue(name)
+          .trim();
   const base = computed || fallback || "";
   const value = override ?? base;
   const numeric = slider ? parseNumericValue(value) : null;
@@ -406,49 +411,57 @@ function TokenEditor({
     !slider && looksLikeColor(value) ? normalizeColorToHex(value) : null;
   const save = (next: string) =>
     setOverride(name, next === base ? null : next, mode);
+  let control: React.ReactNode;
+  if (color !== null) {
+    control = (
+      <label
+        className="relative size-7 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border"
+        style={{ background: value }}
+        title={value}
+      >
+        <input
+          aria-label={name}
+          className="absolute inset-0 cursor-pointer opacity-0"
+          onChange={(event) => {
+            const picked = event.target.value;
+            const alpha = color.length === 9 ? color.slice(7) : "";
+            save(`${picked}${alpha}`);
+          }}
+          type="color"
+          value={color.slice(0, 7)}
+        />
+      </label>
+    );
+  } else if (numeric && slider) {
+    control = (
+      <input
+        aria-label={name}
+        className="h-7 w-36 shrink-0 accent-primary"
+        max={slider.max}
+        min={slider.min}
+        onChange={(event) => save(`${event.target.value}${numeric.unit}`)}
+        step={slider.step}
+        type="range"
+        value={numeric.num}
+      />
+    );
+  } else {
+    control = (
+      <span
+        aria-hidden="true"
+        className="size-7 shrink-0 rounded-md border border-border/40"
+      />
+    );
+  }
   return (
     <div className="flex items-center gap-2 py-1.5">
       <span
         className="w-40 shrink-0 truncate font-mono text-muted-foreground text-xs"
         title={name}
       >
-        {name.replace(/^--/, "")}
+        {name.replace(tokenNamePattern, "")}
       </span>
-      {color !== null ? (
-        <label
-          className="relative size-7 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border"
-          style={{ background: value }}
-          title={value}
-        >
-          <input
-            aria-label={name}
-            className="absolute inset-0 cursor-pointer opacity-0"
-            onChange={(event) => {
-              const picked = event.target.value;
-              const alpha = color.length === 9 ? color.slice(7) : "";
-              save(`${picked}${alpha}`);
-            }}
-            type="color"
-            value={color.slice(0, 7)}
-          />
-        </label>
-      ) : numeric && slider ? (
-        <input
-          aria-label={name}
-          className="h-7 w-36 shrink-0 accent-primary"
-          max={slider.max}
-          min={slider.min}
-          onChange={(event) => save(`${event.target.value}${numeric.unit}`)}
-          step={slider.step}
-          type="range"
-          value={numeric.num}
-        />
-      ) : (
-        <span
-          aria-hidden="true"
-          className="size-7 shrink-0 rounded-md border border-border/40"
-        />
-      )}
+      {control}
       <Input
         className="h-7 flex-1 font-mono text-xs"
         onChange={(event) => save(event.target.value)}
@@ -551,7 +564,11 @@ function AppearanceSection() {
             </p>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button onClick={() => setPasteOpen(true)} size="sm" variant="outline">
+            <Button
+              onClick={() => setPasteOpen(true)}
+              size="sm"
+              variant="outline"
+            >
               {t("theme_import")}
             </Button>
             <Button
@@ -619,7 +636,9 @@ function AppearanceSection() {
             autoFocus
             className="h-56 resize-none font-mono text-xs"
             onChange={(event) => setPasteCss(event.target.value)}
-            placeholder={":root {\n  --background: oklch(1 0 0);\n  ...\n}\n\n.dark {\n  --background: oklch(0.145 0 0);\n  ...\n}"}
+            placeholder={
+              ":root {\n  --background: oklch(1 0 0);\n  ...\n}\n\n.dark {\n  --background: oklch(0.145 0 0);\n  ...\n}"
+            }
             value={pasteCss}
           />
           <DialogFooter>
@@ -668,9 +687,7 @@ function ServerSkills({ serverId }: { serverId: string }) {
     <div className="flex max-w-2xl flex-col gap-5">
       <div>
         <h2 className="font-medium text-xl">{t("section_skills")}</h2>
-        <p className="mt-1 text-muted-foreground text-sm">
-          {t("skills_desc")}
-        </p>
+        <p className="mt-1 text-muted-foreground text-sm">{t("skills_desc")}</p>
       </div>
       <Input
         onChange={(event) => setQuery(event.target.value)}
@@ -678,9 +695,12 @@ function ServerSkills({ serverId }: { serverId: string }) {
         value={query}
       />
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
-      <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex flex-col divide-y divide-border">
         {visible.map((skill) => (
-          <div className="flex min-h-14 items-center gap-3 px-4 py-2" key={skill.filePath}>
+          <div
+            className="flex min-h-14 items-center gap-3 py-2"
+            key={skill.filePath}
+          >
             <Package className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium text-sm">{skill.name}</div>
@@ -691,7 +711,7 @@ function ServerSkills({ serverId }: { serverId: string }) {
           </div>
         ))}
         {visible.length === 0 && !error ? (
-          <p className="px-4 py-3 text-muted-foreground text-sm">
+          <p className="py-3 text-muted-foreground text-sm">
             {t("skills_empty")}
           </p>
         ) : null}
@@ -763,9 +783,7 @@ function ServerModels({ serverId }: { serverId: string }) {
     <div className="flex flex-col gap-5">
       <div>
         <h2 className="font-medium text-xl">{t("section_models")}</h2>
-        <p className="mt-1 text-muted-foreground text-sm">
-          {t("models_desc")}
-        </p>
+        <p className="mt-1 text-muted-foreground text-sm">{t("models_desc")}</p>
       </div>
       <div className="flex items-center gap-2">
         <Input
@@ -798,10 +816,10 @@ function ServerModels({ serverId }: { serverId: string }) {
         })}
       </p>
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
-      <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex flex-col divide-y divide-border">
         {visible.map((model) => (
           <div
-            className="flex min-h-12 items-center gap-3 px-4 py-2"
+            className="flex min-h-12 items-center gap-3 py-2"
             key={`${model.provider}/${model.id}`}
           >
             <div className="min-w-0 flex-1">
@@ -818,7 +836,7 @@ function ServerModels({ serverId }: { serverId: string }) {
           </div>
         ))}
         {visible.length === 0 ? (
-          <p className="px-4 py-3 text-muted-foreground text-sm">
+          <p className="py-3 text-muted-foreground text-sm">
             {t("models_empty")}
           </p>
         ) : null}
@@ -884,7 +902,7 @@ function ServerPackages({ serverId }: { serverId: string }) {
         </Button>
       </div>
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -899,7 +917,7 @@ function ServerPackages({ serverId }: { serverId: string }) {
               <TableRow key={pkg.source}>
                 <TableCell className="font-medium">{pkg.name}</TableCell>
                 <TableCell>
-                  {pkg.installedVersion ?? pkg.version ?? "—"}
+                  {pkg.installedVersion ?? pkg.version ?? "n/a"}
                 </TableCell>
                 <TableCell>{pkg.kind}</TableCell>
                 <TableCell className="text-right">
@@ -907,7 +925,9 @@ function ServerPackages({ serverId }: { serverId: string }) {
                     aria-label="Remove package"
                     disabled={busy}
                     onClick={() =>
-                      run(() => getServerApi(serverId).packages.remove(pkg.source))
+                      run(() =>
+                        getServerApi(serverId).packages.remove(pkg.source)
+                      )
                     }
                     size="icon"
                     variant="ghost"
@@ -920,7 +940,7 @@ function ServerPackages({ serverId }: { serverId: string }) {
           </TableBody>
         </Table>
         {packages.length === 0 ? (
-          <p className="px-4 py-3 text-muted-foreground text-sm">
+          <p className="py-3 text-muted-foreground text-sm">
             {t("packages_empty")}
           </p>
         ) : null}
@@ -938,7 +958,9 @@ function ServerPackages({ serverId }: { serverId: string }) {
               event.key === "Enter" &&
               source &&
               run(async () => {
-                const next = await getServerApi(serverId).packages.install(source.trim());
+                const next = await getServerApi(serverId).packages.install(
+                  source.trim()
+                );
                 setInstallOpen(false);
                 setSource("");
                 return next;
@@ -952,7 +974,9 @@ function ServerPackages({ serverId }: { serverId: string }) {
               disabled={!source.trim() || busy}
               onClick={() =>
                 run(async () => {
-                  const next = await getServerApi(serverId).packages.install(source.trim());
+                  const next = await getServerApi(serverId).packages.install(
+                    source.trim()
+                  );
                   setInstallOpen(false);
                   setSource("");
                   return next;
@@ -968,9 +992,7 @@ function ServerPackages({ serverId }: { serverId: string }) {
   );
 }
 
-type UsageSnapshot = Awaited<
-  ReturnType<omoApi["usage"]["snapshot"]>
->;
+type UsageSnapshot = Awaited<ReturnType<omoApi["usage"]["snapshot"]>>;
 
 function ServerUsageCard({
   server,
@@ -1043,10 +1065,10 @@ function ServerUsageCard({
         </div>
       </div>
       <div className="grid grid-cols-5 divide-x rounded-lg border">
-        {stats.map(([label, value]) => (
-          <div className="p-4" key={label}>
-            <div className="text-muted-foreground text-xs">{label}</div>
-            <div className="text-xl">{value}</div>
+        {stats.map(([statLabel, statValue]) => (
+          <div className="p-4" key={statLabel}>
+            <div className="text-muted-foreground text-xs">{statLabel}</div>
+            <div className="text-xl">{statValue}</div>
           </div>
         ))}
       </div>
@@ -1134,5 +1156,3 @@ function UsageSection() {
     </div>
   );
 }
-
-

@@ -69,7 +69,7 @@ function installedNpmVersion(agentDir, name) {
       )
     ).version;
   } catch {
-    return undefined;
+    // package not installed yet
   }
 }
 
@@ -118,7 +118,12 @@ async function installPackage(agentDir, source) {
   const prefix = path.join(agentDir, "npm");
   fs.mkdirSync(prefix, { recursive: true });
   await npmExec(
-    ["install", "--prefix", prefix, npm.version ? `${npm.name}@${npm.version}` : npm.name],
+    [
+      "install",
+      "--prefix",
+      prefix,
+      npm.version ? `${npm.name}@${npm.version}` : npm.name,
+    ],
     prefix
   );
   const settings = readSettings(agentDir);
@@ -168,7 +173,7 @@ function modelEnabled(settings, model) {
     if (typeof raw !== "string") {
       return false;
     }
-    const pattern = raw.split(":")[0];
+    const [pattern] = raw.split(":");
     const regex = globToRegExp(pattern);
     return regex.test(key) || regex.test(model.id);
   });
@@ -189,7 +194,7 @@ function setModelsEnabled(agentDir, available, enabledKeys) {
   );
   const allEnabled = available.every((model) => enabled.has(modelKey(model)));
   if (allEnabled) {
-    delete settings.enabledModels;
+    settings.enabledModels = undefined;
   } else {
     settings.enabledModels = available
       .filter((model) => enabled.has(modelKey(model)))

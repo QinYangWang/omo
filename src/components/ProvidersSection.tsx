@@ -1,5 +1,6 @@
 import { KeyRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,11 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  ServerTabs,
-  useSelectedServer,
-} from "@/components/ServerTabs";
-import { type Lang, useI18n } from "@/lib/i18n";
+import type { Lang } from "@/lib/i18n";
 import { getServerApi } from "@/lib/servers";
 import { cn } from "@/lib/utils";
 
@@ -107,7 +104,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
         });
       }
     });
-  }, [refresh]);
+  }, [refresh, api.providers.onAuthEvent]);
 
   const login = async (provider: ProviderInfo, type: "api_key" | "oauth") => {
     setBusy(provider.id);
@@ -171,10 +168,10 @@ function ServerProviders({ serverId }: { serverId: string }) {
           {message.text}
         </p>
       ) : null}
-      <div className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex flex-col divide-y divide-border">
         {visible.map((provider) => (
           <div
-            className="flex min-h-14 items-center gap-3 px-4 py-2"
+            className="flex min-h-14 items-center gap-3 py-2"
             key={provider.id}
           >
             <span

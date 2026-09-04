@@ -10,9 +10,12 @@ const {
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs/promises");
-const { readFileSync } = require("node:fs");
 const { spawn, execFile } = require("node:child_process");
-const { displayMessages } = require("../server/display-messages.cjs");
+const {
+  createHistorySnapshot,
+  historyPage,
+  sessionHistoryMessages,
+} = require("../server/display-messages.cjs");
 const {
   installPackage,
   listModels,
@@ -52,19 +55,12 @@ async function getModelRuntime() {
 }
 
 // ---------- provider quotas (in-process implementation) ----------
-async function fetchQuotas(force) {
+function fetchQuotas(force) {
   return fetchProviderQuotas(
     { runtime: getModelRuntime },
     path.join(os.homedir(), ".pi/agent"),
     force
   );
-}
-function readFileSyncOrNull(p) {
-  try {
-    return readFileSync(p, "utf8");
-  } catch {
-    return null;
-  }
 }
 
 // Keep the UI independent of Pi's TUI extensions: read the same persisted JSONL
@@ -160,14 +156,12 @@ function createWindow() {
     const { SessionManager } = await sdkPromise;
     if (sessionPath) {
       const manager = SessionManager.open(sessionPath);
-      const all = displayMessages(manager.buildSessionContext().messages);
-      historyPages.set(sessionId, all);
-      const cursor = Math.max(0, all.length - 80);
+      const history = createHistorySnapshot(sessionHistoryMessages(manager));
+      historyPages.set(sessionId, history);
+      const page = historyPage(history);
       const session = await ensurePi(sessionId, cwd, sessionPath);
       return {
-        cursor,
-        hasMore: cursor > 0,
-        messages: all.slice(cursor),
+        ...page,
         model: session.model
           ? {
               id: session.model.id,
@@ -175,6 +169,7 @@ function createWindow() {
               provider: session.model.provider,
             }
           : null,
+        outline: history.metas,
         sessionFile: sessionPath,
         sessionId: manager.getSessionId(),
         thinkingLevel: session.thinkingLevel,
@@ -251,12 +246,12 @@ function createWindow() {
     }
     session.setThinkingLevel(level);
   });
-  ipcMain.handle("pi:history", (_e, { sessionId, before }) => {
-    const all = historyPages.get(sessionId) || [];
-    const end = Math.max(0, Math.min(before, all.length));
-    const cursor = Math.max(0, end - 80);
-    return { cursor, hasMore: cursor > 0, messages: all.slice(cursor, end) };
-  });
+  ipcMain.handle("pi:history", (_e, { sessionId, before }) =>
+    historyPage(
+      historyPages.get(sessionId) || { items: [], metas: [], turnStarts: [] },
+      before
+    )
+  );
   ipcMain.handle(
     "pi:prompt",
     async (_e, { sessionId, message, cwd, sessionPath, images }) => {
@@ -581,7 +576,7 @@ function createWindow() {
     "remote-server.json"
   );
   const decryptToken = (encryptedToken) => {
-    if (!encryptedToken || !safeStorage.isEncryptionAvailable()) {
+    if (!(encryptedToken && safeStorage.isEncryptionAvailable())) {
       return "";
     }
     try {
