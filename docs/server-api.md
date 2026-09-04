@@ -68,6 +68,14 @@ JSON 请求体上限为 16MB。错误响应格式：
 
 每次最多返回约 80 项 UI 历史，并以会话轮次的 `cursor` 作为 `before`；不会拆开一个轮次。单个超大轮次会作为最小分页单元返回，服务端必须推进 cursor，不能返回相同 cursor 的空页。
 
+### `POST /pi/sync`
+
+```json
+{ "sessionId": "client-id", "sessionPath": "/path/to/session.jsonl", "turnCount": 24, "tailItemCount": 3 }
+```
+
+从磁盘重读 Session 文件（TUI 同步），返回客户端缺失的部分：`fromTurn >= 0` 时用 `messages` 替换/追加从该绝对 Turn 起的内容，`-1` 表示无新增；始终返回最新 `metas`（大纲）与 `totalTurns`。Session 文件变化通过事件流中的 `omo_session_file` 事件通知。
+
 ### `GET /pi/models`
 
 返回 `ModelRuntime.getAvailable()` 中的模型。
@@ -124,7 +132,7 @@ JSON 请求体上限为 16MB。错误响应格式：
 }
 ```
 
-Provider 认证事件使用保留的 `sessionId=__providers`。
+Provider 认证事件使用保留的 `sessionId=__providers`。Session JSONL 文件被外部进程（如 Pi TUI）修改时推送 `type=omo_session_file`，payload 含文件 `path`；客户端随后调用 `POST /pi/sync` 拉取增量。
 
 ## Terminals
 
