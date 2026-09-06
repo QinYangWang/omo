@@ -1,16 +1,17 @@
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  Cancel01Icon,
+  FileIcon,
+  Folder01Icon,
+  FolderOpenIcon,
+  GitCompareIcon,
+  GlobeIcon,
+  TerminalIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XTerm } from "@xterm/xterm";
-import {
-  ChevronDown,
-  ChevronRight,
-  File,
-  Folder,
-  FolderOpen,
-  GitCompare,
-  Globe,
-  TerminalSquare,
-  X,
-} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,29 +51,34 @@ const surfaceDefs = () => {
   return [
     {
       desc: t("surface_browser_desc"),
-      icon: Globe,
+      icon: GlobeIcon,
       id: "browser",
       label: t("surface_browser"),
     },
     {
       desc: t("surface_terminal_desc"),
-      icon: TerminalSquare,
+      icon: TerminalIcon,
       id: "terminal",
       label: t("surface_terminal"),
     },
     {
       desc: t("surface_files_desc"),
-      icon: FolderOpen,
+      icon: FolderOpenIcon,
       id: "files",
       label: t("surface_files"),
     },
     {
       desc: t("surface_review_desc"),
-      icon: GitCompare,
+      icon: GitCompareIcon,
       id: "review",
       label: t("surface_review"),
     },
-  ] as { id: Surface; icon: typeof Globe; label: string; desc: string }[];
+  ] as {
+    id: Surface;
+    icon: typeof GlobeIcon;
+    label: string;
+    desc: string;
+  }[];
 };
 
 export function RightPanel({
@@ -105,7 +111,7 @@ export function RightPanel({
               onClick={() => onSelect(id)}
               variant="ghost"
             >
-              <Icon className="size-4 shrink-0" />
+              <HugeiconsIcon className="size-4 shrink-0" icon={Icon} />
               <span className="min-w-0">
                 <span className="block font-medium text-sm">{label}</span>
                 <span className="block truncate text-muted-foreground text-xs">
@@ -129,7 +135,7 @@ export function RightPanel({
           <TabsList className="flex-1" variant="line">
             {surfaces.map(({ id, icon: Icon, label }) => (
               <TabsTrigger className="gap-1.5" key={id} value={id}>
-                <Icon className="size-3.5" /> {label}
+                <HugeiconsIcon className="size-3.5" icon={Icon} /> {label}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -230,9 +236,9 @@ function FileNodeToggle({ node }: { node: FNode }) {
     return <span className="w-3.5" />;
   }
   return node.open ? (
-    <ChevronDown className="size-3.5" />
+    <HugeiconsIcon className="size-3.5" icon={ArrowDown01Icon} />
   ) : (
-    <ChevronRight className="size-3.5" />
+    <HugeiconsIcon className="size-3.5" icon={ArrowRight01Icon} />
   );
 }
 
@@ -279,9 +285,9 @@ function FilesSurface({ api }: { api: omoApi }) {
         >
           <FileNodeToggle node={n} />
           {n.dir ? (
-            <Folder className="size-3.5" />
+            <HugeiconsIcon className="size-3.5" icon={Folder01Icon} />
           ) : (
-            <File className="size-3.5" />
+            <HugeiconsIcon className="size-3.5" icon={FileIcon} />
           )}
           <span className="truncate">{n.name}</span>
         </Button>
@@ -309,7 +315,7 @@ function FilesSurface({ api }: { api: omoApi }) {
               type="button"
               variant="ghost"
             >
-              <X className="size-3.5" />
+              <HugeiconsIcon className="size-3.5" icon={Cancel01Icon} />
             </Button>
           </div>
           <ScrollArea className="min-h-0 flex-1">
@@ -382,7 +388,7 @@ function ReviewSurface({ api }: { api: omoApi }) {
               type="button"
               variant="ghost"
             >
-              <X className="size-3.5" />
+              <HugeiconsIcon className="size-3.5" icon={Cancel01Icon} />
             </Button>
           </div>
           <ScrollArea className="min-h-0 flex-1">

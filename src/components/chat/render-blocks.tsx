@@ -1,4 +1,10 @@
-import { Check, LoaderCircle, Wrench, X } from "lucide-react";
+import {
+  Cancel01Icon,
+  Loading03Icon,
+  Tick02Icon,
+  Wrench01Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TextResponse } from "@/components/aicss/TextResponse";
@@ -40,9 +46,9 @@ function summarizeJson(input?: string) {
 
 function statusIcon(status: "running" | "done" | "error") {
   if (status === "running") {
-    return LoaderCircle;
+    return Loading03Icon;
   }
-  return status === "error" ? X : Check;
+  return status === "error" ? Cancel01Icon : Tick02Icon;
 }
 
 function ToolCallBlock({
@@ -63,18 +69,19 @@ function ToolCallBlock({
       open={status === "running"}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-muted-foreground hover:text-foreground">
-        <Wrench className="size-3.5" />
+        <HugeiconsIcon className="size-3.5" icon={Wrench01Icon} />
         <span className="font-mono text-xs">{toolName}</span>
         <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
           {summarizeJson(input)}
         </span>
-        <StatusIcon
+        <HugeiconsIcon
           className={cn(
             "size-3.5",
             status === "running" && "animate-spin",
             status === "error" && "text-destructive",
             status === "done" && "text-success"
           )}
+          icon={StatusIcon}
         />
       </summary>
       {input || output ? (

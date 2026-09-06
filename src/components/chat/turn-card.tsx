@@ -1,11 +1,12 @@
 import {
-  Brain,
-  Check,
-  ChevronRight,
-  Copy,
-  Wrench,
-  X,
-} from "lucide-react";
+  AiBrain01Icon,
+  ArrowRight01Icon,
+  Cancel01Icon,
+  Copy01Icon,
+  Tick02Icon,
+  Wrench01Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { MarkdownBlock } from "@/components/chat/render-blocks";
 import { Button } from "@/components/ui/button";
@@ -21,10 +22,8 @@ import { cn } from "@/lib/utils";
 
 // ---------- shared helpers ----------
 
-const imageSource = (image: {
-  data: string;
-  mimeType?: string;
-}): string => `data:${image.mimeType ?? "image/png"};base64,${image.data}`;
+const imageSource = (image: { data: string; mimeType?: string }): string =>
+  `data:${image.mimeType ?? "image/png"};base64,${image.data}`;
 
 export function ImagePreviews({
   compact,
@@ -56,7 +55,7 @@ export function ImagePreviews({
               title="Remove image"
               variant="ghost"
             >
-              <X className="size-3" />
+              <HugeiconsIcon className="size-3" icon={Cancel01Icon} />
             </Button>
           ) : null}
         </div>
@@ -168,20 +167,21 @@ function ThinkingSegment({
   return (
     <Collapsible onOpenChange={setOpen} open={open}>
       <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground">
-        <Brain className="size-3.5 shrink-0" />
+        <HugeiconsIcon className="size-3.5 shrink-0" icon={AiBrain01Icon} />
         <span className={cn(segment.running && "animate-pulse")}>
           {segment.running ? t("turn_thinking_active") : t("turn_thinking")}
         </span>
         {segment.running ? <Spinner className="size-3" /> : null}
-        <ChevronRight
+        <HugeiconsIcon
           className={cn(
             "ml-auto size-3.5 transition-transform",
             open && "rotate-90"
           )}
+          icon={ArrowRight01Icon}
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-1 max-h-72 overflow-auto rounded-md bg-muted/50 px-3 py-2 whitespace-pre-wrap text-muted-foreground text-xs leading-5">
+        <div className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-muted/50 px-3 py-2 text-muted-foreground text-xs leading-5">
           {segment.text || "…"}
         </div>
       </CollapsibleContent>
@@ -196,9 +196,14 @@ function ToolStatusIcon({ status }: { status: ToolItem["status"] }) {
     return <Spinner className="size-3" />;
   }
   if (status === "error") {
-    return <X className="size-3.5 text-destructive" />;
+    return (
+      <HugeiconsIcon
+        className="size-3.5 text-destructive"
+        icon={Cancel01Icon}
+      />
+    );
   }
-  return <Check className="size-3.5 text-success" />;
+  return <HugeiconsIcon className="size-3.5 text-success" icon={Tick02Icon} />;
 }
 
 function ToolRow({ tool }: { tool: ToolItem }) {
@@ -206,11 +211,12 @@ function ToolRow({ tool }: { tool: ToolItem }) {
   return (
     <Collapsible onOpenChange={setOpen} open={open}>
       <CollapsibleTrigger className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent">
-        <ChevronRight
+        <HugeiconsIcon
           className={cn(
             "size-3 shrink-0 text-muted-foreground transition-transform",
             open && "rotate-90"
           )}
+          icon={ArrowRight01Icon}
         />
         <span className="font-mono text-xs">{tool.name}</span>
         <span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
@@ -220,14 +226,14 @@ function ToolRow({ tool }: { tool: ToolItem }) {
       </CollapsibleTrigger>
       <CollapsibleContent>
         {tool.input ? (
-          <pre className="mx-2 mt-1 max-h-56 overflow-auto rounded bg-muted/50 px-2 py-1.5 whitespace-pre-wrap text-[11px] text-muted-foreground">
+          <pre className="mx-2 mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">
             {tool.input}
           </pre>
         ) : null}
         {tool.output ? (
           <pre
             className={cn(
-              "mx-2 mt-1 max-h-72 overflow-auto rounded bg-muted/50 px-2 py-1.5 whitespace-pre-wrap text-[11px]",
+              "mx-2 mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/50 px-2 py-1.5 text-[11px]",
               tool.status === "error" && "text-destructive"
             )}
           >
@@ -259,7 +265,7 @@ function ToolsSegment({
   return (
     <Collapsible onOpenChange={setOpen} open={open}>
       <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground">
-        <Wrench className="size-3.5 shrink-0" />
+        <HugeiconsIcon className="size-3.5 shrink-0" icon={Wrench01Icon} />
         <span>{t("turn_tools", { count: String(segment.tools.length) })}</span>
         {runningTool ? (
           <span className="flex min-w-0 items-center gap-1.5 text-foreground">
@@ -272,11 +278,12 @@ function ToolsSegment({
             {t("turn_tools_failed", { count: String(errors) })}
           </span>
         ) : null}
-        <ChevronRight
+        <HugeiconsIcon
           className={cn(
             "ml-auto size-3.5 shrink-0 transition-transform",
             open && "rotate-90"
           )}
+          icon={ArrowRight01Icon}
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -345,16 +352,16 @@ export function TurnCard({
             <div className="flex items-center gap-1.5 text-muted-foreground text-xs opacity-0 transition-opacity group-hover/user:opacity-100">
               <time>{formatTime(turn.user.timestamp)}</time>
               <Button
-                aria-label="Copy message"
+                aria-label="Copy01Icon message"
                 className="size-6"
                 onClick={() =>
                   copyToClipboard(turn.user.text).catch(() => undefined)
                 }
                 size="icon"
-                title="Copy message"
+                title="Copy01Icon message"
                 variant="ghost"
               >
-                <Copy className="size-3.5" />
+                <HugeiconsIcon className="size-3.5" icon={Copy01Icon} />
               </Button>
             </div>
           </div>
@@ -387,16 +394,14 @@ export function TurnCard({
           <div className="flex items-center gap-2 px-2 pb-1 text-muted-foreground text-xs">
             <span>{formatDuration(completed.durationMs)}</span>
             <Button
-              aria-label="Copy answer"
+              aria-label="Copy01Icon answer"
               className="size-6 opacity-60 hover:opacity-100"
-              onClick={() =>
-                copyToClipboard(answer).catch(() => undefined)
-              }
+              onClick={() => copyToClipboard(answer).catch(() => undefined)}
               size="icon"
-              title="Copy full answer"
+              title="Copy01Icon full answer"
               variant="ghost"
             >
-              <Copy className="size-3.5" />
+              <HugeiconsIcon className="size-3.5" icon={Copy01Icon} />
             </Button>
           </div>
         ) : null}

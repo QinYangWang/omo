@@ -20,6 +20,7 @@ Base UI 约定：
 ## 组件与主题规范
 
 - 所有 UI 必须使用 `src/components/ui` 中的 shadcn 组件（`Button`、`Input`、`Textarea`、`Select` 等），不要引入裸的 `<button>`/`<input>`/`<textarea>`/`<select>`。自定义布局（列表项、图标按钮、导航项）用 `Button variant="ghost"` + `className` 覆盖实现。例外仅限无语义化替代的原生控件（颜色选择器 `type="color"`、滑块 `type="range"`）和纯视觉指示器（如会话大纲刻度）。
+- 图标统一使用 `@hugeicons/core-free-icons` + `@hugeicons/react`（`<HugeiconsIcon icon={...} />`），不要引入其他图标库；嵌套在 Button 内的图标按钮使用 `nativeButton={false}` + `render={<span />}`。
 - 颜色一律使用语义化 CSS 变量（`foreground`、`muted-foreground`、`accent`、`destructive`、`success`、`warning`、`info`、`sidebar-*` 等），禁止硬编码调色板类（`text-red-400`、`bg-emerald-500`）或十六进制色值，保证 Appearance 的主题编辑器（`src/lib/theme.tsx` + `src/lib/theme-tokens.ts`）能统一控制所有样式。
 - 新增可定制 token 时同步加入 `themeTokenGroups`。
 - 终端等 canvas 表面不支持 CSS 变量，从 `getComputedStyle` 读取后用 `normalizeColorToHex()` 转换。
@@ -51,13 +52,9 @@ omo 的默认视觉语言参考 Vercel design system，并遵守本项目已有�
 
 ## 标题栏导航
 
-侧栏顶部没有应用名称文字，使用三个按钮：
+侧栏顶部没有应用名称文字，只有一个收缩/展开侧栏按钮，其图标与下方 Sidebar 内容左对齐。
 
-- 收缩/展开侧栏
-- 上一 Session
-- 下一 Session
-
-按钮根据已加载 Session 顺序切换。侧栏收起时，侧栏和分隔线完全消失，三个按钮移动到会话标题栏左侧。
+侧栏收起时，侧栏和分隔线完全消失，收缩按钮移动到会话标题栏左侧。
 
 macOS 通过 `titlebar-area-x` 预留交通灯按钮区域。其他平台使用 `titlebar-area-width` 动态避开右侧窗口控制键。交互按钮使用 `WebkitAppRegion: no-drag`。
 
@@ -95,9 +92,9 @@ Prompt 输入框保留图片粘贴、`@` 文件补全和 `/` 命令补全；AICS
 
 - 每个项目默认显示前 5 条会话；更多会话通过“查看全部 / 收起会话”切换。
 - 当前会话始终可见，即使它不在默认的前 5 条中。
-- 顶部入口按钮与项目行、会话行左侧对齐（icon 对齐 PROJECTS 标题，会话名对齐项目名）。
+- 顶部入口按钮与项目行、会话行左侧对齐（icon 对齐 PROJECTS 标题，会话名文字保持缩进，但 hover/选中背景与项目行左缘对齐）。
 - “导入会话”与项目行“新会话”按钮只在 hover 或键盘聚焦时显示；PROJECTS 行的添加按钮同样悬停才显示。
-- 会话标题保持单行省略，完整内容通过原生 title 提示查看；置顶/归档按钮以绝对定位浮在标题上方，不压缩标题宽度。
+- 会话标题保持单行省略，完整内容通过原生 title 提示查看；置顶/归档按钮以绝对定位浮在标题上方，不压缩标题宽度，容器底色随行状态变化（`sidebar`/`accent`/`muted`）并随 hover 淡入淡出。
 - 置顶会话固定在项目内最前，按创建时间从新到旧排序；归档会话从侧边栏隐藏，可在设置「已归档」恢复。
 
 ## 右侧面板

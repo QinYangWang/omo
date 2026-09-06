@@ -1,4 +1,5 @@
-import { KeyRound } from "lucide-react";
+import { KeyRoundIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useState } from "react";
 import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
 import { Badge } from "@/components/ui/badge";
@@ -155,7 +156,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
       </div>
       <Input
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search providers…"
+        placeholder="Search01Icon providers…"
         value={query}
       />
       {message ? (
@@ -227,7 +228,8 @@ function ServerProviders({ serverId }: { serverId: string }) {
                     size="sm"
                     variant="ghost"
                   >
-                    <KeyRound className="size-3.5" /> API Key
+                    <HugeiconsIcon className="size-3.5" icon={KeyRoundIcon} />{" "}
+                    API Key
                   </Button>
                 ) : null}
               </div>

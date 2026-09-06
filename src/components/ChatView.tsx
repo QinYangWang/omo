@@ -1,25 +1,22 @@
 import {
   Add01Icon,
   AiBrain01Icon,
+  ArrowRight01Icon,
   ArrowUp02Icon,
+  Cancel01Icon,
   FileAttachmentIcon,
+  FileIcon,
+  Folder01Icon,
+  FolderAddIcon,
+  GitBranchIcon,
   Image01Icon,
+  Loading03Icon,
+  MonitorIcon,
+  Search01Icon,
+  SparklesIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Asterisk,
-  ChevronRight,
-  Copy,
-  File,
-  Folder,
-  FolderPlus,
-  GitBranch,
-  LoaderCircle,
-  Monitor,
-  Search,
-  X,
-} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ListRange, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
@@ -34,13 +31,7 @@ import {
   AiAgentInputTextarea,
 } from "@/components/aicss/AiAgentInput";
 import { Outline } from "@/components/chat/outline";
-import {
-  copyToClipboard,
-  formatDuration,
-  formatTime,
-  ImagePreviews,
-  TurnCard,
-} from "@/components/chat/turn-card";
+import { ImagePreviews, TurnCard } from "@/components/chat/turn-card";
 import { ProviderIcon } from "@/components/provider-icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,8 +78,8 @@ import {
   type ConversationTurn,
   type ImageContent,
   prependWindow,
-  toTurns,
   type TurnWindow,
+  toTurns,
   windowFromMessages,
 } from "@/lib/conversation-turns";
 import { useI18n } from "@/lib/i18n";
@@ -356,8 +347,8 @@ async function preparePrompt(
   return { images: attachedImages, text: `${fileText.join("")}${value}` };
 }
 
-
-const completionIcon = (directory?: boolean) => (directory ? Folder : File);
+const completionIcon = (directory?: boolean) =>
+  directory ? Folder01Icon : FileIcon;
 
 function CompletionMenu({
   kind,
@@ -385,7 +376,10 @@ function CompletionMenu({
     >
       {loading ? (
         <AiAgentInputCompletionMeta className="flex items-center gap-2">
-          <LoaderCircle className="size-3.5 animate-spin" />
+          <HugeiconsIcon
+            className="size-3.5 animate-spin"
+            icon={Loading03Icon}
+          />
           {t("completion_loading")}
         </AiAgentInputCompletionMeta>
       ) : null}
@@ -402,7 +396,9 @@ function CompletionMenu({
               role="option"
               title={kind === "file" ? item.label : undefined}
             >
-              {Icon ? <Icon data-icon="inline-start" /> : null}
+              {Icon ? (
+                <HugeiconsIcon data-icon="inline-start" icon={Icon} />
+              ) : null}
               <span className="min-w-0 flex-1 truncate">
                 {kind === "command" ? `/${item.label}` : item.label}
                 {item.directory ? "/" : ""}
@@ -717,7 +713,7 @@ export function ChatView({
   const fileSuggestions: CompletionItem[] = fileEntries
     .filter((entry) => entry.name.toLowerCase().includes(fileNameQuery))
     .map((entry) => ({
-      description: entry.dir ? "Folder" : undefined,
+      description: entry.dir ? "Folder01Icon" : undefined,
       directory: entry.dir,
       label: entry.name,
       value: `${fileDirectory}${entry.name}`,
@@ -983,7 +979,7 @@ export function ChatView({
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
-        <LoaderCircle className="size-5 animate-spin" />
+        <HugeiconsIcon className="size-5 animate-spin" icon={Loading03Icon} />
       </div>
     );
   }
@@ -1003,7 +999,11 @@ export function ChatView({
         <Empty className="min-h-0 p-8">
           <EmptyHeader>
             <EmptyMedia>
-              <Asterisk className="size-7" strokeWidth={1.6} />
+              <HugeiconsIcon
+                className="size-7"
+                icon={SparklesIcon}
+                strokeWidth={1.6}
+              />
             </EmptyMedia>
             <EmptyTitle>{session.title || t("new_task")}</EmptyTitle>
             <EmptyDescription>
@@ -1069,7 +1069,7 @@ function NewTaskEmpty({
     <Empty className="h-full rounded-none p-6">
       <EmptyHeader>
         <EmptyMedia>
-          <Folder className="size-6" />
+          <HugeiconsIcon className="size-6" icon={Folder01Icon} />
         </EmptyMedia>
         <EmptyTitle>{t("choose_project_start")}</EmptyTitle>
         <EmptyDescription>{t("choose_project_desc")}</EmptyDescription>
@@ -1083,7 +1083,7 @@ function NewTaskEmpty({
             variant="ghost"
           >
             <span className="flex min-w-0 items-center gap-3">
-              <Folder data-icon="inline-start" />
+              <HugeiconsIcon data-icon="inline-start" icon={Folder01Icon} />
               <span className="min-w-0">
                 <span className="block truncate font-medium text-sm">
                   {project.name}
@@ -1093,7 +1093,7 @@ function NewTaskEmpty({
                 </span>
               </span>
             </span>
-            <ChevronRight data-icon="inline-end" />
+            <HugeiconsIcon data-icon="inline-end" icon={ArrowRight01Icon} />
           </Button>
         ))}
         <Button
@@ -1101,7 +1101,7 @@ function NewTaskEmpty({
           onClick={onAddProject}
           variant={projects.length ? "outline" : "default"}
         >
-          <FolderPlus data-icon="inline-start" />
+          <HugeiconsIcon data-icon="inline-start" icon={FolderAddIcon} />
           {t("add_project")}
         </Button>
       </EmptyContent>
@@ -1211,7 +1211,7 @@ function PromptInput({
           value={session?.projectId ?? ""}
         />
         <CompactSelect
-          icon={<Monitor className="size-3.5" />}
+          icon={<HugeiconsIcon className="size-3.5" icon={MonitorIcon} />}
           items={[
             { label: t("local"), value: "local" },
             { label: t("worktree"), value: "worktree" },
@@ -1221,7 +1221,7 @@ function PromptInput({
         />
         <CompactSelect
           disabled={!branches.length}
-          icon={<GitBranch className="size-3.5" />}
+          icon={<HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />}
           items={branches.map((branch) => ({
             label: branch.name,
             value: branch.name,
@@ -1304,9 +1304,9 @@ function PromptInput({
                     title={file.path}
                     variant="outline"
                   >
-                    <File data-icon="inline-start" />
+                    <HugeiconsIcon data-icon="inline-start" icon={FileIcon} />
                     <span className="truncate">@{file.display}</span>
-                    <X data-icon="inline-end" />
+                    <HugeiconsIcon data-icon="inline-end" icon={Cancel01Icon} />
                   </Button>
                 ))}
               </div>
@@ -1337,11 +1337,7 @@ function PromptInput({
                     />
                   }
                 >
-                  <HugeiconsIcon
-                    data-icon="inline-start"
-                    icon={Add01Icon}
-                    strokeWidth={1.8}
-                  />
+                  <HugeiconsIcon data-icon="inline-start" icon={Add01Icon} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
@@ -1352,14 +1348,11 @@ function PromptInput({
                     <DropdownMenuItem
                       onClick={() => imageInput.current?.click()}
                     >
-                      <HugeiconsIcon icon={Image01Icon} strokeWidth={1.8} />
+                      <HugeiconsIcon icon={Image01Icon} />
                       {t("attach_images")}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={openWorkspaceFile}>
-                      <HugeiconsIcon
-                        icon={FileAttachmentIcon}
-                        strokeWidth={1.8}
-                      />
+                      <HugeiconsIcon icon={FileAttachmentIcon} />
                       {t("attach_workspace_file")}
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
@@ -1374,7 +1367,7 @@ function PromptInput({
               <CompactSelect
                 appearance="composer"
                 contentLabel={t("reasoning")}
-                icon={<HugeiconsIcon icon={AiBrain01Icon} strokeWidth={1.8} />}
+                icon={<HugeiconsIcon icon={AiBrain01Icon} />}
                 items={[
                   { label: t("thinking_level_off"), value: "off" },
                   { label: t("thinking_level_minimal"), value: "minimal" },
@@ -1397,17 +1390,9 @@ function PromptInput({
               type={streaming ? "button" : "submit"}
             >
               {streaming ? (
-                <HugeiconsIcon
-                  data-icon="inline-start"
-                  icon={StopIcon}
-                  strokeWidth={2}
-                />
+                <HugeiconsIcon data-icon="inline-start" icon={StopIcon} />
               ) : (
-                <HugeiconsIcon
-                  data-icon="inline-start"
-                  icon={ArrowUp02Icon}
-                  strokeWidth={2}
-                />
+                <HugeiconsIcon data-icon="inline-start" icon={ArrowUp02Icon} />
               )}
             </AiAgentInputButton>
           </AiAgentInputFooter>
@@ -1738,7 +1723,7 @@ function ProjectSelect({
         className="h-6 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1 rounded-[7px] border-0 bg-transparent px-2 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
         hideIcon
       >
-        <Folder className="size-3.5" />
+        <HugeiconsIcon className="size-3.5" icon={Folder01Icon} />
         <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.id === value)?.name}
         </SelectValue>
@@ -1755,7 +1740,10 @@ function ProjectSelect({
             value={item}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <Folder className="size-4 shrink-0 text-muted-foreground" />
+              <HugeiconsIcon
+                className="size-4 shrink-0 text-muted-foreground"
+                icon={Folder01Icon}
+              />
               <span className="whitespace-nowrap">{item.label}</span>
             </span>
           </SelectItem>
@@ -1768,7 +1756,8 @@ function ProjectSelect({
           value={actions[0]}
         >
           <span className="flex items-center gap-2">
-            <FolderPlus className="size-4" /> {t("new_project")}
+            <HugeiconsIcon className="size-4" icon={FolderAddIcon} />{" "}
+            {t("new_project")}
           </span>
         </SelectItem>
         <SelectItem
@@ -1776,7 +1765,8 @@ function ProjectSelect({
           value={actions[1]}
         >
           <span className="flex items-center gap-2">
-            <X className="size-4" /> {t("no_project")}
+            <HugeiconsIcon className="size-4" icon={Cancel01Icon} />{" "}
+            {t("no_project")}
           </span>
         </SelectItem>
       </SelectContent>
@@ -1864,7 +1854,7 @@ function ModelSelect({
           <div className="shrink-0 p-[3px] pb-0">
             <InputGroup className="h-8 rounded-[7px] border-0 bg-muted shadow-none">
               <InputGroupAddon>
-                <Search />
+                <HugeiconsIcon icon={Search01Icon} />
               </InputGroupAddon>
               <InputGroupInput
                 onChange={(event) => setQuery(event.target.value)}
@@ -1895,8 +1885,9 @@ function ModelSelect({
                   }}
                   render={<button type="button" />}
                 >
-                  <ChevronRight
+                  <HugeiconsIcon
                     className={`size-3 shrink-0 transition-transform ${expanded.has(provider) || query ? "rotate-90" : ""}`}
+                    icon={ArrowRight01Icon}
                   />
                   <ProviderIcon
                     className="size-3.5 shrink-0"

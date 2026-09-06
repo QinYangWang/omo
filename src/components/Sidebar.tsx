@@ -1,12 +1,13 @@
 import {
-  Archive,
-  Folder,
-  Import,
-  Pin,
-  Plus,
-  Settings,
-  SquarePen,
-} from "lucide-react";
+  Add01Icon,
+  AddCircleIcon,
+  Archive01Icon,
+  Folder01Icon,
+  ImportIcon,
+  PinIcon,
+  Settings01Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -112,7 +113,8 @@ export function Sidebar({
           onClick={onNewSessionAny}
           variant="ghost"
         >
-          <SquarePen className="size-4" /> {t("new_session")}
+          <HugeiconsIcon className="size-4" icon={AddCircleIcon} />{" "}
+          {t("new_session")}
         </Button>
       </div>
       <div className="group/header flex items-center justify-between px-4 py-2 text-muted-foreground text-sm">
@@ -124,7 +126,7 @@ export function Sidebar({
           size="icon"
           variant="ghost"
         >
-          <Plus className="size-4" />
+          <HugeiconsIcon className="size-4" icon={Add01Icon} />
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1">
@@ -135,7 +137,8 @@ export function Sidebar({
               onClick={onRequestAddProject}
               variant="ghost"
             >
-              <Folder className="size-4" /> {t("add_project")}
+              <HugeiconsIcon className="size-4" icon={Folder01Icon} />{" "}
+              {t("add_project")}
             </Button>
           )}
           {projects.map((project) => {
@@ -178,7 +181,10 @@ export function Sidebar({
                 <section>
                   <div className="group flex h-8 items-center gap-2 px-2">
                     <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                      <Folder className="size-4 shrink-0 text-muted-foreground" />
+                      <HugeiconsIcon
+                        className="size-4 shrink-0 text-muted-foreground"
+                        icon={Folder01Icon}
+                      />
                       <span className="min-w-0 flex-1 truncate font-medium text-sm">
                         {project.name}
                       </span>
@@ -196,7 +202,7 @@ export function Sidebar({
                       title={t("import_session")}
                       variant="ghost"
                     >
-                      <Import className="size-3.5" />
+                      <HugeiconsIcon className="size-3.5" icon={ImportIcon} />
                     </Button>
                     <Button
                       aria-label={t("new_session")}
@@ -206,11 +212,11 @@ export function Sidebar({
                       title={t("new_session")}
                       variant="ghost"
                     >
-                      <SquarePen className="size-3.5" />
+                      <HugeiconsIcon className="size-3.5" icon={AddCircleIcon} />
                     </Button>
                   </div>
                   <CollapsibleContent>
-                    <div className="pl-6">
+                    <div className="pl-2">
                       {visibleSessions.map((session) => {
                         const key = sessionKey(project.serverId, session.path);
                         const pinned = !!prefs[key]?.pinned;
@@ -227,7 +233,7 @@ export function Sidebar({
                         return (
                           <Button
                             className={cn(
-                              "group relative h-auto w-full justify-start rounded-md px-2 py-1.5 font-normal text-muted-foreground text-sm hover:text-foreground",
+                              "group relative h-auto w-full justify-start rounded-md py-1.5 pr-2 pl-6 font-normal text-muted-foreground text-sm hover:text-foreground",
                               isActive && "bg-accent text-foreground"
                             )}
                             key={session.path}
@@ -247,7 +253,8 @@ export function Sidebar({
                             </span>
                             <span
                               className={cn(
-                                "absolute right-1 flex items-center rounded-md",
+                                "absolute right-1 flex items-center rounded-md pl-5 transition-opacity group-hover:bg-muted",
+                                isActive ? "bg-accent" : "bg-sidebar",
                                 pinned
                                   ? "opacity-100"
                                   : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
@@ -261,6 +268,7 @@ export function Sidebar({
                                   "size-6",
                                   !pinned && "opacity-60 hover:opacity-100"
                                 )}
+                                nativeButton={false}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setSessionPref(key, {
@@ -275,16 +283,18 @@ export function Sidebar({
                                 )}
                                 variant="ghost"
                               >
-                                <Pin
+                                <HugeiconsIcon
                                   className={cn(
                                     "size-3.5",
                                     pinned && "fill-current"
                                   )}
+                                  icon={PinIcon}
                                 />
                               </Button>
                               <Button
                                 aria-label={t("archive_session")}
                                 className="size-6 opacity-60 hover:opacity-100"
+                                nativeButton={false}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setSessionPref(key, {
@@ -297,7 +307,10 @@ export function Sidebar({
                                 title={t("archive_session")}
                                 variant="ghost"
                               >
-                                <Archive className="size-3.5" />
+                                <HugeiconsIcon
+                                  className="size-3.5"
+                                  icon={Archive01Icon}
+                                />
                               </Button>
                             </span>
                           </Button>
@@ -305,7 +318,7 @@ export function Sidebar({
                       })}
                       {projectSessionItems.length > COLLAPSED_SESSION_LIMIT ? (
                         <Button
-                          className="h-7 w-full justify-start px-2 font-normal text-muted-foreground text-xs"
+                          className="h-7 w-full justify-start pr-2 pl-6 font-normal text-muted-foreground text-xs"
                           onClick={() =>
                             setExpandedSessionLists((current) => ({
                               ...current,
@@ -336,7 +349,7 @@ export function Sidebar({
           size="icon"
           variant="ghost"
         >
-          <Settings className="size-4" />
+          <HugeiconsIcon className="size-4" icon={Settings01Icon} />
         </Button>
       </div>
 

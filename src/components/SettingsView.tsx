@@ -1,19 +1,20 @@
 import {
-  Archive,
-  ArrowLeft,
-  ChartColumn,
-  Copy,
-  Cpu,
-  KeyRound,
-  Package,
-  Palette,
-  Pencil,
-  Plus,
-  RotateCcw,
-  Server,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+  Add01Icon,
+  Archive01Icon,
+  ArrowLeft01Icon,
+  ChartColumnIcon,
+  Copy01Icon,
+  CpuIcon,
+  Delete02Icon,
+  KeyRoundIcon,
+  PackageIcon,
+  PaintBoardIcon,
+  PencilEdit01Icon,
+  RotateCcwIcon,
+  ServerStack01Icon,
+  SparklesIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import {
   formatReset,
@@ -78,14 +79,14 @@ import {
 import { cn } from "@/lib/utils";
 
 const sections = [
-  ["section_appearance", "Appearance", Palette],
-  ["section_archived", "Archived", Archive],
-  ["section_servers", "Servers", Server],
-  ["section_providers", "Providers", KeyRound],
-  ["section_models", "Models", Cpu],
-  ["section_skills", "Skills", Sparkles],
-  ["section_usage", "Usage", ChartColumn],
-  ["section_packages", "Packages", Package],
+  ["section_appearance", "Appearance", PaintBoardIcon],
+  ["section_archived", "Archived", Archive01Icon],
+  ["section_servers", "Servers", ServerStack01Icon],
+  ["section_providers", "Providers", KeyRoundIcon],
+  ["section_models", "Models", CpuIcon],
+  ["section_skills", "Skills", SparklesIcon],
+  ["section_usage", "Usage", ChartColumnIcon],
+  ["section_packages", "Packages", PackageIcon],
 ] as const;
 type Section = (typeof sections)[number][1];
 const themeLabels: Record<Theme, I18nKey> = {
@@ -115,14 +116,14 @@ export function SettingsView({
             {sections.map(([key, s, Icon]) => (
               <Button
                 className={cn(
-                  "h-auto justify-start gap-2 rounded-md px-3 py-2 font-normal text-muted-foreground text-sm hover:text-foreground",
+                  "h-auto justify-start gap-2 rounded-md px-2 py-2 font-normal text-muted-foreground text-sm hover:text-foreground",
                   section === s && "bg-accent text-foreground"
                 )}
                 key={s}
                 onClick={() => setSection(s)}
                 variant="ghost"
               >
-                <Icon className="size-4 shrink-0" />
+                <HugeiconsIcon className="size-4 shrink-0" icon={Icon} />
                 {t(key as I18nKey)}
               </Button>
             ))}
@@ -134,7 +135,8 @@ export function SettingsView({
               type="button"
               variant="ghost"
             >
-              <ArrowLeft className="size-4" /> {t("back")}
+              <HugeiconsIcon className="size-4" icon={ArrowLeft01Icon} />{" "}
+              {t("back")}
             </Button>
           </div>
         </div>
@@ -372,7 +374,8 @@ function ServersSection() {
           }}
           size="sm"
         >
-          <Plus className="size-4" /> {t("server_add")}
+          <HugeiconsIcon className="size-4" icon={Add01Icon} />{" "}
+          {t("server_add")}
         </Button>
       </div>
       <div className="flex flex-col divide-y divide-border">
@@ -405,7 +408,7 @@ function ServersSection() {
                   size="icon"
                   variant="ghost"
                 >
-                  <Pencil className="size-3.5" />
+                  <HugeiconsIcon className="size-3.5" icon={PencilEdit01Icon} />
                 </Button>
                 {server.removable ? (
                   <Button
@@ -414,7 +417,7 @@ function ServersSection() {
                     size="icon"
                     variant="ghost"
                   >
-                    <Trash2 className="size-3.5" />
+                    <HugeiconsIcon className="size-3.5" icon={Delete02Icon} />
                   </Button>
                 ) : null}
               </div>
@@ -526,7 +529,7 @@ function TokenEditor({
         size="icon"
         variant="ghost"
       >
-        <RotateCcw className="size-3.5" />
+        <HugeiconsIcon className="size-3.5" icon={RotateCcwIcon} />
       </Button>
     </div>
   );
@@ -628,7 +631,8 @@ function AppearanceSection() {
               size="sm"
               variant="outline"
             >
-              <Copy className="size-3.5" /> {t("theme_export")}
+              <HugeiconsIcon className="size-3.5" icon={Copy01Icon} />{" "}
+              {t("theme_export")}
             </Button>
             <Button
               aria-label={t("theme_reset")}
@@ -636,7 +640,7 @@ function AppearanceSection() {
               size="sm"
               variant="ghost"
             >
-              <RotateCcw className="size-3.5" />
+              <HugeiconsIcon className="size-3.5" icon={RotateCcwIcon} />
             </Button>
           </div>
         </div>
@@ -752,7 +756,10 @@ function ServerSkills({ serverId }: { serverId: string }) {
             className="flex min-h-14 items-center gap-3 py-2"
             key={skill.filePath}
           >
-            <Package className="size-4 shrink-0 text-muted-foreground" />
+            <HugeiconsIcon
+              className="size-4 shrink-0 text-muted-foreground"
+              icon={PackageIcon}
+            />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium text-sm">{skill.name}</div>
               <div className="truncate text-muted-foreground text-xs">
@@ -949,7 +956,8 @@ function ServerPackages({ serverId }: { serverId: string }) {
           onClick={() => setInstallOpen(true)}
           size="sm"
         >
-          <Plus className="size-4" /> {t("package_install")}
+          <HugeiconsIcon className="size-4" icon={Add01Icon} />{" "}
+          {t("package_install")}
         </Button>
       </div>
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
@@ -983,7 +991,7 @@ function ServerPackages({ serverId }: { serverId: string }) {
                     size="icon"
                     variant="ghost"
                   >
-                    <Trash2 className="size-3.5" />
+                    <HugeiconsIcon className="size-3.5" icon={Delete02Icon} />
                   </Button>
                 </TableCell>
               </TableRow>

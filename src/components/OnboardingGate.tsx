@@ -1,4 +1,5 @@
-import { Asterisk, Server } from "lucide-react";
+import { ServerStack01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,8 @@ function HostedLogin({ onDone }: { onDone: () => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2 font-medium text-sm">
-        <Server className="size-4" /> {t("onboarding_hosted_login")}
+        <HugeiconsIcon className="size-4" icon={ServerStack01Icon} />{" "}
+        {t("onboarding_hosted_login")}
       </div>
       <div className="truncate rounded-md bg-muted px-2.5 py-1.5 text-muted-foreground text-xs">
         {url}
@@ -80,7 +82,8 @@ function RemoteForm({ onDone }: { onDone: () => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2 font-medium text-sm">
-        <Server className="size-4" /> {t("onboarding_add_remote")}
+        <HugeiconsIcon className="size-4" icon={ServerStack01Icon} />{" "}
+        {t("onboarding_add_remote")}
       </div>
       <Input
         onChange={(event) => setName(event.target.value)}
@@ -118,8 +121,9 @@ export function OnboardingGate({ onDone }: { onDone: () => void }) {
     <main className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
       <div className="flex w-full max-w-sm flex-col gap-6">
         <div className="text-center">
-          <Asterisk
+          <HugeiconsIcon
             className="mx-auto mb-4 size-8 text-foreground"
+            icon={SparklesIcon}
             strokeWidth={1.6}
           />
           <h1 className="font-medium text-xl">{t("onboarding_title")}</h1>

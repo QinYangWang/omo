@@ -1,11 +1,10 @@
 import {
-  ArrowLeft,
-  ArrowRight,
-  Info,
-  PanelLeft,
-  PanelLeftClose,
-  PanelRight,
-} from "lucide-react";
+  InformationCircleIcon,
+  PanelLeftCloseIcon,
+  PanelLeftIcon,
+  PanelRightIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddProjectDialog } from "@/components/AddProjectDialog";
 import { ChatView } from "@/components/ChatView";
@@ -109,19 +108,11 @@ async function loadSessionMap(
 }
 
 function HeaderNav({
-  activeSessionIndex,
-  canGoNext,
   collapsed,
   onCollapse,
-  onNext,
-  onPrevious,
 }: {
-  activeSessionIndex: number;
-  canGoNext: boolean;
   collapsed: boolean;
   onCollapse: () => void;
-  onNext: () => void;
-  onPrevious: () => void;
 }) {
   return (
     <div className="flex items-center gap-0.5" style={noDrag}>
@@ -132,28 +123,10 @@ function HeaderNav({
         variant="ghost"
       >
         {collapsed ? (
-          <PanelLeft className="size-4" />
+          <HugeiconsIcon className="size-4" icon={PanelLeftIcon} />
         ) : (
-          <PanelLeftClose className="size-4" />
+          <HugeiconsIcon className="size-4" icon={PanelLeftCloseIcon} />
         )}
-      </Button>
-      <Button
-        aria-label="Previous session"
-        disabled={activeSessionIndex <= 0}
-        onClick={onPrevious}
-        size="icon"
-        variant="ghost"
-      >
-        <ArrowLeft className="size-4" />
-      </Button>
-      <Button
-        aria-label="Next session"
-        disabled={activeSessionIndex < 0 || !canGoNext}
-        onClick={onNext}
-        size="icon"
-        variant="ghost"
-      >
-        <ArrowRight className="size-4" />
       </Button>
     </div>
   );
@@ -289,36 +262,10 @@ export default function App() {
   const clamp = (v: number, lo: number, hi: number) =>
     Math.min(hi, Math.max(lo, v));
 
-  const sessionEntries = projects.flatMap((project) =>
-    (sessions[project.id] ?? []).map((session) => ({ project, session }))
-  );
-  const activeSessionIndex = sessionEntries.findIndex(
-    ({ session }) => session.path === active?.path || session.id === active?.key
-  );
-  const openSessionAt = (index: number) => {
-    const entry = sessionEntries[index];
-    if (!entry) {
-      return;
-    }
-    setActive({
-      cwd: entry.project.cwd,
-      key: entry.session.id,
-      path: entry.session.path,
-      project: entry.project.name,
-      projectId: entry.project.id,
-      serverId: entry.project.serverId,
-      title:
-        entry.session.name || entry.session.firstMessage || "Untitled session",
-    });
-  };
   const headerNavigation = (
     <HeaderNav
-      activeSessionIndex={activeSessionIndex}
-      canGoNext={activeSessionIndex < sessionEntries.length - 1}
       collapsed={collapsed}
       onCollapse={() => setCollapsed((value) => !value)}
-      onNext={() => openSessionAt(activeSessionIndex + 1)}
-      onPrevious={() => openSessionAt(activeSessionIndex - 1)}
     />
   );
 
@@ -441,7 +388,7 @@ export default function App() {
           </div>
           <div className="flex items-center" style={noDrag}>
             <Button aria-label="Session info" size="icon" variant="ghost">
-              <Info className="size-4" />
+              <HugeiconsIcon className="size-4" icon={InformationCircleIcon} />
             </Button>
             <Button
               aria-label="Toggle panel"
@@ -449,7 +396,7 @@ export default function App() {
               size="icon"
               variant="ghost"
             >
-              <PanelRight className="size-4" />
+              <HugeiconsIcon className="size-4" icon={PanelRightIcon} />
             </Button>
           </div>
         </header>

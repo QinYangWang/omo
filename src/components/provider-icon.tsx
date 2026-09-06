@@ -1,4 +1,5 @@
-import { Asterisk } from "lucide-react";
+import { SparklesIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +34,12 @@ export function ProviderIcon({
   const key = provider?.toLowerCase() || "";
   const id = aliases[key] || aliases[key.replace(compactProvider, "")] || key;
   if (!id || failed) {
-    return <Asterisk className={cn("size-3.5", className)} />;
+    return (
+      <HugeiconsIcon
+        className={cn("size-3.5", className)}
+        icon={SparklesIcon}
+      />
+    );
   }
 
   return (

@@ -1,4 +1,9 @@
-import { ChevronRight, Folder, Monitor } from "lucide-react";
+import {
+  ArrowRight01Icon,
+  Folder01Icon,
+  MonitorIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ServerStatusBadge } from "@/components/SettingsView";
 import { Button } from "@/components/ui/button";
@@ -115,11 +120,17 @@ function DirectoryPicker({
                   }}
                   variant="ghost"
                 >
-                  <Folder className="size-4 shrink-0 text-muted-foreground" />
+                  <HugeiconsIcon
+                    className="size-4 shrink-0 text-muted-foreground"
+                    icon={Folder01Icon}
+                  />
                   <span className="min-w-0 flex-1 truncate text-left">
                     {node.name}
                   </span>
-                  <ChevronRight className="size-3.5 text-muted-foreground" />
+                  <HugeiconsIcon
+                    className="size-3.5 text-muted-foreground"
+                    icon={ArrowRight01Icon}
+                  />
                 </Button>
               ))}
           {!loading && nodes.length === 0 ? (
@@ -240,7 +251,7 @@ export function AddProjectDialog({
                 size="sm"
                 variant={selected?.id === server.id ? "secondary" : "ghost"}
               >
-                <Monitor className="size-3.5" />
+                <HugeiconsIcon className="size-3.5" icon={MonitorIcon} />
                 {serverLabel(server.id)}
                 <ServerStatusBadge status={statuses[server.id]} />
               </Button>
