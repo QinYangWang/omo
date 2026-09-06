@@ -55,9 +55,11 @@ ${PI_CODING_AGENT_DIR:-~/.pi/agent}/sessions/**/*.jsonl
 - 只统计 `type === "message"`。
 - 只统计 `message.role === "assistant"`。
 - 只统计存在 `message.usage` 的记录。
-- 总计包含 input、output、cacheRead、cacheWrite 和 cost。
+- 总计包含 input、output、cacheRead、cacheWrite、cost 和 savings。
+- 成本以 pi 记录的 `usage.cost.total` 为准；当其为 0 且模型在内置定价回退表（`server/usage.cjs` 的 `COST_OVERRIDES`）中时，按回退单价从 token 数重算 cost 与 savings。目前回退表包含 `kimi-coding/k3-256k`（上游注册表定价为 0，按 Kimi K3 单价 $3/$15/$0.3/$0 每百万 token 计算）。
+- savings（缓存节省）= 每条记录的 `cacheRead × (cost.input / input) − cost.cacheRead` 逐条累加并下限为 0，即缓存命中部分按全价输入计费与实付折扣价的差额；`cost` 本身是含缓存折扣的实付金额，两者不是一个数。
 - 明细按 `provider/model` 聚合。
 - tokens 使用 `input + output + cacheWrite`。
 - providers 按 cost 降序排列。
 
-JSONL 中无法解析的行会被忽略。Usage 页面当前展示已记录的 Session 用量，并按 provider/model 汇总。
+JSONL 中无法解析的行会被忽略。Usage 页面展示的是**全部历史累计**用量（非 30 天窗口），并按 provider/model 汇总；大数字使用 `Intl.NumberFormat` 的 compact 记数（如 `3.1B` / `31亿`）防止溢出。Models 设置页按 Provider 分组展示可启用的模型。
