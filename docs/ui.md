@@ -56,7 +56,9 @@ omo 的默认视觉语言参考 Vercel design system，并遵守本项目已有�
 
 ## 标题栏导航
 
-侧栏顶部没有应用名称文字，只有一个收缩/展开侧栏按钮，其图标与下方 Sidebar 内容左对齐。
+侧栏顶部为 h-10 标题栏（40px，与 Windows 窗口控制按钮同高）：收缩/展开侧栏按钮 + “omo” 产品名，按钮图标与下方 Sidebar 内容左对齐。
+
+会话标题栏左侧显示当前项目名（有会话标题时以“项目 · 标题”追加），横贯右侧 Right Panel 顶部；右侧面板开关悬浮在会话区右上角。
 
 侧栏收起时，侧栏和分隔线完全消失，收缩按钮移动到会话标题栏左侧。
 
@@ -70,10 +72,10 @@ ChatView 使用 `src/components/chat` 中的 TurnCard 和 RenderBlocks。消息�
 
 新任务分为两个明确状态：
 
-- 未选择项目时使用 shadcn `Empty` 作为启动态，最多提供 5 个现有项目快捷入口与“添加项目”操作。此时不渲染 Prompt Composer，避免产生可以输入但无法执行的假可用状态。
-- 已选择项目但尚未发送消息时，空态显示“新任务”和当前项目，Prompt Composer 固定在底部；标题为空字符串时，标题栏也回退为“新任务”。
+- 未选择项目时使用 shadcn `Empty` 作为启动态：图标方块 + 大号欢迎标题（`task_welcome`），下方是最多 5 个现有项目的卡片式快捷入口与“添加项目”操作。此时不渲染 Prompt Composer，避免产生可以输入但无法执行的假可用状态。
+- 已选择项目但尚未发送消息时，空态显示欢迎标题与当前项目，欢迎区和 Prompt Composer 集中在同一视觉区域（`max-w-2xl` 居中）；标题为空字符串时，标题栏回退为“新任务”。
 
-Prompt Composer 使用 AICSS `AI Agent Input` registry 的比例，但业务状态仍由 ChatView 控制：正文约 12px / 18px，输入区自然增高且最大高度为 160px；外壳使用约 12px 圆角、轻量 hairline 和低对比阴影，底部操作使用 22px 控件。项目、运行模式和分支属于输入前上下文；模型、Thinking、附件和提交操作位于输入区内。未选择项目时不渲染 Composer。
+Prompt Composer 使用 AICSS `AI Agent Input` registry 的比例，但业务状态仍由 ChatView 控制：正文约 14px / 22px，输入区自然增高且最大高度为 160px；外壳使用 20px 圆角、轻量 hairline 和低对比阴影，底部操作使用 28px 控件。项目、运行模式和分支属于输入前上下文；模型、Thinking、附件和提交操作位于输入区内。未选择项目时不渲染 Composer。
 
 Markdown 使用 React Markdown AST、shadcn/typeset 与 AICSS `TextResponse` 渲染，代码、表格、链接和行内代码仍由 typeset 统一控制，不使用独立的 CodeBlock 卡片组件。AICSS `ThinkingReasoning` 接收真实 Pi reasoning block：运行时保持展开并显示动态状态，完成后自动收起且允许用户重新展开。两个 registry 组件均已改为使用项目语义 token、Geist 字体、shadcn Button 和中英文 i18n，不保留演示数据或硬编码色值。助手回答底部提供时间和复制按钮；复制在非安全上下文浏览器中会回退到隐藏 textarea + `execCommand("copy")`。
 
@@ -86,7 +88,7 @@ Markdown 使用 React Markdown AST、shadcn/typeset 与 AICSS `TextResponse` 渲
 - 当前分支
 - Project 选择
 
-Prompt 输入框基于 AICSS `AI Agent Input` registry 原版视觉重构为受控的 shadcn `InputGroup` 组合：使用 12px 圆角、轻量 hairline 与低对比阴影，输入正文采用紧凑的 12px / 18px 排版，底部操作使用 22px 圆形按钮。项目、运行模式和分支位于卡片外的上下文行；模型与 Thinking 使用同一套 22px 胶囊控件，统一背景、圆角、hover、focus 与展开状态，并与附件、提交动作共同位于卡片内的底部操作区。Thinking 的显示名称使用本地化产品文案，提交值继续保持 Pi Agent 原始枚举。registry 示例中的演示模型、假技能、模拟“增强提示词”请求和自维护状态不会进入业务组件。
+Prompt 输入框基于 AICSS `AI Agent Input` registry 原版视觉重构为受控的 shadcn `InputGroup` 组合：使用 20px 圆角、轻量 hairline 与低对比阴影，输入正文采用 14px / 22px 排版，底部操作使用 28px 圆形按钮。项目、运行模式和分支位于卡片外的上下文行；模型与 Thinking 使用同一套 28px 胶囊控件，统一背景、圆角、hover、focus 与展开状态，并与附件、提交动作共同位于卡片内的底部操作区。Thinking 的显示名称使用本地化产品文案，提交值继续保持 Pi Agent 原始枚举。registry 示例中的演示模型、假技能、模拟“增强提示词”请求和自维护状态不会进入业务组件。
 
 Prompt 输入框保留图片粘贴、`@` 文件补全和 `/` 命令补全；AICSS 原版“＋”菜单提供图片选择与工作区文件入口，工作区文件入口通过插入 `@` 复用真实补全流程。`@` 与 `/` 补全窗使用和输入框一致的 AICSS 弹层语言：不透明 `popover` 背景、10px 外圆角、7px 选项圆角、3px 内边距、紧凑行高与低对比层叠阴影，同时保留方向键、Enter/Tab 和 Esc 键盘行为。命令项只展示 `/命令名`，不显示前置斜杠图标；命令说明通过 hover 或键盘聚焦 Tooltip 展示。`InputGroupTextarea` 必须先于 block addon 出现在 DOM 中，以保持 shadcn 的焦点管理与键盘语义。
 
@@ -97,8 +99,8 @@ Prompt 输入框保留图片粘贴、`@` 文件补全和 `/` 命令补全；AICS
 - 每个项目默认显示前 5 条会话；更多会话通过“查看全部 / 收起会话”切换。
 - 当前会话始终可见，即使它不在默认的前 5 条中。
 - 顶部入口按钮与项目行、会话行左侧对齐（icon 对齐 PROJECTS 标题，会话名文字保持缩进，但 hover/选中背景与项目行左缘对齐）。
-- “导入会话”与项目行“新会话”按钮只在 hover 或键盘聚焦时显示；PROJECTS 行的添加按钮同样悬停才显示。
-- 会话标题保持单行省略，完整内容通过原生 title 提示查看；置顶/归档按钮以绝对定位浮在标题上方，不压缩标题宽度，容器底色随行状态变化（`sidebar`/`accent`/`muted`）并随 hover 淡入淡出。
+- “导入会话”与项目行“新会话”按钮只在 hover 或键盘聚焦时显示；PROJECTS 行的添加按钮常显但保持低对比。
+- 会话标题保持单行省略，完整内容通过原生 title 提示查看；置顶/归档按钮以绝对定位浮在标题上方，不压缩标题宽度，只在 hover/聚焦时淡入（无叠加底色）。hover 时标题收缩到按钮组左侧，超出部分以 marquee 动画来回滚动展示（`--marquee-dist` 由 hover 时实测溢出宽度计算）。置顶行的置顶按钮固定在行左侧（实心图标，点击取消置顶），置顶时不显示归档按钮；归档按钮只在 hover/聚焦时出现，选中态也不例外。
 - 置顶会话固定在项目内最前，按创建时间从新到旧排序；归档会话从侧边栏隐藏，可在设置「已归档」恢复。
 
 ## 右侧面板
@@ -110,7 +112,7 @@ Prompt 输入框保留图片粘贴、`@` 文件补全和 `/` 命令补全；AICS
 - Files：目录树和文本预览
 - Review：Git status 与 diff
 
-右侧面板的关闭/打开由会话标题栏右侧的 PanelRight 按钮控制。Tabs 内容区不提供独立关闭按钮。
+右侧面板的关闭/打开由悬浮在会话区右上角的 PanelRight 按钮控制。Tabs 内容区不提供独立关闭按钮。
 
 ## 样式与主题
 

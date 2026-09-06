@@ -8,7 +8,7 @@ import {
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { type MouseEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -104,11 +104,23 @@ export function Sidebar({
     );
   };
 
+  const scrollTitleOnHover = (event: MouseEvent<HTMLElement>) => {
+    const title = event.currentTarget.querySelector<HTMLElement>(
+      "[data-session-title]"
+    );
+    if (!title) {
+      return;
+    }
+    const shrink = Number(title.dataset.shrink ?? 0);
+    const overflow = title.scrollWidth - title.clientWidth + shrink;
+    title.style.setProperty("--marquee-dist", `${-Math.max(0, overflow)}px`);
+  };
+
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
-      <div className="space-y-0.5 px-2 pb-1">
+      <div className="flex flex-col gap-0.5 px-3 pt-2 pb-5">
         <Button
-          className="w-full justify-start gap-2 px-2 font-normal"
+          className="h-9 w-full justify-start gap-2.5 rounded-lg border border-sidebar-border/70 bg-background/40 px-3 font-normal shadow-xs"
           disabled={projects.length === 0}
           onClick={onNewSessionAny}
           variant="ghost"
@@ -117,11 +129,11 @@ export function Sidebar({
           {t("new_session")}
         </Button>
       </div>
-      <div className="group/header flex items-center justify-between px-4 py-2 text-muted-foreground text-sm">
+      <div className="group/header flex items-center justify-between px-5 pb-2 text-muted-foreground text-xs">
         <span>{t("projects")}</span>
         <Button
           aria-label={t("add_project")}
-          className="size-6 opacity-0 hover:opacity-100 focus-visible:opacity-100 group-hover/header:opacity-60"
+          className="size-6 opacity-60 hover:opacity-100 focus-visible:opacity-100"
           onClick={onRequestAddProject}
           size="icon"
           variant="ghost"
@@ -130,7 +142,7 @@ export function Sidebar({
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-0.5 px-2 pb-4">
+        <div className="flex flex-col gap-1 px-3 pb-4">
           {projects.length === 0 && (
             <Button
               className="h-auto w-full flex-col items-start gap-2 rounded-md px-2 py-3 font-normal text-muted-foreground text-sm"
@@ -179,7 +191,7 @@ export function Sidebar({
                 open={expandedProjects[project.id] ?? true}
               >
                 <section>
-                  <div className="group flex h-8 items-center gap-2 px-2">
+                  <div className="group flex h-9 items-center gap-2 rounded-lg px-2 transition-colors hover:bg-muted dark:hover:bg-muted/50">
                     <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
                       <HugeiconsIcon
                         className="size-4 shrink-0 text-muted-foreground"
@@ -212,11 +224,14 @@ export function Sidebar({
                       title={t("new_session")}
                       variant="ghost"
                     >
-                      <HugeiconsIcon className="size-3.5" icon={AddCircleIcon} />
+                      <HugeiconsIcon
+                        className="size-3.5"
+                        icon={AddCircleIcon}
+                      />
                     </Button>
                   </div>
                   <CollapsibleContent>
-                    <div className="pl-2">
+                    <div>
                       {visibleSessions.map((session) => {
                         const key = sessionKey(project.serverId, session.path);
                         const pinned = !!prefs[key]?.pinned;
@@ -233,92 +248,127 @@ export function Sidebar({
                         return (
                           <Button
                             className={cn(
-                              "group relative h-auto w-full justify-start rounded-md py-1.5 pr-2 pl-6 font-normal text-muted-foreground text-sm hover:text-foreground",
+                              "group relative h-9 w-full justify-start rounded-lg py-2 font-normal text-[13px] text-muted-foreground hover:text-foreground",
+                              pinned ? "pr-2 pl-2" : "pr-2 pl-8",
                               isActive && "bg-accent text-foreground"
                             )}
                             key={session.path}
-                            onClick={() => onSelectSession(project, session)}
+                            onClick={(event) => {
+                              if (
+                                (event.target as HTMLElement).closest(
+                                  "[data-session-action]"
+                                )
+                              ) {
+                                return;
+                              }
+                              onSelectSession(project, session);
+                            }}
+                            onMouseEnter={scrollTitleOnHover}
                             title={session.name || session.firstMessage}
                             variant="ghost"
                           >
-                            <span
-                              className={cn(
-                                "truncate",
-                                pinned && "group-hover:pr-6"
-                              )}
-                            >
-                              {session.name ||
-                                session.firstMessage ||
-                                t("untitled")}
-                            </span>
-                            <span
-                              className={cn(
-                                "absolute right-1 flex items-center rounded-md pl-5 transition-opacity group-hover:bg-muted",
-                                isActive ? "bg-accent" : "bg-sidebar",
-                                pinned
-                                  ? "opacity-100"
-                                  : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-                              )}
-                            >
+                            {pinned ? (
                               <Button
-                                aria-label={t(
-                                  pinned ? "unpin_session" : "pin_session"
-                                )}
-                                className={cn(
-                                  "size-6",
-                                  !pinned && "opacity-60 hover:opacity-100"
-                                )}
+                                aria-label={t("unpin_session")}
+                                className="size-5 shrink-0 justify-start opacity-80 hover:opacity-100"
+                                data-session-action
                                 nativeButton={false}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setSessionPref(key, {
                                     ...snapshot,
-                                    pinned: !pinned,
+                                    pinned: false,
                                   });
                                 }}
+                                onMouseDown={(event) => event.preventDefault()}
                                 render={<span />}
                                 size="icon"
-                                title={t(
-                                  pinned ? "unpin_session" : "pin_session"
-                                )}
+                                title={t("unpin_session")}
                                 variant="ghost"
                               >
                                 <HugeiconsIcon
-                                  className={cn(
-                                    "size-3.5",
-                                    pinned && "fill-current"
-                                  )}
+                                  className="size-3.5 fill-current"
                                   icon={PinIcon}
                                 />
                               </Button>
-                              <Button
-                                aria-label={t("archive_session")}
-                                className="size-6 opacity-60 hover:opacity-100"
-                                nativeButton={false}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setSessionPref(key, {
-                                    ...snapshot,
-                                    archived: true,
-                                  });
-                                }}
-                                render={<span />}
-                                size="icon"
-                                title={t("archive_session")}
-                                variant="ghost"
+                            ) : null}
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 overflow-hidden",
+                                !pinned &&
+                                  "group-focus-within:mr-14 group-hover:mr-14"
+                              )}
+                            >
+                              <span
+                                className="block truncate group-hover:inline-block group-hover:w-max group-hover:animate-[omo-marquee_4s_ease-in-out_infinite_alternate] group-hover:overflow-visible group-hover:text-clip"
+                                data-session-title
+                                data-shrink={pinned ? 0 : 56}
                               >
-                                <HugeiconsIcon
-                                  className="size-3.5"
-                                  icon={Archive01Icon}
-                                />
-                              </Button>
+                                {session.name ||
+                                  session.firstMessage ||
+                                  t("untitled")}
+                              </span>
                             </span>
+                            {pinned ? null : (
+                              <span className="pointer-events-none absolute right-1 z-10 flex items-center">
+                                <Button
+                                  aria-label={t("pin_session")}
+                                  className="pointer-events-none size-6 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-70 group-hover:pointer-events-auto group-hover:opacity-70"
+                                  data-session-action
+                                  nativeButton={false}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSessionPref(key, {
+                                      ...snapshot,
+                                      pinned: true,
+                                    });
+                                  }}
+                                  onMouseDown={(event) =>
+                                    event.preventDefault()
+                                  }
+                                  render={<span />}
+                                  size="icon"
+                                  title={t("pin_session")}
+                                  variant="ghost"
+                                >
+                                  <HugeiconsIcon
+                                    className="size-3.5"
+                                    icon={PinIcon}
+                                  />
+                                </Button>
+                                <Button
+                                  aria-label={t("archive_session")}
+                                  className="pointer-events-none size-6 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-70 group-hover:pointer-events-auto group-hover:opacity-70"
+                                  data-session-action
+                                  nativeButton={false}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSessionPref(key, {
+                                      ...snapshot,
+                                      archived: true,
+                                    });
+                                  }}
+                                  onMouseDown={(event) =>
+                                    event.preventDefault()
+                                  }
+                                  render={<span />}
+                                  size="icon"
+                                  title={t("archive_session")}
+                                  variant="ghost"
+                                >
+                                  <HugeiconsIcon
+                                    className="size-3.5"
+                                    icon={Archive01Icon}
+                                  />
+                                </Button>
+                              </span>
+                            )}
                           </Button>
                         );
                       })}
                       {projectSessionItems.length > COLLAPSED_SESSION_LIMIT ? (
                         <Button
-                          className="h-7 w-full justify-start pr-2 pl-6 font-normal text-muted-foreground text-xs"
+                          className="h-7 w-full justify-start pr-2 pl-8 font-normal text-muted-foreground text-xs"
                           onClick={() =>
                             setExpandedSessionLists((current) => ({
                               ...current,
@@ -342,14 +392,15 @@ export function Sidebar({
           })}
         </div>
       </ScrollArea>
-      <div className="p-2">
+      <div className="p-3">
         <Button
           aria-label={t("settings")}
+          className="h-9 w-full justify-start gap-2.5 px-2 font-normal text-muted-foreground"
           onClick={onOpenSettings}
-          size="icon"
           variant="ghost"
         >
           <HugeiconsIcon className="size-4" icon={Settings01Icon} />
+          {t("settings")}
         </Button>
       </div>
 

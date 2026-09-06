@@ -26,9 +26,15 @@ textarea {
   resize: none !important;
 }
 
-[data-slot="input-group"]:focus-within {
-  border-color: var(--border) !important;
-  box-shadow: none !important;
+@keyframes omo-marquee {
+  0%,
+  20% {
+    transform: translateX(0);
+  }
+  80%,
+  100% {
+    transform: translateX(var(--marquee-dist, 0px));
+  }
 }
 
 [data-slot="select-scroll-up-arrow"],
@@ -105,7 +111,7 @@ textarea {
   --sidebar: oklch(0.985 0 0);
   --panel: #fafafa;
   --surface: #f0f0f0;
-  --radius: 0.375rem;
+  --radius: 0.5rem;
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
   --info-foreground: var(--color-blue-700);
@@ -128,7 +134,7 @@ textarea {
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.19 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
@@ -146,8 +152,8 @@ textarea {
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --window-background: #0a0a0a;
+  --sidebar: oklch(0.165 0 0);
+  --window-background: #141414;
   --window-panel: #181818;
   --window-control: #a3a3a3;
   --panel: #181818;
@@ -230,6 +236,7 @@ textarea {
     @apply border-border outline-ring/50;
   }
   body {
+    -webkit-font-smoothing: antialiased;
     @apply bg-background text-foreground;
   }
   html {

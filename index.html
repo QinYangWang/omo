@@ -23,19 +23,19 @@
       <canvas id="omo-splash-canvas"></canvas>
     </div>
     <style>
-      #omo-splash {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: opacity 0.35s ease;
-      }
-      #omo-splash.done {
-        opacity: 0;
-        pointer-events: none;
-      }
+    #omo-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.35s ease;
+    }
+    #omo-splash.done {
+      pointer-events: none;
+      opacity: 0;
+    }
     </style>
     <script>
     "use strict";
@@ -45,27 +45,34 @@
     (() => {
       const splash = document.getElementById("omo-splash");
       const canvas = document.getElementById("omo-splash-canvas");
-      if (!splash || !canvas) return;
+      if (!(splash && canvas)) {
+        return;
+      }
       const dark = document.documentElement.classList.contains("dark");
       const bg = dark ? "#0a0a0b" : "#fafafa";
       const fg = dark ? "#fafafa" : "#18181b";
       const colors = {
         cyan: "#22d3ee",
-        red: "#f87171",
+        flash: "#fbbf24",
         green: "#4ade80",
         orange: "#fbbf24",
+        red: "#f87171",
         white: fg,
-        flash: "#fbbf24",
       };
       splash.style.background = bg;
-      const COLS = 8, ROWS = 9, CELL = 16, GAP = 2;
+      const COLS = 8,
+        ROWS = 9,
+        CELL = 16,
+        GAP = 2;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       canvas.width = COLS * CELL * dpr;
       canvas.height = ROWS * CELL * dpr;
       canvas.style.width = `${COLS * CELL}px`;
       canvas.style.height = `${ROWS * CELL}px`;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      if (!ctx) {
+        return;
+      }
       ctx.scale(dpr, dpr);
 
       const inCells = (y, x, cells) => cells.split(" ").includes(`${y},${x}`);
@@ -81,53 +88,107 @@
             ? colors.white
             : null;
         }
-        if (f.flash && y === 6 && x >= 1 && x <= 6) return colors.flash;
-        if (f.active === "left" && inPiece(y, x, f.ay, f.ax, "0,0 1,0 1,1 2,0"))
+        if (f.flash && y === 6 && x >= 1 && x <= 6) {
+          return colors.flash;
+        }
+        if (
+          f.active === "left" &&
+          inPiece(y, x, f.ay, f.ax, "0,0 1,0 1,1 2,0")
+        ) {
           return colors.red;
-        if (f.active === "top" && inPiece(y, x, f.ay, f.ax, "0,0 0,1 0,2 1,2"))
+        }
+        if (
+          f.active === "top" &&
+          inPiece(y, x, f.ay, f.ax, "0,0 0,1 0,2 1,2")
+        ) {
           return colors.cyan;
-        if (f.active === "right" && inPiece(y, x, f.ay, f.ax, "0,0 1,0 2,0 2,1"))
+        }
+        if (
+          f.active === "right" &&
+          inPiece(y, x, f.ay, f.ax, "0,0 1,0 2,0 2,1")
+        ) {
           return colors.green;
+        }
         const p = f.phase;
         if (p === 4) {
-          if (inCells(y, x, "2,2 2,3 2,4 3,4")) return colors.cyan;
-          if (inCells(y, x, "3,2 4,2 4,3 5,2")) return colors.red;
-          if (inCells(y, x, "4,5 5,5")) return colors.green;
+          if (inCells(y, x, "2,2 2,3 2,4 3,4")) {
+            return colors.cyan;
+          }
+          if (inCells(y, x, "3,2 4,2 4,3 5,2")) {
+            return colors.red;
+          }
+          if (inCells(y, x, "4,5 5,5")) {
+            return colors.green;
+          }
           return null;
         }
         if (p >= 5) {
-          if (inCells(y, x, "3,2 3,3 3,4 4,4")) return colors.cyan;
-          if (inCells(y, x, "4,2 5,2 5,3 6,2")) return colors.red;
-          if (inCells(y, x, "5,5 6,5")) return colors.green;
+          if (inCells(y, x, "3,2 3,3 3,4 4,4")) {
+            return colors.cyan;
+          }
+          if (inCells(y, x, "4,2 5,2 5,3 6,2")) {
+            return colors.red;
+          }
+          if (inCells(y, x, "5,5 6,5")) {
+            return colors.green;
+          }
           return null;
         }
-        if (p <= 3 && inCells(y, x, "6,1 6,2 6,3 6,4")) return colors.orange;
-        if (p >= 2 && inCells(y, x, "2,2 2,3 2,4 3,4")) return colors.cyan;
-        if (p >= 1 && inCells(y, x, "3,2 4,2 4,3 5,2")) return colors.red;
-        if (p >= 3 && inCells(y, x, "4,5 5,5 6,5 6,6")) return colors.green;
+        if (p <= 3 && inCells(y, x, "6,1 6,2 6,3 6,4")) {
+          return colors.orange;
+        }
+        if (p >= 2 && inCells(y, x, "2,2 2,3 2,4 3,4")) {
+          return colors.cyan;
+        }
+        if (p >= 1 && inCells(y, x, "3,2 4,2 4,3 5,2")) {
+          return colors.red;
+        }
+        if (p >= 3 && inCells(y, x, "4,5 5,5 6,5 6,6")) {
+          return colors.green;
+        }
         return null;
       };
 
       const frames = [
-        ...[0, 1, 2, 3].map((y) => ({ phase: 0, active: "left", ax: 2, ay: y, d: 75 })),
-        ...[0, 1, 2].map((y) => ({ phase: 1, active: "top", ax: 2, ay: y, d: 75 })),
-        ...[0, 1, 2, 3, 4].map((y) => ({ phase: 2, active: "right", ax: 5, ay: y, d: 75 })),
-        { phase: 3, d: 250 },
-        { phase: 3, flash: 1, d: 80 },
-        { phase: 3, d: 80 },
-        { phase: 3, flash: 1, d: 80 },
-        { phase: 4, d: 100 },
-        { phase: 5, d: 450 },
-        { phase: 5, white: 1, d: 120 },
-        { phase: 5, d: 120 },
-        { phase: 5, white: 1, d: 450 },
+        ...[0, 1, 2, 3].map((y) => ({
+          active: "left",
+          ax: 2,
+          ay: y,
+          d: 75,
+          phase: 0,
+        })),
+        ...[0, 1, 2].map((y) => ({
+          active: "top",
+          ax: 2,
+          ay: y,
+          d: 75,
+          phase: 1,
+        })),
+        ...[0, 1, 2, 3, 4].map((y) => ({
+          active: "right",
+          ax: 5,
+          ay: y,
+          d: 75,
+          phase: 2,
+        })),
+        { d: 250, phase: 3 },
+        { d: 80, flash: 1, phase: 3 },
+        { d: 80, phase: 3 },
+        { d: 80, flash: 1, phase: 3 },
+        { d: 100, phase: 4 },
+        { d: 450, phase: 5 },
+        { d: 120, phase: 5, white: 1 },
+        { d: 120, phase: 5 },
+        { d: 450, phase: 5, white: 1 },
       ];
       const total = frames.reduce((sum, f) => sum + f.d, 0);
 
       let dead = false;
       const start = performance.now();
       const frame = (now) => {
-        if (dead) return;
+        if (dead) {
+          return;
+        }
         let t = Math.min(now - start, total - 1);
         let current = frames[frames.length - 1];
         for (const f of frames) {
@@ -142,7 +203,9 @@
         for (let y = 0; y < ROWS; y++) {
           for (let x = 1; x <= COLS; x++) {
             const color = cellColor(current, y, x);
-            if (!color) continue;
+            if (!color) {
+              continue;
+            }
             ctx.fillStyle = color;
             ctx.fillRect(
               (x - 1) * CELL + GAP / 2,

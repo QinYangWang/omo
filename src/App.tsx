@@ -1,17 +1,18 @@
 import {
-  InformationCircleIcon,
+  Folder01Icon,
   PanelLeftCloseIcon,
   PanelLeftIcon,
+  PanelRightCloseIcon,
   PanelRightIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AddProjectDialog } from "@/components/AddProjectDialog";
 import { ChatView } from "@/components/ChatView";
-import { RightPanel, type Surface } from "@/components/RightPanel";
 import { SettingsView } from "@/components/SettingsView";
 import { Sidebar } from "@/components/Sidebar";
 import { Button } from "@/components/ui/button";
+import { Workspace } from "@/components/Workspace";
 import { useI18n } from "@/lib/i18n";
 import { omo } from "@/lib/omo";
 import {
@@ -21,40 +22,35 @@ import {
   useServers,
 } from "@/lib/servers";
 import { useTheme } from "@/lib/theme";
+import { normalizeColorToHex } from "@/lib/theme-tokens";
 import { cn, randomUUID } from "@/lib/utils";
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 const macPlatformPattern = /Mac/;
 
-function syncWindowTitle(view: "chat" | "settings", panelOpen: boolean) {
+function syncWindowTitle() {
   const styles = getComputedStyle(document.documentElement);
-  const colorVariable =
-    view === "chat" && panelOpen ? "--window-panel" : "--window-background";
-  omo.windowControls.setTitleBarOverlay({
-    color: styles.getPropertyValue(colorVariable).trim(),
-    symbolColor: styles.getPropertyValue("--window-control").trim(),
-  });
+  const color = normalizeColorToHex(styles.getPropertyValue("--sidebar"));
+  const symbolColor = normalizeColorToHex(
+    styles.getPropertyValue("--window-control")
+  );
+  if (!(color && symbolColor)) {
+    return;
+  }
+  omo.windowControls.setTitleBarOverlay({ color, symbolColor });
 }
 
 /** Keep the native title bar overlay color in sync with the applied theme. */
-function useTitleBarOverlay(
-  view: "chat" | "settings",
-  panelOpen: boolean,
-  theme: "dark" | "light" | "system"
-) {
+function useTitleBarOverlay(theme: "dark" | "light" | "system") {
   useEffect(() => {
-    let frame = requestAnimationFrame(() => syncWindowTitle(view, panelOpen));
+    let frame = requestAnimationFrame(syncWindowTitle);
     const resync = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => syncWindowTitle(view, panelOpen));
+      frame = requestAnimationFrame(syncWindowTitle);
     };
     const media = matchMedia("(prefers-color-scheme: dark)");
-    const onSchemeChange = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => syncWindowTitle(view, panelOpen));
-    };
     if (theme === "system") {
-      media.addEventListener("change", onSchemeChange);
+      media.addEventListener("change", resync);
     }
     const observer = new MutationObserver(resync);
     observer.observe(document.head, {
@@ -62,12 +58,13 @@ function useTitleBarOverlay(
       childList: true,
       subtree: true,
     });
+    observer.observe(document.documentElement, { attributes: true });
     return () => {
       cancelAnimationFrame(frame);
-      media.removeEventListener("change", onSchemeChange);
+      media.removeEventListener("change", resync);
       observer.disconnect();
     };
-  }, [panelOpen, theme, view]);
+  }, [theme]);
 }
 
 async function loadTaggedProjects(servers: OmoServer[]): Promise<Project[]> {
@@ -132,43 +129,62 @@ function HeaderNav({
   );
 }
 
-function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
-  const startX = useRef(0);
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+function loadWidth(key: string, fallback: number) {
+  const value = Number(localStorage.getItem(key));
+  return value > 0 ? value : fallback;
+}
+
+function Divider({
+  className,
+  onDrag,
+}: {
+  className?: string;
+  onDrag: (dx: number) => void;
+}) {
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
       e.preventDefault();
-      startX.current = e.clientX;
+      const startX = e.clientX;
       let last = 0;
-      const move = (ev: MouseEvent) => {
-        onDrag(ev.clientX - startX.current - last);
-        last = ev.clientX - startX.current;
+      const move = (ev: PointerEvent) => {
+        onDrag(ev.clientX - startX - last);
+        last = ev.clientX - startX;
       };
       const up = () => {
-        window.removeEventListener("mousemove", move);
-        window.removeEventListener("mouseup", up);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
       };
-      window.addEventListener("mousemove", move);
-      window.addEventListener("mouseup", up);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
     },
     [onDrag]
   );
   return (
-    <button
+    <Button
       aria-label="Resize panel"
-      className="group relative m-0 w-px shrink-0 cursor-col-resize border-0 bg-border p-0 hover:bg-accent"
-      onMouseDown={onMouseDown}
+      className={cn(
+        "group relative m-0 h-full w-px shrink-0 cursor-col-resize rounded-none border-0 bg-transparent p-0 active:translate-y-0"
+      )}
+      onPointerDown={onPointerDown}
       type="button"
+      variant="ghost"
     >
       <span
         aria-hidden="true"
         className="absolute inset-y-0 -right-1 -left-1"
       />
-    </button>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute bottom-0 left-0 w-px",
+          className ?? "top-0 bg-border/60 group-hover:bg-ring"
+        )}
+      />
+    </Button>
   );
 }
 
 export default function App() {
-  const { t } = useI18n();
   const { theme } = useTheme();
   const [view, setView] = useState<"chat" | "settings">("chat");
   const [projects, setProjects] = useState<Project[]>([]);
@@ -183,13 +199,15 @@ export default function App() {
     title: string;
     path?: string;
   } | null>(null);
-  const [surface, setSurface] = useState<Surface | null>(null);
+  const [sidebarW, setSidebarW] = useState(() =>
+    loadWidth("omo.layout.sidebarW", 310)
+  );
+  const [convW, setConvW] = useState(() => loadWidth("omo.layout.convW", 460));
   const [panelOpen, setPanelOpen] = useState(false);
-  const [sidebarW, setSidebarW] = useState(240);
-  const [panelW, setPanelW] = useState(400);
   const [collapsed, setCollapsed] = useState(false);
   const isMac = macPlatformPattern.test(navigator.platform);
-  useTitleBarOverlay(view, panelOpen, theme);
+  const { t } = useI18n();
+  useTitleBarOverlay(theme);
 
   const servers = useServers();
 
@@ -255,12 +273,19 @@ export default function App() {
       project: project.name,
       projectId: project.id,
       serverId: project.serverId,
-      title: "New task",
+      title: "",
     });
   };
 
   const clamp = (v: number, lo: number, hi: number) =>
     Math.min(hi, Math.max(lo, v));
+
+  useEffect(() => {
+    localStorage.setItem("omo.layout.sidebarW", String(sidebarW));
+  }, [sidebarW]);
+  useEffect(() => {
+    localStorage.setItem("omo.layout.convW", String(convW));
+  }, [convW]);
 
   const headerNavigation = (
     <HeaderNav
@@ -278,28 +303,15 @@ export default function App() {
 
   if (view === "settings") {
     return (
-      <div className="flex h-screen flex-col bg-background text-foreground">
-        <header className="flex h-10 shrink-0 bg-background [-webkit-app-region:drag]">
-          {!collapsed && (
-            <>
-              <div
-                className="flex w-60 shrink-0 items-center bg-sidebar"
-                style={{ paddingLeft: titlebarLeftPadding }}
-              >
-                {headerNavigation}
-              </div>
-              <div className="w-px shrink-0 bg-border" />
-            </>
-          )}
-          <div
-            className="flex min-w-0 flex-1 items-center bg-background"
-            style={{
-              paddingLeft: collapsed ? titlebarLeftPadding : undefined,
-              paddingRight: titlebarRightPadding,
-            }}
-          >
-            {collapsed ? headerNavigation : null}
-          </div>
+      <div className="flex h-screen flex-col bg-sidebar text-foreground">
+        <header
+          className="flex h-10 shrink-0 items-center gap-2 bg-sidebar [-webkit-app-region:drag]"
+          style={{
+            paddingLeft: titlebarLeftPadding,
+            paddingRight: titlebarRightPadding,
+          }}
+        >
+          {headerNavigation}
         </header>
         <div className="min-h-0 flex-1">
           <SettingsView
@@ -312,128 +324,145 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      {/* Col 1: Sidebar */}
-      {!collapsed && (
-        <div
-          className="flex shrink-0 flex-col bg-sidebar"
-          style={{ width: sidebarW }}
-        >
+    <div className="flex h-screen flex-col bg-sidebar text-foreground">
+      {/* Top strip: unified surface with the sidebar, shows no text */}
+      <header
+        className="flex h-10 shrink-0 items-center gap-2 bg-sidebar [-webkit-app-region:drag]"
+        style={{
+          paddingLeft: titlebarLeftPadding,
+          paddingRight: titlebarRightPadding,
+        }}
+      >
+        {headerNavigation}
+      </header>
+      <div className="flex min-h-0 flex-1">
+        {/* Col 1: Sidebar */}
+        {!collapsed && (
           <div
-            className="flex h-10 shrink-0 items-center [-webkit-app-region:drag]"
-            style={{ paddingLeft: titlebarLeftPadding }}
+            className="flex shrink-0 flex-col bg-sidebar"
+            style={{ width: sidebarW }}
           >
-            {headerNavigation}
-          </div>
-          <div className="min-h-0 flex-1">
-            <Sidebar
-              activeSession={active?.path ?? active?.key ?? null}
-              onImport={async (project, sourcePath) => {
-                await getServerApi(project.serverId).sessions.import(
-                  sourcePath,
-                  project.cwd
-                );
-                await refreshSessions(project);
-              }}
-              onNewSession={startNewSession}
-              onNewSessionAny={async () => {
-                const project =
-                  projects.find((item) => item.id === active?.projectId) ??
-                  projects[0];
-                if (project) {
-                  await startNewSession(project);
+            <div className="min-h-0 flex-1">
+              <Sidebar
+                activeSession={active?.path ?? active?.key ?? null}
+                onImport={async (project, sourcePath) => {
+                  await getServerApi(project.serverId).sessions.import(
+                    sourcePath,
+                    project.cwd
+                  );
+                  await refreshSessions(project);
+                }}
+                onNewSession={startNewSession}
+                onNewSessionAny={async () => {
+                  const project =
+                    projects.find((item) => item.id === active?.projectId) ??
+                    projects[0];
+                  if (project) {
+                    await startNewSession(project);
+                  }
+                }}
+                onOpenSettings={() => setView("settings")}
+                onRequestAddProject={() => setAddOpen(true)}
+                onSelectSession={(project, session) =>
+                  setActive({
+                    cwd: project.cwd,
+                    key: session.id,
+                    path: session.path,
+                    project: project.name,
+                    projectId: project.id,
+                    serverId: project.serverId,
+                    title:
+                      session.name ||
+                      session.firstMessage ||
+                      "Untitled session",
+                  })
                 }
-              }}
-              onOpenSettings={() => setView("settings")}
-              onRequestAddProject={() => setAddOpen(true)}
-              onSelectSession={(project, session) =>
-                setActive({
-                  cwd: project.cwd,
-                  key: session.id,
-                  path: session.path,
-                  project: project.name,
-                  projectId: project.id,
-                  serverId: project.serverId,
-                  title:
-                    session.name || session.firstMessage || "Untitled session",
-                })
-              }
-              projects={projects}
-              sessions={sessions}
-            />
+                projects={projects}
+                sessions={sessions}
+              />
+            </div>
           </div>
-        </div>
-      )}
-      {!collapsed && (
-        <Divider onDrag={(dx) => setSidebarW((w) => clamp(w + dx, 180, 400))} />
-      )}
-
-      {/* Col 2: Main */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header
-          className="flex h-10 shrink-0 items-center gap-1 bg-background [-webkit-app-region:drag]"
-          style={{
-            paddingLeft: collapsed ? titlebarLeftPadding : "1rem",
-            paddingRight: panelOpen ? "0.5rem" : titlebarRightPadding,
-          }}
-        >
-          {collapsed ? headerNavigation : null}
-          <div
-            className={cn(
-              "min-w-0 flex-1 truncate text-sm",
-              collapsed && "pl-2"
-            )}
-          >
-            {active?.title || t("new_task")}
-          </div>
-          <div className="flex items-center" style={noDrag}>
-            <Button aria-label="Session info" size="icon" variant="ghost">
-              <HugeiconsIcon className="size-4" icon={InformationCircleIcon} />
-            </Button>
-            <Button
-              aria-label="Toggle panel"
-              onClick={() => setPanelOpen((v) => !v)}
-              size="icon"
-              variant="ghost"
-            >
-              <HugeiconsIcon className="size-4" icon={PanelRightIcon} />
-            </Button>
-          </div>
-        </header>
-        <main className="min-h-0 flex-1">
-          <ChatView
-            onClearProject={() => setActive(null)}
-            onRequestAddProject={() => setAddOpen(true)}
-            onSelectProject={(project) =>
-              setActive({
-                cwd: project.cwd,
-                key: randomUUID(),
-                project: project.name,
-                projectId: project.id,
-                serverId: project.serverId,
-                title: "New task",
-              })
-            }
-            projects={projects}
-            session={active}
+        )}
+        {!collapsed && (
+          <Divider
+            className="top-0 bg-transparent group-hover:bg-ring/40"
+            onDrag={(dx) => setSidebarW((w) => clamp(w + dx, 240, 400))}
           />
-        </main>
-      </div>
+        )}
 
-      {/* Col 3: Right panel */}
-      {panelOpen ? (
-        <>
-          <Divider onDrag={(dx) => setPanelW((w) => clamp(w - dx, 280, 640))} />
-          <div className="shrink-0 overflow-hidden" style={{ width: panelW }}>
-            <RightPanel
-              full
-              onSelect={setSurface}
-              serverId={active?.serverId ?? getDefaultServerId()}
-              surface={surface}
-            />
-          </div>
-        </>
-      ) : null}
+        {/* Content pane: top/left borders curve at the sidebar junction */}
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 overflow-hidden border-border border-t bg-background",
+            !collapsed && "rounded-tl-lg border-l"
+          )}
+        >
+          {/* Col 2: Conversation */}
+          <main
+            className={cn(
+              "flex min-w-0 flex-col",
+              panelOpen ? "shrink-0" : "flex-1"
+            )}
+            style={{ width: panelOpen ? convW : undefined }}
+          >
+            {/* Conversation header: session title only */}
+            <div className="flex h-12 shrink-0 items-center gap-2 border-border border-b bg-background pr-1.5 pl-3">
+              <HugeiconsIcon
+                className="size-4 shrink-0 text-muted-foreground"
+                icon={Folder01Icon}
+              />
+              <span className="min-w-0 flex-1 truncate font-medium text-sm">
+                {active ? active.title || t("new_session") : null}
+              </span>
+              <Button
+                aria-label="Toggle workspace"
+                aria-pressed={panelOpen}
+                className="size-7"
+                onClick={() => setPanelOpen((v) => !v)}
+                size="icon"
+                variant="ghost"
+              >
+                <HugeiconsIcon
+                  className="size-4"
+                  icon={panelOpen ? PanelRightCloseIcon : PanelRightIcon}
+                />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 bg-background">
+              <ChatView
+                onClearProject={() => setActive(null)}
+                onRequestAddProject={() => setAddOpen(true)}
+                onSelectProject={(project) =>
+                  setActive({
+                    cwd: project.cwd,
+                    key: randomUUID(),
+                    project: project.name,
+                    projectId: project.id,
+                    serverId: project.serverId,
+                    title: "",
+                  })
+                }
+                projects={projects}
+                session={active}
+              />
+            </div>
+          </main>
+          {panelOpen ? (
+            <>
+              <Divider
+                onDrag={(dx) => setConvW((w) => clamp(w + dx, 380, 560))}
+              />
+
+              {/* Col 3: Workspace */}
+              <div className="min-w-0 flex-1">
+                <Workspace
+                  serverId={active?.serverId ?? getDefaultServerId()}
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
       <AddProjectDialog
         onAdd={addProject}
         onAdded={openAddedProject}

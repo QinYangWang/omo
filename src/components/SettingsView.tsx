@@ -2,6 +2,7 @@ import {
   Add01Icon,
   Archive01Icon,
   ArrowLeft01Icon,
+  ArrowRight01Icon,
   ChartColumnIcon,
   Copy01Icon,
   CpuIcon,
@@ -25,6 +26,11 @@ import {
 import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -109,10 +115,7 @@ export function SettingsView({
     <div className="flex h-full bg-background">
       {sidebarOpen ? (
         <div className="flex w-60 shrink-0 flex-col bg-sidebar">
-          <div className="px-2 pb-2">
-            <Input placeholder={t("search_settings")} />
-          </div>
-          <nav className="flex flex-col gap-0.5 px-2">
+          <nav className="flex flex-col gap-0.5 px-3 pt-3">
             {sections.map(([key, s, Icon]) => (
               <Button
                 className={cn(
@@ -128,9 +131,9 @@ export function SettingsView({
               </Button>
             ))}
           </nav>
-          <div className="mt-auto p-2">
+          <div className="mt-auto p-3">
             <Button
-              className="w-full justify-start gap-2 font-normal"
+              className="h-9 w-full justify-start gap-2.5 px-2 font-normal text-muted-foreground"
               onClick={onBack}
               type="button"
               variant="ghost"
@@ -141,8 +144,12 @@ export function SettingsView({
           </div>
         </div>
       ) : null}
-      {sidebarOpen ? <div className="w-px shrink-0 bg-border" /> : null}
-      <ScrollArea className="min-w-0 flex-1">
+      <ScrollArea
+        className={cn(
+          "min-w-0 flex-1 border-border border-t bg-background",
+          sidebarOpen && "rounded-tl-lg border-l"
+        )}
+      >
         <div className="mx-auto w-full max-w-3xl px-6 py-8">
           {section === "Servers" && <ServersSection />}
           {section === "Providers" && <ProvidersSection />}
@@ -837,6 +844,15 @@ function ServerModels({ serverId }: { serverId: string }) {
       .includes(query.toLowerCase())
   );
   const enabledCount = models.filter((model) => model.enabled).length;
+  const [collapsedGroups, setCollapsedGroups] = useState<
+    Record<string, boolean>
+  >({});
+  const groups = new Map<string, AgentModelInfo[]>();
+  for (const model of visible) {
+    const group = groups.get(model.provider) ?? [];
+    group.push(model);
+    groups.set(model.provider, group);
+  }
   return (
     <div className="flex flex-col gap-5">
       <div>
@@ -874,24 +890,59 @@ function ServerModels({ serverId }: { serverId: string }) {
         })}
       </p>
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
-      <div className="flex flex-col divide-y divide-border">
-        {visible.map((model) => (
-          <div
-            className="flex min-h-12 items-center gap-3 py-2"
-            key={`${model.provider}/${model.id}`}
+      <div className="flex flex-col gap-5">
+        {[...groups].map(([provider, items]) => (
+          <Collapsible
+            key={provider}
+            onOpenChange={(open) =>
+              setCollapsedGroups((current) => ({
+                ...current,
+                [provider]: !open,
+              }))
+            }
+            open={!collapsedGroups[provider]}
           >
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium text-sm">{model.name}</div>
-              <div className="truncate text-muted-foreground text-xs">
-                {model.provider}/{model.id}
-              </div>
-            </div>
-            <Switch
-              checked={model.enabled}
-              disabled={busy}
-              onCheckedChange={() => toggle(model)}
-            />
-          </div>
+            <section>
+              <CollapsibleTrigger className="group flex w-full items-center justify-between px-1 pb-1.5 text-muted-foreground text-xs">
+                <span className="flex items-center gap-1.5">
+                  <HugeiconsIcon
+                    className="size-3.5 transition-transform group-aria-expanded:rotate-90"
+                    icon={ArrowRight01Icon}
+                  />
+                  <span className="font-medium uppercase tracking-wide">
+                    {provider}
+                  </span>
+                </span>
+                <span>
+                  {items.filter((model) => model.enabled).length}/{items.length}
+                </span>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="flex flex-col divide-y divide-border rounded-lg border">
+                  {items.map((model) => (
+                    <div
+                      className="flex min-h-12 items-center gap-3 px-3 py-2"
+                      key={`${model.provider}/${model.id}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium text-sm">
+                          {model.name}
+                        </div>
+                        <div className="truncate text-muted-foreground text-xs">
+                          {model.id}
+                        </div>
+                      </div>
+                      <Switch
+                        checked={model.enabled}
+                        disabled={busy}
+                        onCheckedChange={() => toggle(model)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </section>
+          </Collapsible>
         ))}
         {visible.length === 0 ? (
           <p className="py-3 text-muted-foreground text-sm">
@@ -1080,8 +1131,13 @@ function ServerUsageCard({
     cost: 0,
     input: 0,
     output: 0,
+    savings: 0,
   };
-  const fmt = (n: number) => n.toLocaleString();
+  const fmt = (n: number) =>
+    new Intl.NumberFormat(lang, {
+      maximumFractionDigits: 1,
+      notation: "compact",
+    }).format(n);
   const stats = [
     [
       t("usage_processed_tokens"),
@@ -1090,7 +1146,7 @@ function ServerUsageCard({
     [t("usage_cached_input"), fmt(totals.cacheRead)],
     [t("usage_uncached_input"), fmt(totals.input)],
     [t("usage_output"), fmt(totals.output)],
-    [t("usage_cache_savings"), `$${totals.cost.toFixed(2)}`],
+    [t("usage_cache_savings"), `$${totals.savings.toFixed(2)}`],
   ];
   const providers = usage?.providers ?? [];
   const hosted = !!window.__OMO_SERVER_URL__ && !window.omoSecure;
@@ -1125,9 +1181,13 @@ function ServerUsageCard({
       </div>
       <div className="grid grid-cols-5 divide-x rounded-lg border">
         {stats.map(([statLabel, statValue]) => (
-          <div className="p-4" key={statLabel}>
-            <div className="text-muted-foreground text-xs">{statLabel}</div>
-            <div className="text-xl">{statValue}</div>
+          <div className="min-w-0 p-4" key={statLabel}>
+            <div className="truncate text-muted-foreground text-xs">
+              {statLabel}
+            </div>
+            <div className="truncate text-xl" title={statValue}>
+              {statValue}
+            </div>
           </div>
         ))}
       </div>

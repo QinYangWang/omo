@@ -148,6 +148,40 @@ export const themeTokenGroups: TokenGroup[] = [
 const colorValue = /^(#|oklch|oklab|hsla?\(|rgba?\(|color\(|var\()/i;
 const rgbTriplet =
   /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,/\s]+([\d.]+))?\s*\)$/i;
+const oklchPattern =
+  /^oklch\(\s*([\d.]+)%?\s+([\d.]+)%?\s+([\d.]+)(?:\s*\/\s*[\d.]+%?)?\s*\)$/i;
+
+/** Convert oklch to #rrggbb (canvas serializes oklch verbatim). */
+function oklchToHex(lightness: number, chroma: number, hue: number): string {
+  const l = lightness > 1 ? lightness / 100 : lightness;
+  const radians = (hue * Math.PI) / 180;
+  const a = chroma * Math.cos(radians);
+  const b = chroma * Math.sin(radians);
+  const l3 = (l + 0.396_337_777_4 * a + 0.215_803_757_3 * b) ** 3;
+  const m3 = (l - 0.105_561_345_8 * a - 0.063_854_172_8 * b) ** 3;
+  const s3 = (l - 0.089_484_177_5 * a - 1.291_485_548 * b) ** 3;
+  const x = 1.227_013_851_1 * l3 - 0.557_799_980_7 * m3 + 0.281_256_149 * s3;
+  const y = -0.040_580_178_4 * l3 + 1.112_256_869_6 * m3 - 0.071_676_678_7 * s3;
+  const z = -0.076_381_284_5 * l3 - 0.421_481_978_4 * m3 + 1.586_163_220_4 * s3;
+  const gamma = (v: number) => {
+    const clamped = Math.min(1, Math.max(0, v));
+    return clamped <= 0.003_130_8
+      ? 12.92 * clamped
+      : 1.055 * clamped ** (1 / 2.4) - 0.055;
+  };
+  const channels = [
+    3.240_969_941_9 * x - 1.537_383_177_6 * y - 0.498_610_760_3 * z,
+    -0.969_243_636_3 * x + 1.875_967_501_5 * y + 0.041_555_057_4 * z,
+    0.055_630_079_7 * x - 0.203_976_958_9 * y + 1.056_971_514_2 * z,
+  ];
+  return `#${channels
+    .map((v) =>
+      Math.round(gamma(v) * 255)
+        .toString(16)
+        .padStart(2, "0")
+    )
+    .join("")}`;
+}
 
 export function looksLikeColor(value: string) {
   return colorValue.test(value.trim());
@@ -157,8 +191,8 @@ let colorContext: CanvasRenderingContext2D | null | undefined;
 
 /**
  * Normalize any CSS color (oklch, hsl, rgb, hex, named) to #rrggbb or
- * #rrggbbaa using the browser's own color parser. Returns null when the
- * value cannot be resolved (e.g. var() references or invalid colors).
+ * #rrggbbaa using the browser's color parser (with a manual oklch fallback).
+ * Returns null when the value cannot be resolved (e.g. var() references).
  */
 export function normalizeColorToHex(value: string): string | null {
   const trimmed = value.trim();
@@ -179,19 +213,24 @@ export function normalizeColorToHex(value: string): string | null {
       return serialized;
     }
     const match = rgbTriplet.exec(serialized);
-    if (!match) {
-      return null;
+    if (match) {
+      const hex = [match[1], match[2], match[3]]
+        .map((part) => Number(part).toString(16).padStart(2, "0"))
+        .join("");
+      if (match[4] !== undefined) {
+        const alpha = Math.round(Number(match[4]) * 255)
+          .toString(16)
+          .padStart(2, "0");
+        return `#${hex}${alpha}`;
+      }
+      return `#${hex}`;
     }
-    const hex = [match[1], match[2], match[3]]
-      .map((part) => Number(part).toString(16).padStart(2, "0"))
-      .join("");
-    if (match[4] !== undefined) {
-      const alpha = Math.round(Number(match[4]) * 255)
-        .toString(16)
-        .padStart(2, "0");
-      return `#${hex}${alpha}`;
+    // Canvas serializes oklch() verbatim; convert to sRGB ourselves.
+    const oklch = oklchPattern.exec(serialized);
+    if (oklch) {
+      return oklchToHex(Number(oklch[1]), Number(oklch[2]), Number(oklch[3]));
     }
-    return `#${hex}`;
+    return null;
   } catch {
     return null;
   }

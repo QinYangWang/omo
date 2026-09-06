@@ -2,44 +2,49 @@
 
 ## App Shell
 
-应用使用三列布局：
+应用是 Sidebar + Conversation + Workspace 三栏工作台：
 
 ```text
-┌──────────┬──────────────────────────┬──────────────┐
-│ Sidebar  │ Chat / Settings          │ Right Panel  │
-└──────────┴──────────────────────────┴──────────────┘
+┌──────────────── 顶栏（h-10，与 Sidebar 一体的 --sidebar 色，无文字） ────────────────┐
+│ Sidebar ║ Conversation ║ Workspace                                                 │
+│ 310px   ║ 460px        ║ Tabs + [ Main | Explorer(clamp 240~300px) ]               │
+└──────────╨──────────────╨───────────────────────────────────────────────────────────┘
 ```
 
-两列之间的 1px 分隔线支持拖拽。Sidebar 宽度为 180–400px，Right Panel 宽度为 280–640px。
+Sidebar 默认 310px（可拖 240–400），Conversation 默认 460px（可拖 380–560），Workspace 占剩余全部。两个宽度持久化到 localStorage（`omo.layout.sidebarW` / `omo.layout.convW`）。拖拽 Divider 使用 pointer events。
 
-Sidebar 展开时顶部只有一个无拖拽的收缩按钮：
+Sidebar 收起后完全隐藏，收缩按钮留在顶栏左侧。
 
-```text
-[侧栏]
-```
+macOS 按钮位于窗口交通灯右侧；Windows 根据 `titlebar-area-*` 预留右侧窗口按钮区域，原生窗口按钮背景色经 `setTitleBarOverlay` 跟随顶栏的 `--sidebar`（经 `normalizeColorToHex` 转换）。
 
-收缩按钮图标与下方 Sidebar 内容（新会话按钮等）左对齐。
+## Conversation
 
-macOS 按钮位于窗口交通灯右侧；Windows 根据 `titlebar-area-*` 预留右侧窗口按钮区域。
+Conversation Pane 从上到下：Conversation Header（h-12，folder 图标 + 会话标题单行 ellipsis，右侧是 Workspace 抽屉开关，与 Sidebar 交界处 `rounded-tl-lg` 圆角）→ 消息区（Virtuoso 自滚动）→ Composer（固定底部，`px-4 pb-3`，不再二次居中限宽）。无会话时首页/项目选择作为 Conversation 的 empty state 呈现，项目列表为紧凑行而非大卡片。Workspace 收起时 Conversation 自适应占满剩余宽度。
 
-Sidebar 收起后完全隐藏，收缩按钮移动到会话标题栏左侧。
+## Workspace
+
+Workspace 默认收起，通过会话名栏右侧的抽屉开关打开（打开后 Conversation 固定 460px 可拖，Workspace 占剩余空间）。结构为 `WorkspaceTabs + Body[Main + Explorer]`：
+
+- WorkspaceTabs（h-12，与会话名栏同高）：shadcn Tabs 默认 variant 圆角 button 标签——固定的“变更”标签 + 文档标签（文件/diff，可关闭）+ “+”菜单（可添加多个浏览器、终端标签页）。所有标签内容保持挂载（hidden 切换），终端与浏览器状态不丢失。
+- WorkspaceMain：当前标签内容——Changes 列表、文件预览、diff（`@pierre/diffs` 的 `File`/`PatchDiff`）、终端、浏览器。
+- FileExplorer（右侧辅助栏，宽 `clamp(240px, 19vw, 300px)`）：搜索框（过滤已加载节点）+ 可折叠文件树（28px 行高、13px 字号），点击文件在 Main 中打开文档标签，active 文件高亮。
 
 ## Sidebar
 
 从上到下：
 
-- 新会话按钮（作用于当前项目，无活动项目时取第一个项目）
-- PROJECTS 标题；添加按钮只在悬停该行时显示
+- 新会话按钮（卡片式描边按钮，作用于当前项目，无活动项目时取第一个项目）
+- PROJECTS 标题；添加按钮常显但低对比，hover 时增强
 - Project 分组
 - 每个 Project 下的 Session 列表
 - Session 导入和新建按钮（悬停项目行时显示）
-- 底部设置入口
+- 底部设置入口（分隔线上方带图标的整行按钮）
 
 Project 对应本地或远程执行端目录。添加项目通过目录选择完成：Electron 本地模式使用系统目录选择器，远程模式使用 Server workspace 目录树；纯静态 Web 不提供本地目录选择。
 
 Session 条目显示名称或首条消息。创建 Project 后不自动导入 Session；导入按钮只列出当前 Project cwd 下的 Pi Session。
 
-会话行悬停（或键盘聚焦）时在标题上方浮层显示置顶和归档按钮，不挤压标题文字；按钮容器带与行状态一致的底色（默认 `sidebar`、选中 `accent`、hover `muted`）并随 hover 淡入淡出，不直接叠在文字上：
+会话行悬停（或键盘聚焦）时在标题上方浮层显示置顶和归档按钮，不挤压标题文字，也不叠加底色；hover 时标题收缩到按钮组左侧并以 marquee 动画滚动显示完整标题。置顶行的置顶按钮固定在行左侧（实心图标，点击取消置顶），置顶行不显示归档按钮：
 
 - 置顶：会话固定在项目列表最前，多个置顶按会话创建时间从新到旧排序。
 - 归档：仅从侧边栏隐藏，不影响用量统计；可在设置的「已归档」分区恢复。
@@ -52,13 +57,15 @@ Session 条目显示名称或首条消息。创建 Project 后不自动导入 Se
 
 会话中从上到下：
 
-- 标题栏：导航、当前 Session 标题、Info、Right Panel 开关
-- Conversation：历史消息和流式增量
+- 标题栏（h-10）：左侧项目名（有会话标题时以“项目 · 标题”形式跟在后面），右侧留空作为拖拽区；该栏横贯右侧 Right Panel 顶部
+- Conversation：历史消息和流式增量；Right Panel 开关悬浮在会话区右上角
 - Prompt Input：输入、模型、Thinking、上下文、Local/Worktree、分支和 Project；默认 placeholder 会提示粘贴图片、`@` 文件和 `/` 命令
 
 Project 选择器包含已有 Project、New project 和 no project。模型选择器按 Provider 分组，并支持展开/收起。
 
 ## Right Panel
+
+Right Panel 位于会话标题栏下方、会话区右侧，宽度 280–640px。
 
 Tab：
 

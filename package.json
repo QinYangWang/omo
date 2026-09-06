@@ -23,6 +23,7 @@
     "@fontsource-variable/raleway": "^5.3.0",
     "@hugeicons/core-free-icons": "^4.3.0",
     "@hugeicons/react": "^1.1.10",
+    "@pierre/diffs": "^1.4.1",
     "@rive-app/react-webgl2": "^4.33.0",
     "@tmustier/pi-usage-extension": "^0.9.4",
     "@xterm/addon-fit": "^0.11.0",
