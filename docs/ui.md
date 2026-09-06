@@ -50,6 +50,10 @@ omo 的默认视觉语言参考 Vercel design system，并遵守本项目已有�
 
 左右边界 Divider 支持鼠标拖拽。Sidebar 宽度范围为 180–400px，Right Panel 宽度范围为 280–640px。
 
+## 启动开屏
+
+`index.html` 内联了一个 canvas 开屏动画（Electron 与 Web 均生效）：移植自 pi 安装脚本（`https://pi.dev/install.ps1`）的 `Show-PiLogoAnimation`——三个 tetromino 下落拼成 π logo，底行闪烁消除后定格并闪烁白色，全程约 2.5s。帧序列与单元格颜色逻辑与原脚本一致；颜色使用 ANSI 近似色，白帧跟随主题前景，底色跟随主题（`.dark` class，此阶段 `index.css` 尚未加载，读不到语义化 CSS 变量）。React `bootstrap()` 渲染完成后调用 `window.omoSplashDone()`，动画播满整条时间轴后淡出并移除节点；启动较慢时停在白色 π 定格帧等待。改动开屏时同步修改 `src/main.tsx` 中的 `omoSplashDone` 调用。
+
 ## 标题栏导航
 
 侧栏顶部没有应用名称文字，只有一个收缩/展开侧栏按钮，其图标与下方 Sidebar 内容左对齐。

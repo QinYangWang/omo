@@ -75,6 +75,7 @@ async function bootstrap() {
       </ErrorBoundary>
     </StrictMode>
   );
+  (window as { omoSplashDone?: () => void }).omoSplashDone?.();
 }
 
 bootstrap().catch((error: unknown) => {
