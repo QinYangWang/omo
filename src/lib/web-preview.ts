@@ -35,6 +35,7 @@ export function installWebPreviewApi() {
     },
     git: {
       branches: async () => [{ current: true, name: "main" }],
+      createBranch: async () => ({ ok: true, output: "" }),
       diff: async (_cwd, file) =>
         `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-old UI\n+shadcn Base UI\n`,
       status: async () => " M src/components/ChatView.tsx\n M src/index.css",
@@ -46,12 +47,16 @@ export function installWebPreviewApi() {
           id: "claude-sonnet-4",
           name: "Claude Sonnet 4",
           provider: "anthropic",
+          reasoning: true,
+          thinkingLevels: ["off", "low", "medium", "high", "max"],
         },
         {
           enabled: false,
           id: "gpt-5.5",
           name: "GPT-5.5",
           provider: "openai-codex",
+          reasoning: true,
+          thinkingLevels: ["off", "low", "medium", "high", "xhigh"],
         },
       ],
       setEnabled: async () => [],
@@ -180,6 +185,7 @@ export function installWebPreviewApi() {
           cost: 3.42,
           input: 125_400,
           output: 31_200,
+          savings: 0.86,
         },
       }),
     },

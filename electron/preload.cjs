@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("omo", {
   },
   git: {
     branches: (cwd) => ipcRenderer.invoke("git:branches", cwd),
+    createBranch: (cwd, name) =>
+      ipcRenderer.invoke("git:create-branch", { cwd, name }),
     diff: (cwd, file) => ipcRenderer.invoke("git:diff", { cwd, file }),
     status: (cwd) => ipcRenderer.invoke("git:status", cwd),
   },

@@ -147,6 +147,7 @@ function watchSessionFile(sessionId, filePath) {
 }
 
 // ---------- git ----------
+const gitErrorPrefix = /^(fatal|error)/i;
 const git = (args, cwd) =>
   new Promise((resolve) =>
     execFile(
@@ -178,7 +179,7 @@ function createWindow() {
     backgroundColor: "#0a0a0a",
     height: 900,
     titleBarOverlay: {
-      color: "#0a0a0a",
+      color: "#0e0e0e",
       height: 40,
       symbolColor: "#a3a3a3",
     },
@@ -556,6 +557,11 @@ function createWindow() {
   ipcMain.handle("git:diff", (_e, { cwd, file }) =>
     git(["diff", "HEAD", "--", file], cwd)
   );
+  ipcMain.handle("git:create-branch", async (_e, { cwd, name }) => {
+    const output = String(await git(["checkout", "-b", name], cwd));
+    return { ok: !gitErrorPrefix.test(output), output };
+  });
+
   ipcMain.handle("git:branches", async (_e, cwd) => {
     const output = await git(
       ["branch", "--format=%(refname:short)|%(HEAD)"],

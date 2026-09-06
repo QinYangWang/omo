@@ -190,10 +190,19 @@ class PiService {
   }
 
   async models() {
+    const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
     return (await (await this.runtime()).getAvailable()).map((model) => ({
       id: model.id,
       name: model.name || model.id,
       provider: model.provider,
+      reasoning: !!model.reasoning,
+      // thinkingLevelMap: missing key = provider default, null = unsupported
+      thinkingLevels: model.reasoning
+        ? levels.filter(
+            (level) =>
+              level === "off" || model.thinkingLevelMap?.[level] !== null
+          )
+        : ["off"],
     }));
   }
 

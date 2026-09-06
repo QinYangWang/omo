@@ -60,6 +60,8 @@ interface AgentModelInfo {
   id: string;
   name: string;
   provider: string;
+  reasoning: boolean;
+  thinkingLevels: string[];
 }
 interface AgentPackageInfo {
   installedVersion?: string;
@@ -154,6 +156,10 @@ interface omoApi {
     status: (cwd: string) => Promise<string>;
     diff: (cwd: string, file: string) => Promise<string>;
     branches: (cwd: string) => Promise<{ name: string; current: boolean }[]>;
+    createBranch: (
+      cwd: string,
+      name: string
+    ) => Promise<{ ok: boolean; output: string }>;
   };
   models: {
     list: () => Promise<AgentModelInfo[]>;
@@ -255,6 +261,7 @@ interface omoApi {
         cacheRead: number;
         cacheWrite: number;
         cost: number;
+        savings: number;
       };
       providers: {
         provider: string;

@@ -116,6 +116,8 @@ async function readProjects() {
 async function writeProjects(projects) {
   await fs.writeFile(projectsFile, JSON.stringify(projects, null, 2));
 }
+const gitErrorPrefix = /^(fatal|error)/i;
+
 function git(args, cwd) {
   return new Promise((resolve) =>
     execFile(
@@ -388,6 +390,16 @@ async function gitRoutes(req, res, url) {
         cwd
       ),
     });
+    return true;
+  }
+  if (route(req, url, "POST", "/api/v1/git/branch")) {
+    const input = await body(req);
+    const cwd = await workspace.resolveExisting(input.cwd);
+    const output = String(
+      await git(["checkout", "-b", String(input.name ?? "")], cwd)
+    );
+    const failed = gitErrorPrefix.test(output);
+    json(res, failed ? 400 : 200, { ok: !failed, output });
     return true;
   }
   if (route(req, url, "GET", "/api/v1/git/branches")) {

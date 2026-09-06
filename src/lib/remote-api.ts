@@ -272,6 +272,11 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     },
     git: {
       branches: (cwd) => request(`/git/branches?${query({ cwd })}`),
+      createBranch: (cwd, name) =>
+        request<{ ok: boolean; output: string }>("/git/branch", {
+          body: JSON.stringify({ cwd, name }),
+          method: "POST",
+        }),
       diff: async (cwd, file) =>
         (await request<{ output: string }>(`/git/diff?${query({ cwd, file })}`))
           .output,

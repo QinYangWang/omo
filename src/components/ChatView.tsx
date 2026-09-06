@@ -35,6 +35,13 @@ import { ImagePreviews, TurnCard } from "@/components/chat/turn-card";
 import { ProviderIcon } from "@/components/provider-icon";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -65,7 +72,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
@@ -488,9 +494,7 @@ export function ChatView({
   const [branches, setBranches] = useState<
     { name: string; current: boolean }[]
   >([]);
-  const [models, setModels] = useState<
-    { id: string; provider: string; name: string }[]
-  >([]);
+  const [models, setModels] = useState<AgentModelInfo[]>([]);
   const [model, setModel] = useState("");
   const [thinking, setThinking] = useState("max");
   const [text, setText] = useState("");
@@ -675,12 +679,19 @@ export function ChatView({
       .catch(() => undefined);
   }, [api]);
 
+  const reloadBranches = useCallback(async () => {
+    if (!sessionCwd) {
+      return;
+    }
+    setBranches(await api.git.branches(sessionCwd));
+  }, [api, sessionCwd]);
+
   useEffect(() => {
     if (!sessionCwd) {
       return setBranches([]);
     }
-    api.git.branches(sessionCwd).then(setBranches);
-  }, [api, sessionCwd]);
+    reloadBranches();
+  }, [reloadBranches, sessionCwd]);
 
   useEffect(() => {
     let active = true;
@@ -940,6 +951,7 @@ export function ChatView({
       }}
       onAddProject={onRequestAddProject}
       onAttachImages={addImageFiles}
+      onBranchesReload={reloadBranches}
       onChangeMode={(value) => setMode(value as "local" | "worktree")}
       onChangeModel={(value) => {
         setModel(value);
@@ -995,23 +1007,25 @@ export function ChatView({
       );
     }
     return (
-      <div className="flex h-full flex-col overflow-hidden">
-        <Empty className="min-h-0 p-8">
-          <EmptyHeader>
-            <EmptyMedia>
+      <div className="flex h-full flex-col justify-center overflow-y-auto px-4 pb-10">
+        <Empty className="flex-none gap-6 px-0 pt-8 pb-7">
+          <EmptyHeader className="max-w-lg gap-3">
+            <EmptyMedia className="mb-3 size-10 rounded-lg border border-border/60 bg-muted/50">
               <HugeiconsIcon
-                className="size-7"
+                className="size-5"
                 icon={SparklesIcon}
                 strokeWidth={1.6}
               />
             </EmptyMedia>
-            <EmptyTitle>{session.title || t("new_task")}</EmptyTitle>
+            <EmptyTitle className="text-2xl tracking-tight">
+              {t("task_welcome")}
+            </EmptyTitle>
             <EmptyDescription>
               {t("working_in_project", { name: session.project })}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
-        <div className="mx-auto w-full max-w-3xl p-4">{input}</div>
+        <div className="w-full">{input}</div>
       </div>
     );
   }
@@ -1048,7 +1062,7 @@ export function ChatView({
           onJump={jumpTo}
         />
       </div>
-      <div className="mx-auto w-full max-w-3xl p-4">{input}</div>
+      <div className="w-full px-4 pt-2 pb-3">{input}</div>
     </div>
   );
 }
@@ -1066,23 +1080,32 @@ function NewTaskEmpty({
   const visibleProjects = projects.slice(0, EMPTY_PROJECT_LIMIT);
 
   return (
-    <Empty className="h-full rounded-none p-6">
-      <EmptyHeader>
-        <EmptyMedia>
-          <HugeiconsIcon className="size-6" icon={Folder01Icon} />
+    <Empty className="h-full gap-5 overflow-y-auto rounded-none px-4 pt-8 pb-10">
+      <EmptyHeader className="max-w-lg gap-3">
+        <EmptyMedia className="mb-2 size-10 rounded-lg border border-border/60 bg-muted/50">
+          <HugeiconsIcon
+            className="size-5"
+            icon={SparklesIcon}
+            strokeWidth={1.6}
+          />
         </EmptyMedia>
-        <EmptyTitle>{t("choose_project_start")}</EmptyTitle>
+        <EmptyTitle className="text-2xl tracking-tight">
+          {t("task_welcome")}
+        </EmptyTitle>
         <EmptyDescription>{t("choose_project_desc")}</EmptyDescription>
       </EmptyHeader>
-      <EmptyContent className="w-full max-w-sm gap-1">
+      <EmptyContent className="w-full gap-1.5">
+        <p className="w-full px-1 pb-1 text-left text-muted-foreground text-xs">
+          {t("choose_project_start")}
+        </p>
         {visibleProjects.map((project) => (
           <Button
-            className="h-auto w-full justify-between px-3 py-2 text-left"
+            className="group h-auto w-full justify-start rounded-md px-3 py-2 text-left hover:bg-accent"
             key={project.id}
             onClick={() => onSelectProject(project)}
             variant="ghost"
           >
-            <span className="flex min-w-0 items-center gap-3">
+            <span className="flex min-w-0 items-center gap-2.5">
               <HugeiconsIcon data-icon="inline-start" icon={Folder01Icon} />
               <span className="min-w-0">
                 <span className="block truncate font-medium text-sm">
@@ -1093,13 +1116,12 @@ function NewTaskEmpty({
                 </span>
               </span>
             </span>
-            <HugeiconsIcon data-icon="inline-end" icon={ArrowRight01Icon} />
           </Button>
         ))}
         <Button
-          className="mt-2 w-full"
+          className="mt-1 h-9 w-full rounded-md text-muted-foreground"
           onClick={onAddProject}
-          variant={projects.length ? "outline" : "default"}
+          variant={projects.length ? "ghost" : "default"}
         >
           <HugeiconsIcon data-icon="inline-start" icon={FolderAddIcon} />
           {t("add_project")}
@@ -1124,10 +1146,11 @@ interface PromptInputProps {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   mode: "local" | "worktree";
   model: string;
-  models: { id: string; name: string; provider: string }[];
+  models: AgentModelInfo[];
   onAbort: () => Promise<void>;
   onAddProject: () => void;
   onAttachImages: (files: File[]) => Promise<void>;
+  onBranchesReload: () => void;
   onChangeMode: (value: string) => void;
   onChangeModel: (value: string) => void;
   onChangeThinking: (value: string) => void;
@@ -1167,6 +1190,7 @@ function PromptInput({
   onChangeMode,
   onChangeModel,
   onChangeThinking,
+  onBranchesReload,
   onClearProject,
   onFileRemove,
   onImageRemove,
@@ -1184,6 +1208,43 @@ function PromptInput({
 }: PromptInputProps) {
   const { t } = useI18n();
   const imageInput = useRef<HTMLInputElement>(null);
+  const [branchDialog, setBranchDialog] = useState(false);
+  const [branchName, setBranchName] = useState("");
+  const [branchError, setBranchError] = useState("");
+  const selectedModel = models.find(
+    (item) => `${item.provider}/${item.id}` === model
+  );
+  const thinkingItems = [
+    { label: t("thinking_level_off"), value: "off" },
+    { label: t("thinking_level_minimal"), value: "minimal" },
+    { label: t("thinking_level_low"), value: "low" },
+    { label: t("thinking_level_medium"), value: "medium" },
+    { label: t("thinking_level_high"), value: "high" },
+    { label: t("thinking_level_extra_high"), value: "xhigh" },
+    { label: t("thinking_level_maximum"), value: "max" },
+  ].filter(
+    (item) =>
+      !selectedModel?.thinkingLevels ||
+      selectedModel.thinkingLevels.includes(item.value)
+  );
+  const createBranch = async () => {
+    const name = branchName.trim();
+    if (!(session && name)) {
+      return;
+    }
+    const result = await getServerApi(session.serverId).git.createBranch(
+      session.cwd,
+      name
+    );
+    if (!result.ok) {
+      setBranchError(result.output.trim());
+      return;
+    }
+    setBranchDialog(false);
+    setBranchName("");
+    setBranchError("");
+    onBranchesReload();
+  };
   const canSubmit = Boolean(
     streaming || text.trim() || images.length || fileAttachments.length
   );
@@ -1213,19 +1274,30 @@ function PromptInput({
         <CompactSelect
           icon={<HugeiconsIcon className="size-3.5" icon={MonitorIcon} />}
           items={[
-            { label: t("local"), value: "local" },
-            { label: t("worktree"), value: "worktree" },
+            {
+              icon: <HugeiconsIcon className="size-3.5" icon={MonitorIcon} />,
+              label: t("local"),
+              value: "local",
+            },
+            {
+              icon: <HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />,
+              label: t("worktree"),
+              value: "worktree",
+            },
           ]}
           onChange={onChangeMode}
           value={mode}
         />
         <CompactSelect
+          addLabel={t("new_branch")}
           disabled={!branches.length}
           icon={<HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />}
           items={branches.map((branch) => ({
+            icon: <HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />,
             label: branch.name,
             value: branch.name,
           }))}
+          onAdd={() => setBranchDialog(true)}
           onChange={noop}
           placeholder={t("no_branch")}
           value={branches.find((branch) => branch.current)?.name ?? ""}
@@ -1298,7 +1370,7 @@ function PromptInput({
                 />
                 {fileAttachments.map((file) => (
                   <Button
-                    className="group h-[22px] max-w-full rounded-full px-2 text-xs"
+                    className="group h-7 max-w-full rounded-full px-2 text-xs"
                     key={file.id}
                     onClick={() => onFileRemove(file)}
                     title={file.path}
@@ -1368,15 +1440,7 @@ function PromptInput({
                 appearance="composer"
                 contentLabel={t("reasoning")}
                 icon={<HugeiconsIcon icon={AiBrain01Icon} />}
-                items={[
-                  { label: t("thinking_level_off"), value: "off" },
-                  { label: t("thinking_level_minimal"), value: "minimal" },
-                  { label: t("thinking_level_low"), value: "low" },
-                  { label: t("thinking_level_medium"), value: "medium" },
-                  { label: t("thinking_level_high"), value: "high" },
-                  { label: t("thinking_level_extra_high"), value: "xhigh" },
-                  { label: t("thinking_level_maximum"), value: "max" },
-                ]}
+                items={thinkingItems}
                 onChange={onChangeThinking}
                 value={thinking}
               />
@@ -1403,6 +1467,37 @@ function PromptInput({
           </p>
         ) : null}
       </div>
+      <Dialog onOpenChange={setBranchDialog} open={branchDialog}>
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle>{t("new_branch")}</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              createBranch();
+            }}
+          >
+            <Input
+              aria-label={t("branch_name")}
+              autoFocus
+              onChange={(event) => setBranchName(event.target.value)}
+              placeholder={t("branch_name")}
+              value={branchName}
+            />
+            {branchError ? (
+              <p className="mt-2 text-destructive text-xs" role="alert">
+                {branchError}
+              </p>
+            ) : null}
+            <DialogFooter className="mt-4">
+              <Button disabled={!branchName.trim()} size="sm" type="submit">
+                {t("create")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1852,11 +1947,12 @@ function ModelSelect({
       >
         <div className="flex max-h-[min(17.5rem,47vh)] flex-col">
           <div className="shrink-0 p-[3px] pb-0">
-            <InputGroup className="h-8 rounded-[7px] border-0 bg-muted shadow-none">
+            <InputGroup className="h-8 rounded-[7px] border-0 bg-transparent shadow-none has-[[data-slot=input-group-control]:focus-visible]:border-0 has-[[data-slot=input-group-control]:focus-visible]:ring-0">
               <InputGroupAddon>
                 <HugeiconsIcon icon={Search01Icon} />
               </InputGroupAddon>
               <InputGroupInput
+                className="text-xs"
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => event.stopPropagation()}
                 placeholder={t("search_models")}
@@ -1864,7 +1960,6 @@ function ModelSelect({
               />
             </InputGroup>
           </div>
-          <Separator className="my-[3px]" />
           <div className="min-h-0 overflow-y-auto px-[3px] pb-[3px]">
             {filteredGroups.map((provider, index) => (
               <SelectGroup className="scroll-my-0 p-0" key={provider}>
@@ -1930,15 +2025,19 @@ function CompactSelect({
   disabled,
   appearance = "context",
   contentLabel,
+  addLabel,
+  onAdd,
   onChange,
 }: {
-  items: { value: string; label: string }[];
+  items: { value: string; label: string; icon?: React.ReactNode }[];
   value: string;
   placeholder?: string;
   icon?: React.ReactNode;
   disabled?: boolean;
   appearance?: "context" | "composer";
   contentLabel?: string;
+  addLabel?: string;
+  onAdd?: () => void;
   onChange: (value: string) => void;
 }) {
   const selectedLabel = items.find((item) => item.value === value)?.label;
@@ -1973,7 +2072,7 @@ function CompactSelect({
         </AiAgentInputSelectTrigger>
       ) : (
         <SelectTrigger
-          className="h-6 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1 rounded-[7px] border-0 bg-transparent px-1.5 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
+          className="h-6 min-h-0 w-fit min-w-0 max-w-none items-center justify-start gap-1.5 rounded-[7px] border-0 bg-transparent px-1.5 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
           hideIcon
         >
           {triggerContent}
@@ -1986,7 +2085,7 @@ function CompactSelect({
             ? "min-w-40 rounded-[10px] p-[3px]"
             : "min-w-44 p-1"
         )}
-        side={appearance === "composer" ? "top" : "bottom"}
+        side="top"
         sideOffset={6}
       >
         <SelectGroup>
@@ -1997,10 +2096,27 @@ function CompactSelect({
               key={item.value}
               value={item}
             >
-              {item.label}
+              <span className="flex min-w-0 items-center gap-1.5">
+                {item.icon}
+                <span className="truncate">{item.label}</span>
+              </span>
             </SelectItem>
           ))}
         </SelectGroup>
+        {onAdd ? (
+          <>
+            <SelectSeparator className="mx-1 my-0.5" />
+            <Button
+              className="h-7 w-full justify-start gap-1.5 rounded-md px-2 font-normal text-muted-foreground text-xs hover:text-foreground"
+              onClick={onAdd}
+              type="button"
+              variant="ghost"
+            >
+              <HugeiconsIcon className="size-3.5" icon={Add01Icon} />
+              {addLabel}
+            </Button>
+          </>
+        ) : null}
       </SelectContent>
     </Select>
   );
