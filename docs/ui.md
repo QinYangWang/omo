@@ -92,7 +92,7 @@ Prompt 输入框基于 AICSS `AI Agent Input` registry 原版视觉重构为受�
 
 Prompt 输入框保留图片粘贴、`@` 文件补全和 `/` 命令补全；AICSS 原版“＋”菜单提供图片选择与工作区文件入口，工作区文件入口通过插入 `@` 复用真实补全流程。`@` 与 `/` 补全窗使用和输入框一致的 AICSS 弹层语言：不透明 `popover` 背景、10px 外圆角、7px 选项圆角、3px 内边距、紧凑行高与低对比层叠阴影，同时保留方向键、Enter/Tab 和 Esc 键盘行为。命令项只展示 `/命令名`，不显示前置斜杠图标；命令说明通过 hover 或键盘聚焦 Tooltip 展示。`InputGroupTextarea` 必须先于 block addon 出现在 DOM 中，以保持 shadcn 的焦点管理与键盘语义。
 
-模型按 Provider 分组；Provider 标题可点击展开或收起。模型选择弹层使用不透明 `popover` 背景，宽度限制为 `min(14.375rem, 视口可用宽度)`，相较上一版增加 25%，最大高度不超过 `min(17.5rem, 47vh)`；默认展开当前模型所属 Provider，搜索时展开匹配分组。外框使用 10px 圆角，搜索框按 3px inset 使用同心的 7px 圆角。搜索框固定在弹层顶部，通过分割线与 Provider 列表分区，只有搜索框下方的 Provider 与模型列表滚动；关闭或完成选择后清空搜索。模型行不重复显示 Provider 图标，Provider 标题负责表达分组归属；超长模型名显示省略号，并通过原生 `title` 在 hover 时展示完整名称。Trigger 始终显示会话当前生效的模型（来自 `pi.open` 返回的会话模型）：当该模型不在已启用列表中时，选择器合成一个兜底条目如实显示，而不是回落到占位符；Provider 图标以 14px 品牌色底块显示在模型名前。
+模型按 Provider 分组；Provider 标题可点击展开或收起。切换模型时若当前思考强度超出新模型的 `thinkingLevels` 支持范围，自动降为该模型支持的最高档位（并同步 `pi.setThinking`），避免选择器丢选中。模型选择弹层使用不透明 `popover` 背景，宽度限制为 `min(14.375rem, 视口可用宽度)`，相较上一版增加 25%，最大高度不超过 `min(17.5rem, 47vh)`；默认展开当前模型所属 Provider，搜索时展开匹配分组。外框使用 10px 圆角，搜索框按 3px inset 使用同心的 7px 圆角。搜索框固定在弹层顶部，通过分割线与 Provider 列表分区，只有搜索框下方的 Provider 与模型列表滚动；关闭或完成选择后清空搜索。模型行不重复显示 Provider 图标，Provider 标题负责表达分组归属；超长模型名显示省略号，并通过原生 `title` 在 hover 时展示完整名称。Trigger 始终显示会话当前生效的模型（来自 `pi.open` 返回的会话模型）：当该模型不在已启用列表中时，选择器合成一个兜底条目如实显示，而不是回落到占位符；Provider 图标以 14px 品牌色底块显示在模型名前。
 
 Prompt 输入框整体宽度与消息正文一致（`mx-auto max-w-3xl`），不铺满整列；上下文行的 Project 选择器与其他胶囊控件一样向上展开。侧栏会话行的标题必须显式 `text-left`：行容器是原生 `<button>`，UA 默认 `text-align: center` 会让短标题居中错位。
 

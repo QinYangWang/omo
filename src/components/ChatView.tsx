@@ -135,6 +135,17 @@ interface SlashCommand {
 }
 
 const EMPTY_PROJECT_LIMIT = 5;
+// Thinking levels in ascending effort order; also used to clamp the level
+// when switching to a model that supports fewer levels.
+const THINKING_LEVELS = [
+  { key: "thinking_level_off", value: "off" },
+  { key: "thinking_level_minimal", value: "minimal" },
+  { key: "thinking_level_low", value: "low" },
+  { key: "thinking_level_medium", value: "medium" },
+  { key: "thinking_level_high", value: "high" },
+  { key: "thinking_level_extra_high", value: "xhigh" },
+  { key: "thinking_level_maximum", value: "max" },
+] as const;
 type ReplaceCompletion = (
   replacement: string,
   nextCursor: number,
@@ -987,6 +998,20 @@ export function ChatView({
         if (session && selected) {
           api.pi.setModel(key, selected.provider, selected.id);
         }
+        // Clamp the thinking level to the new model's supported levels,
+        // otherwise the selector loses its selection until re-picked.
+        const levels = selected?.thinkingLevels;
+        if (levels?.length && !levels.includes(thinking)) {
+          const fallback = THINKING_LEVELS.filter((level) =>
+            levels.includes(level.value)
+          ).at(-1)?.value;
+          if (fallback) {
+            setThinking(fallback);
+            if (session) {
+              api.pi.setThinking(key, fallback);
+            }
+          }
+        }
       }}
       onChangeThinking={(value) => {
         setThinking(value);
@@ -1243,15 +1268,10 @@ function PromptInput({
   const selectedModel = models.find(
     (item) => `${item.provider}/${item.id}` === model
   );
-  const thinkingItems = [
-    { label: t("thinking_level_off"), value: "off" },
-    { label: t("thinking_level_minimal"), value: "minimal" },
-    { label: t("thinking_level_low"), value: "low" },
-    { label: t("thinking_level_medium"), value: "medium" },
-    { label: t("thinking_level_high"), value: "high" },
-    { label: t("thinking_level_extra_high"), value: "xhigh" },
-    { label: t("thinking_level_maximum"), value: "max" },
-  ].filter(
+  const thinkingItems = THINKING_LEVELS.map((level) => ({
+    label: t(level.key),
+    value: level.value,
+  })).filter(
     (item) =>
       !selectedModel?.thinkingLevels ||
       selectedModel.thinkingLevels.includes(item.value)

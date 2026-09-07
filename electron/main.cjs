@@ -36,6 +36,12 @@ let modelRuntimePromise;
 const historyPages = new Map();
 const authPrompts = new Map();
 const nativeTitleBarPlatforms = new Set(["win32", "linux"]);
+// The page header is 40px tall. Windows can paint the caption button strip
+// 1px past the requested overlay height when the window is not maximized
+// (and omitting height in setTitleBarOverlay resets it to the system
+// default), so keep the overlay 1px short and pass it on every update to
+// keep the content pane's top divider visible under the window controls.
+const TITLEBAR_OVERLAY_HEIGHT = 39;
 const imageMime = {
   ".bmp": "image/bmp",
   ".gif": "image/gif",
@@ -171,7 +177,11 @@ ipcMain.on("window:set-title-bar-overlay", (_event, options) => {
   if (!(hexColor.test(color) && hexColor.test(symbolColor))) {
     return;
   }
-  win.setTitleBarOverlay({ color, symbolColor });
+  win.setTitleBarOverlay({
+    color,
+    height: TITLEBAR_OVERLAY_HEIGHT,
+    symbolColor,
+  });
 });
 
 function createWindow() {
@@ -180,7 +190,7 @@ function createWindow() {
     height: 900,
     titleBarOverlay: {
       color: "#0e0e0e",
-      height: 40,
+      height: TITLEBAR_OVERLAY_HEIGHT,
       symbolColor: "#a3a3a3",
     },
     titleBarStyle: "hidden",
