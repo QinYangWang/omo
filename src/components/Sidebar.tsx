@@ -112,7 +112,10 @@ export function Sidebar({
       return;
     }
     const shrink = Number(title.dataset.shrink ?? 0);
-    const overflow = title.scrollWidth - title.clientWidth + shrink;
+    const visible = title.scrollWidth - title.clientWidth;
+    // Only compensate for the hover action buttons (shrink) when the title
+    // actually overflows, otherwise fitting titles would scroll needlessly.
+    const overflow = visible > 0 ? visible + shrink : 0;
     title.style.setProperty("--marquee-dist", `${-Math.max(0, overflow)}px`);
   };
 
@@ -143,16 +146,6 @@ export function Sidebar({
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-1 px-3 pb-4">
-          {projects.length === 0 && (
-            <Button
-              className="h-auto w-full flex-col items-start gap-2 rounded-md px-2 py-3 font-normal text-muted-foreground text-sm"
-              onClick={onRequestAddProject}
-              variant="ghost"
-            >
-              <HugeiconsIcon className="size-4" icon={Folder01Icon} />{" "}
-              {t("add_project")}
-            </Button>
-          )}
           {projects.map((project) => {
             const decorated = (sessions[project.id] ?? []).flatMap(
               (session, index) => {
@@ -248,7 +241,7 @@ export function Sidebar({
                         return (
                           <Button
                             className={cn(
-                              "group relative h-9 w-full justify-start rounded-lg py-2 font-normal text-[13px] text-muted-foreground hover:text-foreground",
+                              "group relative h-9 w-full justify-start rounded-lg py-2 text-left font-normal text-[13px] text-muted-foreground hover:text-foreground",
                               pinned ? "pr-2 pl-2" : "pr-2 pl-8",
                               isActive && "bg-accent text-foreground"
                             )}
@@ -419,7 +412,7 @@ export function Sidebar({
             <div className="space-y-1 pr-2">
               {projectSessions.map((session) => (
                 <Button
-                  className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 font-normal"
+                  className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 text-left font-normal"
                   key={session.path}
                   onClick={async () => {
                     if (!importProject) {

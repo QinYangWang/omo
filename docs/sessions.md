@@ -20,6 +20,10 @@ Electron 本地模式不在 omo Server 的实时同步范围内。它使用 Elec
 
 反向同步（omo → TUI）取决于 Pi TUI 自身是否监听文件。
 
+## Draft 会话落盘
+
+新建会话先以无 `sessionPath` 的 draft 形式存在，Pi 在首次 prompt 时才创建 Session JSONL。`pi.prompt` 会立即返回 `{ sessionFile, sessionId }`（不等待 Agent 完成）：客户端据此把 draft 绑定到真实文件——标题栏显示首条用户消息，侧栏高亮进入该会话行。由于 JSONL 通常要等首条 assistant 消息才写入磁盘（可能延迟数秒），客户端每秒轮询 `sessions.list` 直到新会话出现在列表中（上限 15 次）。
+
 ## 本地生命周期
 
 Electron 本地模式在 `electron/main.cjs` 中通过 `createAgentSession` 创建 Session。已创建的 Session 保存在主进程的 Map 中，同一个 client Session ID 复用同一个 `AgentSession`。

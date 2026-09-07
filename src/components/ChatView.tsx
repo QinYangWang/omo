@@ -135,7 +135,6 @@ interface SlashCommand {
 }
 
 const EMPTY_PROJECT_LIMIT = 5;
-const OUTLINE_MAX_VISIBLE = 24;
 type ReplaceCompletion = (
   replacement: string,
   nextCursor: number,
@@ -162,10 +161,6 @@ const filePattern = /(?:^|\s)@([^\s]*)$/;
 const lunaPattern = /luna/i;
 const noop = () => undefined;
 
-const imageSource = (image: ImageContent) =>
-  image.data.startsWith("data:")
-    ? image.data
-    : `data:${image.mimeType};base64,${image.data}`;
 const joinWorkspacePath = (cwd: string, relative: string) =>
   `${cwd.replace(trailingSlashes, "")}/${relative.replace(leadingSlashes, "")}`;
 const fileMimeType = (name: string) =>
@@ -467,18 +462,59 @@ function scrollToTurn(
   return true;
 }
 
+interface SessionBinding {
+  key: string;
+  path: string;
+  projectId: string;
+  title: string;
+}
+
+async function sendPrompt(
+  api: omoApi,
+  key: string,
+  session: ActiveSession,
+  prepared: { text: string; images: ImageContent[] },
+  title: string,
+  onSessionBound: (binding: SessionBinding) => void
+) {
+  const promptImages = prepared.images.map(({ type, data, mimeType }) => ({
+    data,
+    mimeType,
+    type,
+  }));
+  const result = await api.pi.prompt(
+    key,
+    prepared.text,
+    session.cwd,
+    session.path,
+    promptImages
+  );
+  // A draft session gets its JSONL file on the first prompt; bind the
+  // path so the sidebar lists it and the header shows its title.
+  if (!session.path && result?.sessionFile) {
+    onSessionBound({
+      key,
+      path: result.sessionFile,
+      projectId: session.projectId,
+      title,
+    });
+  }
+}
+
 export function ChatView({
   session,
   projects,
   onSelectProject,
   onRequestAddProject,
   onClearProject,
+  onSessionBound,
 }: {
   session: ActiveSession | null;
   projects: Project[];
   onSelectProject: (project: Project) => void;
   onRequestAddProject: () => void;
   onClearProject: () => void;
+  onSessionBound: (binding: SessionBinding) => void;
 }) {
   const { t } = useI18n();
   const api = getServerApi(session?.serverId);
@@ -518,7 +554,7 @@ export function ChatView({
   keyRef.current = key;
   const sessionPathRef = useRef(sessionPath);
   sessionPathRef.current = sessionPath;
-  const streamingRef = useRef(false);
+  const streamingRef = useRef<boolean>(false);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined
   );
@@ -786,6 +822,7 @@ export function ChatView({
       if (event.type === "omo_session_file") {
         // Session JSONL changed on disk (e.g. the same session is active in
         // the pi TUI). Debounce and re-read the tail from disk.
+        // biome-ignore lint/suspicious/noUnnecessaryConditions: streamingRef is mutated by another effect, biome's type inference cannot track it
         if (streamingRef.current) {
           return;
         }
@@ -908,19 +945,8 @@ export function ChatView({
     setCompletion(null);
     setStreaming(true);
     if (session) {
-      const promptImages = prepared.images.map(({ type, data, mimeType }) => ({
-        data,
-        mimeType,
-        type,
-      }));
       try {
-        await api.pi.prompt(
-          key,
-          prepared.text,
-          session.cwd,
-          session.path,
-          promptImages
-        );
+        await sendPrompt(api, key, session, prepared, value, onSessionBound);
       } catch (error) {
         setInputError(error instanceof Error ? error.message : String(error));
       }
@@ -1025,7 +1051,7 @@ export function ChatView({
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
-        <div className="w-full">{input}</div>
+        <div className="mx-auto w-full max-w-3xl">{input}</div>
       </div>
     );
   }
@@ -1062,7 +1088,7 @@ export function ChatView({
           onJump={jumpTo}
         />
       </div>
-      <div className="w-full px-4 pt-2 pb-3">{input}</div>
+      <div className="mx-auto w-full max-w-3xl px-4 pt-2 pb-3">{input}</div>
     </div>
   );
 }
@@ -1119,7 +1145,10 @@ function NewTaskEmpty({
           </Button>
         ))}
         <Button
-          className="mt-1 h-9 w-full rounded-md text-muted-foreground"
+          className={cn(
+            "mt-1 h-9 w-full rounded-md",
+            projects.length > 0 && "text-muted-foreground"
+          )}
           onClick={onAddProject}
           variant={projects.length ? "ghost" : "default"}
         >
@@ -1826,6 +1855,7 @@ function ProjectSelect({
       <SelectContent
         alignItemWithTrigger={false}
         className="min-w-56 p-1"
+        side="top"
         sideOffset={6}
       >
         {projectItems.map((item) => (
@@ -1886,7 +1916,25 @@ function ModelSelect({
     label: item.name,
     value: `${item.provider}/${item.id}`,
   }));
-  const selected = modelItems.find((item) => item.value === value);
+  // The session's active model (from pi) may not be in the enabled list;
+  // synthesize an entry so the trigger shows the real model instead of the
+  // placeholder.
+  const selected =
+    modelItems.find((item) => item.value === value) ??
+    (value
+      ? (() => {
+          const slash = value.indexOf("/");
+          const provider = slash > 0 ? value.slice(0, slash) : value;
+          const id = slash > 0 ? value.slice(slash + 1) : value;
+          return {
+            id,
+            label: id,
+            name: id,
+            provider,
+            value,
+          };
+        })()
+      : undefined);
   const groups = [...new Set(modelItems.map((item) => item.provider))];
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(selected ? [selected.provider] : groups)

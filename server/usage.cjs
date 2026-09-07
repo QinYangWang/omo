@@ -39,11 +39,12 @@ function addUsage(record, totals, providers) {
   totals.cost += cost;
   // Cache savings = cache-read tokens billed at the model's full input price
   // minus the actual (discounted) cache-read cost recorded by pi.
-  const inputPrice = useOverride
-    ? rate.input / 1e6
-    : input > 0
-      ? Number(usage.cost?.input || 0) / input
-      : 0;
+  let inputPrice = 0;
+  if (useOverride) {
+    inputPrice = rate.input / 1e6;
+  } else if (input > 0) {
+    inputPrice = Number(usage.cost?.input || 0) / input;
+  }
   const cacheReadCost = useOverride
     ? (cacheRead * rate.cacheRead) / 1e6
     : Number(usage.cost?.cacheRead || 0);

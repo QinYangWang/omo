@@ -335,7 +335,10 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
         return result;
       },
       prompt: async (sessionId, message, cwd, sessionPath, images) => {
-        await post("/pi/prompt", {
+        const result = await post<{
+          sessionFile?: string;
+          sessionId?: string;
+        }>("/pi/prompt", {
           cwd,
           images,
           message,
@@ -343,6 +346,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
           sessionId,
           sessionPath,
         });
+        return result;
       },
       setModel: async (sessionId, provider, modelId) => {
         await post("/pi/model", { modelId, provider, sessionId });

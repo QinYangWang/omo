@@ -17,12 +17,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
-import {
-  formatReset,
-  ProvidersSection,
-  quotaColor,
-  useQuotas,
-} from "@/components/ProvidersSection";
+import { ProvidersSection } from "@/components/ProvidersSection";
 import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,11 +35,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Progress,
-  ProgressIndicator,
-  ProgressTrack,
-} from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -1113,7 +1103,6 @@ function ServerUsageCard({
 }) {
   const { lang, t } = useI18n();
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
-  const { quotas: quotaItems, refresh: refreshQuotas } = useQuotas(server.id);
   const offline = status?.state === "offline";
   useEffect(() => {
     if (offline) {
@@ -1190,51 +1179,6 @@ function ServerUsageCard({
             </div>
           </div>
         ))}
-      </div>
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h3 className="font-medium text-sm">
-            {t("usage_subscription_quota")}
-          </h3>
-          <Button onClick={() => refreshQuotas(true)} size="sm" variant="ghost">
-            {t("refresh")}
-          </Button>
-        </div>
-        {quotaItems.filter((q) => q.success && q.windows.length).length ===
-        0 ? (
-          <div className="text-muted-foreground text-sm">
-            {t("usage_no_quota")}
-          </div>
-        ) : (
-          quotaItems
-            .filter((q) => q.success && q.windows.length)
-            .map((q) => (
-              <div
-                className="flex flex-col gap-1 border-border border-b py-2 last:border-0"
-                key={q.provider}
-              >
-                <span className="text-sm">{q.label}</span>
-                {q.windows.map((w) => (
-                  <div className="flex items-center gap-3" key={w.label}>
-                    <span className="w-28 truncate text-muted-foreground text-xs">
-                      {w.label}
-                    </span>
-                    <Progress className="flex-1" value={w.usedPercent}>
-                      <ProgressTrack className="h-1.5 bg-accent">
-                        <ProgressIndicator
-                          className={quotaColor(w.usedPercent)}
-                        />
-                      </ProgressTrack>
-                    </Progress>
-                    <span className="w-32 text-right text-muted-foreground text-xs">
-                      {Math.round(w.usedPercent)}% {t("usage_used")} ·{" "}
-                      {formatReset(w.resetsAt, lang)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))
-        )}
       </div>
       <div className="flex flex-col gap-2">
         <h3 className="font-medium text-sm">{t("usage_by_model")}</h3>

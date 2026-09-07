@@ -44,7 +44,9 @@ export function ImagePreviews({
               "rounded-md object-cover",
               compact ? "size-14" : "size-20"
             )}
+            height={compact ? 56 : 80}
             src={imageSource(image)}
+            width={compact ? 56 : 80}
           />
           {onRemove && image.id ? (
             <Button

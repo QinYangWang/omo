@@ -82,6 +82,7 @@
           return y === py + Number(dy) && x === px + Number(dx);
         });
 
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: self-contained splash animation ported from pi.dev install script
       const cellColor = (f, y, x) => {
         if (f.white) {
           return inCells(y, x, "3,2 3,3 3,4 4,2 4,4 5,2 5,3 5,5 6,2 6,5")
@@ -190,7 +191,7 @@
           return;
         }
         let t = Math.min(now - start, total - 1);
-        let current = frames[frames.length - 1];
+        let current = frames.at(-1);
         for (const f of frames) {
           if (t < f.d) {
             current = f;
@@ -200,8 +201,8 @@
         }
         ctx.fillStyle = bg;
         ctx.fillRect(0, 0, COLS * CELL, ROWS * CELL);
-        for (let y = 0; y < ROWS; y++) {
-          for (let x = 1; x <= COLS; x++) {
+        for (let y = 0; y < ROWS; y += 1) {
+          for (let x = 1; x <= COLS; x += 1) {
             const color = cellColor(current, y, x);
             if (!color) {
               continue;

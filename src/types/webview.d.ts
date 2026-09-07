@@ -79,6 +79,7 @@ interface QuotaWindow {
   resetsAt: string;
   usedPercent: number;
   usedValue: number;
+  windowSeconds?: number;
 }
 interface QuotaItem {
   error?: { message: string; kind: string };
@@ -220,7 +221,7 @@ interface omoApi {
       cwd?: string,
       sessionPath?: string,
       images?: PiImageContent[]
-    ) => Promise<void>;
+    ) => Promise<{ sessionFile?: string; sessionId?: string }>;
     abort: (sessionId: string) => Promise<void>;
     onEvent: (cb: (data: OmoPiEventEnvelope) => void) => () => void;
   };

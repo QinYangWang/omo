@@ -2,7 +2,9 @@
 
 ## Provider 管理
 
-Provider 由 Pi `ModelRuntime` 提供。列表包含：
+Provider 由 Pi `ModelRuntime` 提供。Provider 设置页分为两个 Tab：「添加提供商」管理连接（列表、OAuth / API Key 登录、登出），「配额与余额」展示订阅配额与支持余额查询接口的 Provider 余额。Provider 图标统一使用 `@lobehub/icons` 品牌图标（`src/components/provider-icon.tsx` 的 `ProviderIcon` / `ProviderAvatar`）：图标渲染在固定品牌色底块上（AVATAR_BACKGROUND），字形按官方 Avatar 策略选择 Color 变体或 Mono + AVATAR_COLOR，保证深浅主题下均清晰可见。
+
+列表包含：
 
 - Provider ID 与名称
 - 是否已连接
@@ -40,9 +42,11 @@ Electron 本地模式收到 OAuth URL 时通过系统浏览器打开。Server �
 
 结果覆盖 10 个订阅 Provider。`force=true` 绕过内置 TTL 缓存。
 
+配额在 Providers 页「配额与余额」Tab 按 Provider 分组展示：常规窗口显示进度条、已用百分比与重置时间；`isCurrency` 且有预算窗口的条目额外显示 `$已用 / $上限`；`isCurrency` 且无窗口期（`windowSeconds === 0`）的条目（如 OpenRouter Credits、Codex Credits）按余额直接展示金额。
+
 ## 用量
 
-Settings → Usage 支持中英文显示。订阅配额按返回的 quota window 各显示一条进度条；每条窗口不会额外渲染重复轨道。重置时间会按当前语言显示。
+Settings → Usage 支持中英文显示。订阅配额不在此展示，统一在 Providers 页「配额与余额」Tab。
 
 `server/usage.cjs` 和 Electron 本地模式扫描：
 

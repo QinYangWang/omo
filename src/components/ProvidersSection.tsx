@@ -1,6 +1,7 @@
-import { KeyRoundIcon } from "@hugeicons/core-free-icons";
+import { KeyRoundIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useState } from "react";
+import { ProviderAvatar } from "@/components/provider-icon";
 import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type { Lang } from "@/lib/i18n";
+import {
+  Progress,
+  ProgressIndicator,
+  ProgressTrack,
+} from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { type Lang, useI18n } from "@/lib/i18n";
 import { getServerApi } from "@/lib/servers";
 import { cn } from "@/lib/utils";
 
@@ -65,15 +72,124 @@ export function useQuotas(serverId?: string) {
 
 export function ProvidersSection() {
   const [serverId, setServerId] = useSelectedServer();
+  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-5">
       <ServerTabs onChange={setServerId} value={serverId} />
-      <ServerProviders key={serverId} serverId={serverId} />
+      <Tabs defaultValue="add" key={serverId}>
+        <TabsList>
+          <TabsTrigger value="add">{t("providers_add_tab")}</TabsTrigger>
+          <TabsTrigger value="quota">{t("providers_quota_tab")}</TabsTrigger>
+        </TabsList>
+        <TabsContent className="pt-5" value="add">
+          <ServerProviders serverId={serverId} />
+        </TabsContent>
+        <TabsContent className="pt-5" value="quota">
+          <ProviderQuotas serverId={serverId} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+const formatMoney = (value: number) =>
+  `$${value.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+
+/** Subscription quota windows and balance for providers with a balance API. */
+function ProviderQuotas({ serverId }: { serverId: string }) {
+  const { lang, t } = useI18n();
+  const { quotas, refresh } = useQuotas(serverId);
+  const [refreshing, setRefreshing] = useState(false);
+  const items = quotas.filter((q) => q.success && q.windows.length > 0);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <p className="text-muted-foreground text-sm">
+          {t("usage_subscription_quota")}
+        </p>
+        <Button
+          disabled={refreshing}
+          onClick={async () => {
+            setRefreshing(true);
+            try {
+              await refresh(true);
+            } finally {
+              setRefreshing(false);
+            }
+          }}
+          size="sm"
+          variant="ghost"
+        >
+          {refreshing ? (
+            <HugeiconsIcon
+              className="size-3.5 animate-spin"
+              icon={Loading03Icon}
+            />
+          ) : null}
+          {t("refresh")}
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <div className="py-6 text-center text-muted-foreground text-sm">
+          {t("usage_no_quota")}
+        </div>
+      ) : (
+        <div className="flex flex-col divide-y divide-border">
+          {items.map((item) => (
+            <div className="flex flex-col gap-2 py-3" key={item.provider}>
+              <div className="flex items-center gap-2.5">
+                <ProviderAvatar provider={item.provider} size={24} />
+                <span className="font-medium text-sm">{item.label}</span>
+              </div>
+              {item.windows.map((w) =>
+                w.isCurrency && w.windowSeconds === 0 ? (
+                  // Pure balance window (e.g. OpenRouter credits)
+                  <div
+                    className="flex items-center gap-3 pl-[34px]"
+                    key={w.label}
+                  >
+                    <span className="w-28 truncate text-muted-foreground text-xs">
+                      {w.label}
+                    </span>
+                    <span className="text-sm tabular-nums">
+                      {t("quota_balance")} {formatMoney(w.usedValue)}
+                    </span>
+                  </div>
+                ) : (
+                  <div
+                    className="flex items-center gap-3 pl-[34px]"
+                    key={w.label}
+                  >
+                    <span className="w-28 truncate text-muted-foreground text-xs">
+                      {w.label}
+                    </span>
+                    <Progress className="flex-1" value={w.usedPercent}>
+                      <ProgressTrack className="h-1.5 bg-accent">
+                        <ProgressIndicator
+                          className={quotaColor(w.usedPercent)}
+                        />
+                      </ProgressTrack>
+                    </Progress>
+                    <span className="w-44 text-right text-muted-foreground text-xs tabular-nums">
+                      {w.isCurrency
+                        ? `${formatMoney(w.usedValue)} / ${formatMoney(w.limitValue)} · `
+                        : ""}
+                      {Math.round(w.usedPercent)}% {t("usage_used")} ·{" "}
+                      {formatReset(w.resetsAt, lang)}
+                    </span>
+                  </div>
+                )
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 function ServerProviders({ serverId }: { serverId: string }) {
+  const { t } = useI18n();
   const api = getServerApi(serverId);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [query, setQuery] = useState("");
@@ -101,20 +217,28 @@ function ServerProviders({ serverId }: { serverId: string }) {
       }
       if (event.event.type === "device_code") {
         setMessage({
-          text: `Enter code ${event.event.userCode} in the opened browser`,
+          text: t("providers_device_code", {
+            code: event.event.userCode,
+          }),
         });
       }
     });
-  }, [refresh, api.providers.onAuthEvent]);
+  }, [refresh, api.providers.onAuthEvent, t]);
 
   const login = async (provider: ProviderInfo, type: "api_key" | "oauth") => {
     setBusy(provider.id);
     setMessage({
-      text: type === "oauth" ? "Opening browser…" : "Waiting for credentials…",
+      text: t(
+        type === "oauth"
+          ? "providers_opening_browser"
+          : "providers_waiting_credentials"
+      ),
     });
     try {
       await api.providers.login(provider.id, type);
-      setMessage({ text: `${provider.name} connected` });
+      setMessage({
+        text: t("providers_connected_msg", { name: provider.name }),
+      });
       await refresh();
     } catch (error) {
       setMessage({
@@ -148,15 +272,12 @@ function ServerProviders({ serverId }: { serverId: string }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h2 className="font-medium text-xl">Providers</h2>
-        <p className="mt-1 text-muted-foreground text-sm">
-          Authentication is managed by Pi and stored in ~/.pi/agent/auth.json.
-        </p>
-      </div>
+      <p className="text-muted-foreground text-sm">
+        {t("providers_auth_note")}
+      </p>
       <Input
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search01Icon providers…"
+        placeholder={t("providers_search")}
         value={query}
       />
       {message ? (
@@ -175,12 +296,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
             className="flex min-h-14 items-center gap-3 py-2"
             key={provider.id}
           >
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                provider.connected ? "bg-success" : "bg-muted-foreground/40"
-              )}
-            />
+            <ProviderAvatar provider={provider.id} size={28} />
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium text-sm">
                 {provider.name}
@@ -207,7 +323,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
                 size="sm"
                 variant="ghost"
               >
-                Logout
+                {t("providers_disconnect")}
               </Button>
             ) : (
               <div className="flex gap-1">
@@ -249,7 +365,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Provider authentication</DialogTitle>
+            <DialogTitle>{t("providers_auth_dialog")}</DialogTitle>
             <DialogDescription>{authPrompt?.prompt.message}</DialogDescription>
           </DialogHeader>
           {authPrompt?.prompt.type === "select" ? (
@@ -287,7 +403,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
           {authPrompt && authPrompt.prompt.type !== "select" ? (
             <DialogFooter>
               <Button disabled={!answer} onClick={() => respond(answer)}>
-                Continue
+                {t("providers_continue")}
               </Button>
             </DialogFooter>
           ) : null}

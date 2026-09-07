@@ -98,7 +98,7 @@ export function installWebPreviewApi() {
       ],
       onEvent: () => () => undefined,
       open: async () => ({ cursor: 0, hasMore: false, messages: [] }),
-      prompt: async () => undefined,
+      prompt: async () => ({}),
       setModel: async () => undefined,
       setThinking: async () => undefined,
       sync: async () => ({

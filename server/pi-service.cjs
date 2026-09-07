@@ -130,7 +130,7 @@ class PiService {
         clearTimeout(timer);
         timer = setTimeout(() => {
           try {
-            const size = fs.statSync(filePath).size;
+            const { size } = fs.statSync(filePath);
             if (size === lastSize) {
               return;
             }

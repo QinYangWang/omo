@@ -235,7 +235,25 @@ export default function App() {
       project.cwd
     );
     setSessions((current) => ({ ...current, [project.id]: list }));
+    return list;
   }, []);
+
+  // pi writes the session JSONL asynchronously (often only once the first
+  // assistant message lands), so poll until the new row shows up.
+  const pollForSession = useCallback(
+    async (project: Project, path: string, attempt: number): Promise<void> => {
+      if (attempt >= 15) {
+        return;
+      }
+      const list = await refreshSessions(project);
+      if (list.some((session) => session.path === path)) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await pollForSession(project, path, attempt + 1);
+    },
+    [refreshSessions]
+  );
 
   const addProject = async (serverId: string, path?: string) => {
     const project = await getServerApi(serverId).projects.add(path);
@@ -442,6 +460,21 @@ export default function App() {
                     title: "",
                   })
                 }
+                onSessionBound={({ key, path, projectId, title }) => {
+                  // Guard against the user having switched sessions while the
+                  // prompt was in flight.
+                  setActive((current) =>
+                    current && current.key === key && !current.path
+                      ? { ...current, path, title: current.title || title }
+                      : current
+                  );
+                  const project = projects.find(
+                    (item) => item.id === projectId
+                  );
+                  if (project) {
+                    pollForSession(project, path, 0).catch(() => undefined);
+                  }
+                }}
                 projects={projects}
                 session={active}
               />
