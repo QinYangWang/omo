@@ -42,6 +42,18 @@ node --check electron/preload.cjs
 - 远程 PTY 输入输出。
 - WebSocket 断开后通过 offset 补发终端输出。
 
+## Electron 性能与内存
+
+桌面端遵循 Electron 性能清单，启动路径只加载窗口与 IPC 所需代码：Pi SDK、Provider quota、usage 和 agent config 在首次调用时加载；Settings 与 Workspace 使用动态 import，Workspace 内的 diff、Shiki 和 xterm 不进入初始 renderer chunk。生产构建的初始 JS 从约 1.87 MB 降至约 0.78 MB（未压缩），Workspace 独立为按需 chunk。
+
+BrowserWindow 禁用默认菜单与拼写检查，保持后台节流，并显式启用 sandbox、context isolation、关闭 node integration。窗口在 `ready-to-show` 后显示。renderer 最多保留 12 个非运行会话的正文窗口和附件草稿缓存；文本草稿仍由 localStorage 持久化。Electron 主进程会回收 release 后空闲的已完成 Agent，默认超时 15 分钟：
+
+```bash
+OMO_SESSION_IDLE_MS=300000 npm start
+```
+
+运行中 Agent 不受 UI 切换和空闲回收影响。诊断实际占用时应分别查看 Electron Task Manager/Chrome Memory 中的 main、renderer、GPU、utility 与 webview 进程；打开 Workspace 浏览器标签会创建额外 Chromium renderer，这是预期的进程隔离成本。
+
 ## Server 启动
 
 ```bash

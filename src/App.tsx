@@ -6,13 +6,11 @@ import {
   PanelRightIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { AddProjectDialog } from "@/components/AddProjectDialog";
 import { ChatView } from "@/components/ChatView";
-import { SettingsView } from "@/components/SettingsView";
 import { Sidebar } from "@/components/Sidebar";
 import { Button } from "@/components/ui/button";
-import { Workspace } from "@/components/Workspace";
 import { useI18n } from "@/lib/i18n";
 import { omo } from "@/lib/omo";
 import {
@@ -24,6 +22,17 @@ import {
 import { useTheme } from "@/lib/theme";
 import { normalizeColorToHex } from "@/lib/theme-tokens";
 import { cn, randomUUID } from "@/lib/utils";
+
+const SettingsView = lazy(() =>
+  import("@/components/SettingsView").then(({ SettingsView: Component }) => ({
+    default: Component,
+  }))
+);
+const Workspace = lazy(() =>
+  import("@/components/Workspace").then(({ Workspace: Component }) => ({
+    default: Component,
+  }))
+);
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 const macPlatformPattern = /Mac/;
@@ -332,10 +341,12 @@ export default function App() {
           {headerNavigation}
         </header>
         <div className="min-h-0 flex-1">
-          <SettingsView
-            onBack={() => setView("chat")}
-            sidebarOpen={!collapsed}
-          />
+          <Suspense fallback={null}>
+            <SettingsView
+              onBack={() => setView("chat")}
+              sidebarOpen={!collapsed}
+            />
+          </Suspense>
         </div>
       </div>
     );
@@ -489,9 +500,11 @@ export default function App() {
 
               {/* Col 3: Workspace */}
               <div className="min-w-0 flex-1">
-                <Workspace
-                  serverId={active?.serverId ?? getDefaultServerId()}
-                />
+                <Suspense fallback={null}>
+                  <Workspace
+                    serverId={active?.serverId ?? getDefaultServerId()}
+                  />
+                </Suspense>
               </div>
             </>
           ) : null}

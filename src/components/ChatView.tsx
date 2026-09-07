@@ -164,6 +164,8 @@ const imageMimeTypes: Record<string, string> = {
   ".webp": "image/webp",
 };
 const windows = new Map<string, TurnWindow>();
+const windowAccess = new Map<string, number>();
+const MAX_CACHED_SESSION_WINDOWS = 12;
 const streamingSessions = new Map<string, boolean>();
 const sessionListeners = new Map<string, Set<() => void>>();
 const fileSyncListeners = new Map<string, Set<() => void>>();
@@ -181,6 +183,35 @@ const COMPOSER_STORAGE_PREFIX = "omo:composer:";
 
 const sessionCacheKey = (serverId: string, sessionId: string) =>
   `${serverId}:${sessionId}`;
+
+function cacheWindow(cacheKey: string, value: TurnWindow) {
+  windows.set(cacheKey, value);
+  windowAccess.set(cacheKey, Date.now());
+  if (windows.size <= MAX_CACHED_SESSION_WINDOWS) {
+    return;
+  }
+  const candidates = [...windowAccess.entries()]
+    .filter(
+      ([key]) =>
+        key !== cacheKey &&
+        !streamingSessions.get(key) &&
+        !sessionListeners.get(key)?.size
+    )
+    .sort((left, right) => left[1] - right[1]);
+  const oldest = candidates[0]?.[0];
+  if (oldest) {
+    windows.delete(oldest);
+    windowAccess.delete(oldest);
+  }
+}
+
+function readWindow(cacheKey: string) {
+  const value = windows.get(cacheKey);
+  if (value) {
+    windowAccess.set(cacheKey, Date.now());
+  }
+  return value;
+}
 
 function notifySession(cacheKey: string) {
   for (const listener of sessionListeners.get(cacheKey) ?? []) {
@@ -208,7 +239,7 @@ function ensureApiEventBridge(api: omoApi, serverId: string) {
         notifySession(cacheKey);
       },
       (next) => {
-        windows.set(cacheKey, next);
+        cacheWindow(cacheKey, next);
         notifySession(cacheKey);
       }
     );
@@ -238,6 +269,28 @@ function subscribeFileSync(cacheKey: string, listener: () => void) {
       fileSyncListeners.delete(cacheKey);
     }
   };
+}
+
+function cacheComposer(
+  cacheKey: string,
+  draft: {
+    fileAttachments: FileAttachment[];
+    images: ImageAttachment[];
+    mode: "local" | "worktree";
+    text: string;
+  }
+) {
+  composerDrafts.delete(cacheKey);
+  composerDrafts.set(cacheKey, draft);
+  if (composerDrafts.size <= MAX_CACHED_SESSION_WINDOWS) {
+    return;
+  }
+  const oldest = [...composerDrafts.keys()].find(
+    (key) => key !== cacheKey && !streamingSessions.get(key)
+  );
+  if (oldest) {
+    composerDrafts.delete(oldest);
+  }
 }
 
 function readComposerText(cacheKey: string) {
@@ -620,7 +673,7 @@ export function ChatView({
   const sessionPath = session?.path;
   const composerDraft = composerDrafts.get(cacheKey);
   const [turnWindow, setTurnWindow] = useState<TurnWindow>(
-    () => windows.get(cacheKey) ?? windowFromMessages([], 0, false)
+    () => readWindow(cacheKey) ?? windowFromMessages([], 0, false)
   );
   const [streaming, setStreaming] = useState(
     () => streamingSessions.get(cacheKey) ?? false
@@ -680,7 +733,7 @@ export function ChatView({
 
   const setWindow = useCallback(
     (next: TurnWindow) => {
-      windows.set(cacheKey, next);
+      cacheWindow(cacheKey, next);
       setTurnWindow(next);
       notifySession(cacheKey);
     },
@@ -797,6 +850,16 @@ export function ChatView({
   };
 
   useEffect(() => {
+    if (!session) {
+      return;
+    }
+    api.pi.retain(key).catch(() => undefined);
+    return () => {
+      api.pi.release(key).catch(() => undefined);
+    };
+  }, [api, key, session]);
+
+  useEffect(() => {
     ensureApiEventBridge(api, serverId);
     return subscribeSession(cacheKey, () => {
       const nextWindow = windows.get(cacheKey);
@@ -808,7 +871,7 @@ export function ChatView({
   }, [api, cacheKey, serverId]);
 
   useEffect(() => {
-    composerDrafts.set(cacheKey, { fileAttachments, images, mode, text });
+    cacheComposer(cacheKey, { fileAttachments, images, mode, text });
     try {
       if (text) {
         localStorage.setItem(`${COMPOSER_STORAGE_PREFIX}${cacheKey}`, text);
@@ -1731,7 +1794,7 @@ async function loadSession(
   setModel: (value: string) => void,
   setThinking: (value: string) => void
 ) {
-  const cached = windows.get(cacheKey);
+  const cached = readWindow(cacheKey);
   setTurnWindow(cached ?? windowFromMessages([], 0, false));
   if (cached) {
     setLoading(false);

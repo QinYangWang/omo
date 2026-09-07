@@ -225,6 +225,8 @@ interface omoApi {
       images?: PiImageContent[]
     ) => Promise<{ sessionFile?: string; sessionId?: string }>;
     abort: (sessionId: string) => Promise<void>;
+    release: (sessionId: string) => Promise<void>;
+    retain: (sessionId: string) => Promise<void>;
     onEvent: (cb: (data: OmoPiEventEnvelope) => void) => () => void;
   };
   projects: {

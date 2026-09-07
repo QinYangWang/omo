@@ -26,7 +26,7 @@ Electron 本地模式不在 omo Server 的实时同步范围内。它使用 Elec
 
 ## 本地生命周期
 
-Electron 本地模式在 `electron/main.cjs` 中通过 `createAgentSession` 创建 Session。已创建的 Session 保存在主进程的 Map 中，同一个 client Session ID 复用同一个 `AgentSession`。
+Electron 本地模式在 `electron/main.cjs` 中通过 `createAgentSession` 创建 Session。已创建的 Session 保存在主进程的 Map 中，同一个 client Session ID 复用同一个 `AgentSession`。ChatView 挂载时 retain 会话，卸载时 release；已完成且持续空闲的本地 Agent 默认在 15 分钟后 `dispose()`，运行中的 Agent 不会被回收，完成后重新进入空闲倒计时。再次进入已回收 Session 时从 JSONL 重建 Agent context。可通过 `OMO_SESSION_IDLE_MS` 调整空闲时间（最小 60 秒）。
 
 Session 使用的工具根据平台选择：
 

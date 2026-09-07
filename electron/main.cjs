@@ -2,6 +2,7 @@
 const {
   app,
   BrowserWindow,
+  Menu,
   shell,
   ipcMain,
   dialog,
@@ -12,29 +13,57 @@ const os = require("node:os");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const { spawn, execFile } = require("node:child_process");
-const {
-  createHistorySnapshot,
-  historyPage,
-  sessionHistoryMessages,
-} = require("../server/display-messages.cjs");
-const {
-  installPackage,
-  listModels,
-  listPackages,
-  listSkills,
-  removePackage,
-  setModelsEnabled,
-} = require("../server/agent-config.cjs");
-const { fetchQuotas: fetchProviderQuotas } = require("../server/quotas.cjs");
-const { usageSnapshot: readUsageSnapshot } = require("../server/usage.cjs");
+let displayMessagesModule;
+let agentConfigModule;
+let quotasModule;
+let usageModule;
+const getDisplayMessages = () => {
+  displayMessagesModule ||= require("../server/display-messages.cjs");
+  return displayMessagesModule;
+};
+const getAgentConfig = () => {
+  agentConfigModule ||= require("../server/agent-config.cjs");
+  return agentConfigModule;
+};
+const getQuotas = () => {
+  quotasModule ||= require("../server/quotas.cjs");
+  return quotasModule;
+};
+const getUsage = () => {
+  usageModule ||= require("../server/usage.cjs");
+  return usageModule;
+};
+const createHistorySnapshot = (...args) =>
+  getDisplayMessages().createHistorySnapshot(...args);
+const historyPage = (...args) => getDisplayMessages().historyPage(...args);
+const sessionHistoryMessages = (...args) =>
+  getDisplayMessages().sessionHistoryMessages(...args);
+const installPackage = (...args) => getAgentConfig().installPackage(...args);
+const listModels = (...args) => getAgentConfig().listModels(...args);
+const listPackages = (...args) => getAgentConfig().listPackages(...args);
+const listSkills = (...args) => getAgentConfig().listSkills(...args);
+const removePackage = (...args) => getAgentConfig().removePackage(...args);
+const setModelsEnabled = (...args) =>
+  getAgentConfig().setModelsEnabled(...args);
+const fetchProviderQuotas = (...args) => getQuotas().fetchQuotas(...args);
+const readUsageSnapshot = (...args) => getUsage().usageSnapshot(...args);
 
 let win;
 let termProc = null;
 const piSessions = new Map();
-const sdkPromise = import("@earendil-works/pi-coding-agent");
+let sdkPromise;
+const getSdk = () => {
+  sdkPromise ||= import("@earendil-works/pi-coding-agent");
+  return sdkPromise;
+};
 let modelRuntimePromise;
 const historyPages = new Map();
 const authPrompts = new Map();
+const sessionEvictionTimers = new Map();
+const SESSION_IDLE_MS = Math.max(
+  60_000,
+  Number(process.env.OMO_SESSION_IDLE_MS) || 15 * 60_000
+);
 const nativeTitleBarPlatforms = new Set(["win32", "linux"]);
 // The page header is 40px tall. Windows can paint the caption button strip
 // 1px past the requested overlay height when the window is not maximized
@@ -56,7 +85,7 @@ const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 const hexColor = /^#[\da-f]{6}$/i;
 
 async function getModelRuntime() {
-  const { ModelRuntime } = await sdkPromise;
+  const { ModelRuntime } = await getSdk();
   modelRuntimePromise ||= ModelRuntime.create();
   return modelRuntimePromise;
 }
@@ -80,13 +109,48 @@ function usageSnapshot() {
 }
 
 // ---------- pi SDK ----------
+function scheduleSessionEviction(sessionId) {
+  clearTimeout(sessionEvictionTimers.get(sessionId));
+  const timer = setTimeout(async () => {
+    const pending = piSessions.get(sessionId);
+    if (!pending) {
+      sessionEvictionTimers.delete(sessionId);
+      return;
+    }
+    try {
+      const session = await pending;
+      if (session.isStreaming) {
+        scheduleSessionEviction(sessionId);
+        return;
+      }
+      if (piSessions.get(sessionId) === pending) {
+        piSessions.delete(sessionId);
+      }
+      await session.dispose();
+    } catch {
+      // Failed creations remove themselves; disposal is best effort.
+    } finally {
+      if (sessionEvictionTimers.get(sessionId) === timer) {
+        sessionEvictionTimers.delete(sessionId);
+      }
+    }
+  }, SESSION_IDLE_MS);
+  timer.unref?.();
+  sessionEvictionTimers.set(sessionId, timer);
+}
+
+function retainSession(sessionId) {
+  clearTimeout(sessionEvictionTimers.get(sessionId));
+  sessionEvictionTimers.delete(sessionId);
+}
+
 async function ensurePi(sessionId, cwd, sessionPath) {
   if (piSessions.has(sessionId)) {
+    retainSession(sessionId);
     return piSessions.get(sessionId);
   }
   const creating = (async () => {
-    const { createAgentSession, ModelRuntime, SessionManager } =
-      await sdkPromise;
+    const { createAgentSession, ModelRuntime, SessionManager } = await getSdk();
     modelRuntimePromise ||= ModelRuntime.create();
     const modelRuntime = await modelRuntimePromise;
     const { session } = await createAgentSession({
@@ -107,17 +171,31 @@ async function ensurePi(sessionId, cwd, sessionPath) {
     return await creating;
   } catch (error) {
     piSessions.delete(sessionId);
+    clearTimeout(sessionEvictionTimers.get(sessionId));
+    sessionEvictionTimers.delete(sessionId);
     throw error;
   }
 }
 
 const sessionFileWatchers = new Map();
 
-/** Notify the renderer when a session JSONL changes on disk (e.g. TUI). */
-function watchSessionFile(sessionId, filePath) {
-  if (sessionFileWatchers.has(filePath)) {
+function closeSessionFileWatcher(sessionId) {
+  const entry = sessionFileWatchers.get(sessionId);
+  if (!entry) {
     return;
   }
+  clearTimeout(entry.timer);
+  entry.watcher.close();
+  sessionFileWatchers.delete(sessionId);
+}
+
+/** Notify the renderer when a session JSONL changes on disk (e.g. TUI). */
+function watchSessionFile(sessionId, filePath) {
+  const existing = sessionFileWatchers.get(sessionId);
+  if (existing?.filePath === filePath) {
+    return;
+  }
+  closeSessionFileWatcher(sessionId);
   let timer;
   let lastSize = 0;
   try {
@@ -144,12 +222,16 @@ function watchSessionFile(sessionId, filePath) {
           // Session file deleted or temporarily unavailable.
         }
       }, 250);
+      const entry = sessionFileWatchers.get(sessionId);
+      if (entry) {
+        entry.timer = timer;
+      }
     });
   } catch {
     return;
   }
-  watcher.on("error", () => undefined);
-  sessionFileWatchers.set(filePath, watcher);
+  watcher.on("error", () => closeSessionFileWatcher(sessionId));
+  sessionFileWatchers.set(sessionId, { filePath, timer, watcher });
 }
 
 // ---------- git ----------
@@ -185,9 +267,11 @@ ipcMain.on("window:set-title-bar-overlay", (_event, options) => {
 });
 
 function createWindow() {
+  Menu.setApplicationMenu(null);
   win = new BrowserWindow({
     backgroundColor: "#0a0a0a",
     height: 900,
+    show: false,
     titleBarOverlay: {
       color: "#0e0e0e",
       height: TITLEBAR_OVERLAY_HEIGHT,
@@ -195,10 +279,19 @@ function createWindow() {
     },
     titleBarStyle: "hidden",
     webPreferences: {
+      backgroundThrottling: true,
+      contextIsolation: true,
+      nodeIntegration: false,
       preload: path.join(__dirname, "preload.cjs"),
+      sandbox: true,
+      spellcheck: false,
       webviewTag: true,
     },
     width: 1440,
+  });
+  win.once("ready-to-show", () => win?.show());
+  win.once("closed", () => {
+    win = undefined;
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -206,7 +299,7 @@ function createWindow() {
   });
   // pi SDK: direct AgentSession, no subprocess/protocol
   ipcMain.handle("pi:open", async (_e, { sessionId, cwd, sessionPath }) => {
-    const { SessionManager } = await sdkPromise;
+    const { SessionManager } = await getSdk();
     if (sessionPath) {
       watchSessionFile(sessionId, sessionPath);
       const manager = SessionManager.open(sessionPath);
@@ -286,6 +379,7 @@ function createWindow() {
   ipcMain.handle(
     "pi:set-model",
     async (_e, { sessionId, provider, modelId }) => {
+      retainSession(sessionId);
       const session = await piSessions.get(sessionId);
       const runtime = await modelRuntimePromise;
       const model = runtime?.getModel(provider, modelId);
@@ -296,22 +390,24 @@ function createWindow() {
     }
   );
   ipcMain.handle("pi:set-thinking", async (_e, { sessionId, level }) => {
+    retainSession(sessionId);
     const session = await piSessions.get(sessionId);
     if (!session) {
       throw new Error("Open a session first");
     }
     session.setThinkingLevel(level);
   });
-  ipcMain.handle("pi:history", (_e, { sessionId, before }) =>
-    historyPage(
+  ipcMain.handle("pi:history", (_e, { sessionId, before }) => {
+    retainSession(sessionId);
+    return historyPage(
       historyPages.get(sessionId) || { items: [], metas: [], turnStarts: [] },
       before
-    )
-  );
+    );
+  });
   ipcMain.handle(
     "pi:sync",
     async (_e, { sessionId, sessionPath, turnCount, tailItemCount }) => {
-      const { SessionManager } = await sdkPromise;
+      const { SessionManager } = await getSdk();
       const manager = SessionManager.open(sessionPath);
       const history = createHistorySnapshot(sessionHistoryMessages(manager));
       historyPages.set(sessionId, history);
@@ -381,8 +477,17 @@ function createWindow() {
     }
   );
   ipcMain.handle("pi:abort", async (_e, { sessionId }) => {
+    retainSession(sessionId);
     const session = await piSessions.get(sessionId);
     await session?.abort();
+  });
+  ipcMain.handle("pi:retain", (_event, { sessionId }) => {
+    retainSession(sessionId);
+  });
+  ipcMain.handle("pi:release", (_event, { sessionId }) => {
+    if (piSessions.has(sessionId)) {
+      scheduleSessionEviction(sessionId);
+    }
   });
 
   ipcMain.handle("usage:snapshot", () => usageSnapshot());
@@ -637,7 +742,7 @@ function createWindow() {
     return project;
   });
   ipcMain.handle("sessions:list", async (_e, cwd) => {
-    const { SessionManager } = await sdkPromise;
+    const { SessionManager } = await getSdk();
     return (await SessionManager.list(cwd)).map((s) => ({
       ...s,
       created: +s.created,
@@ -645,7 +750,7 @@ function createWindow() {
     }));
   });
   ipcMain.handle("sessions:all", async () => {
-    const { SessionManager } = await sdkPromise;
+    const { SessionManager } = await getSdk();
     return (await SessionManager.listAll()).map((s) => ({
       ...s,
       created: +s.created,
@@ -653,7 +758,7 @@ function createWindow() {
     }));
   });
   ipcMain.handle("sessions:import", async (_e, { sourcePath, cwd }) => {
-    const { SessionManager } = await sdkPromise;
+    const { SessionManager } = await getSdk();
     const manager = SessionManager.forkFrom(sourcePath, cwd);
     return manager.getSessionFile();
   });
@@ -747,11 +852,23 @@ function createWindow() {
 }
 
 app.whenReady().then(createWindow);
-app.on("before-quit", async () => {
-  await Promise.all(
-    [...piSessions.values()].map((pending) =>
-      pending.then((session) => session.dispose())
-    )
-  );
+let quitting = false;
+app.on("before-quit", (event) => {
+  if (quitting) {
+    return;
+  }
+  quitting = true;
+  event.preventDefault();
+  for (const timer of sessionEvictionTimers.values()) {
+    clearTimeout(timer);
+  }
+  sessionEvictionTimers.clear();
+  for (const sessionId of sessionFileWatchers.keys()) {
+    closeSessionFileWatcher(sessionId);
+  }
+  termProc?.kill();
+  Promise.allSettled(
+    [...piSessions.values()].map(async (pending) => (await pending).dispose())
+  ).finally(() => app.quit());
 });
 app.on("window-all-closed", () => app.quit());

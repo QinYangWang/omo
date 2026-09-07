@@ -356,6 +356,8 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
         });
         return result;
       },
+      release: async () => undefined,
+      retain: async () => undefined,
       setModel: async (sessionId, provider, modelId) => {
         await post("/pi/model", { modelId, provider, sessionId });
       },

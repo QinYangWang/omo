@@ -6,10 +6,14 @@ const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const sdkPromise = import("@earendil-works/pi-coding-agent");
+let sdkPromise;
+const getSdk = () => {
+  sdkPromise ||= import("@earendil-works/pi-coding-agent");
+  return sdkPromise;
+};
 
 async function listSkills(agentDir) {
-  const { loadSkillsFromDir } = await sdkPromise;
+  const { loadSkillsFromDir } = await getSdk();
   const result = loadSkillsFromDir({
     dir: path.join(agentDir, "skills"),
     source: "user",

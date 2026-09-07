@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld("omo", {
         sessionId,
         sessionPath,
       }),
+    release: (sessionId) => ipcRenderer.invoke("pi:release", { sessionId }),
+    retain: (sessionId) => ipcRenderer.invoke("pi:retain", { sessionId }),
     setModel: (sessionId, provider, modelId) =>
       ipcRenderer.invoke("pi:set-model", { modelId, provider, sessionId }),
     setThinking: (sessionId, level) =>

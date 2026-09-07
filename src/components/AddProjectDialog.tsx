@@ -5,7 +5,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ServerStatusBadge } from "@/components/SettingsView";
+import { ServerStatusBadge } from "@/components/server-status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
