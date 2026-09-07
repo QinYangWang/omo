@@ -1,6 +1,8 @@
 "use strict";
-const http = require("node:http");
+const { readFileSync } = require("node:fs");
 const fs = require("node:fs/promises");
+const http = require("node:http");
+const https = require("node:https");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { WebSocketServer } = require("ws");
@@ -597,7 +599,29 @@ async function handleRequest(req, res) {
   }
 }
 
-const server = http.createServer(handleRequest);
+function createServer() {
+  const { tlsCert, tlsKey } = config;
+  if (!(tlsCert || tlsKey)) {
+    return http.createServer(handleRequest);
+  }
+  if (!(tlsCert && tlsKey)) {
+    console.error("OMO_TLS_CERT and OMO_TLS_KEY must be set together.");
+    process.exit(1);
+  }
+  try {
+    return https.createServer(
+      { cert: readFileSync(tlsCert), key: readFileSync(tlsKey) },
+      handleRequest
+    );
+  } catch (error) {
+    console.error(
+      `Unable to load TLS cert/key: ${error instanceof Error ? error.message : String(error)}`
+    );
+    process.exit(1);
+  }
+}
+
+const server = createServer();
 
 const webSockets = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, socket, head) => {
@@ -620,7 +644,10 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 server.listen(config.port, config.host, () => {
-  console.log(`omo server listening on http://${config.host}:${config.port}`);
+  const protocol = config.tlsCert ? "https" : "http";
+  console.log(
+    `omo server listening on ${protocol}://${config.host}:${config.port}`
+  );
   console.log(`workspace roots: ${workspace.roots.join(", ")}`);
   if (!config.token) {
     console.warn(

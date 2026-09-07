@@ -31,7 +31,19 @@ npm run server:dev
 | `OMO_WEB_ROOT` | `dist` | 静态 Web 目录 |
 | `OMO_CORS_ORIGINS` | 空 | 允许的跨域 Origin |
 | `OMO_EVENT_RETENTION` | `100000` | 每 Session 保留事件数 |
+| `OMO_TLS_CERT` | 空 | TLS 证书路径（PEM），与 `OMO_TLS_KEY` 一起设置后启用 HTTPS |
+| `OMO_TLS_KEY` | 空 | TLS 私钥路径（PEM） |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi 数据目录 |
+
+## HTTPS
+
+默认监听 HTTP。同时设置 `OMO_TLS_CERT` 与 `OMO_TLS_KEY` 后，HTTP API、SSE 与终端 WebSocket（WSS）全部走同一个 TLS 端口：
+
+```bash
+OMO_TLS_CERT=/path/to/cert.pem OMO_TLS_KEY=/path/to/key.pem npm run server
+```
+
+只设置其中一个或文件不可读时 Server 拒绝启动并提示。可用 mkcert 为局域网地址签发受信任证书；自签名证书需要各客户端手动信任，否则浏览器与 Electron 远程模式会拒绝连接。启用 HTTPS 后客户端的 Server URL 相应改为 `https://`。
 
 ## Web 托管
 

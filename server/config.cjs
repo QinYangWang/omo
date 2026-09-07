@@ -26,6 +26,8 @@ module.exports = {
     process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent"),
     "sessions"
   ),
+  tlsCert: process.env.OMO_TLS_CERT || "",
+  tlsKey: process.env.OMO_TLS_KEY || "",
   token: process.env.OMO_TOKEN || "",
   webRoot: path.resolve(
     process.env.OMO_WEB_ROOT || path.join(__dirname, "..", "dist")
