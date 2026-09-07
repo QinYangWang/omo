@@ -164,6 +164,90 @@ const imageMimeTypes: Record<string, string> = {
   ".webp": "image/webp",
 };
 const windows = new Map<string, TurnWindow>();
+const streamingSessions = new Map<string, boolean>();
+const sessionListeners = new Map<string, Set<() => void>>();
+const fileSyncListeners = new Map<string, Set<() => void>>();
+const apiEventSubscriptions = new WeakMap<omoApi, () => void>();
+const composerDrafts = new Map<
+  string,
+  {
+    fileAttachments: FileAttachment[];
+    images: ImageAttachment[];
+    mode: "local" | "worktree";
+    text: string;
+  }
+>();
+const COMPOSER_STORAGE_PREFIX = "omo:composer:";
+
+const sessionCacheKey = (serverId: string, sessionId: string) =>
+  `${serverId}:${sessionId}`;
+
+function notifySession(cacheKey: string) {
+  for (const listener of sessionListeners.get(cacheKey) ?? []) {
+    listener();
+  }
+}
+
+function ensureApiEventBridge(api: omoApi, serverId: string) {
+  if (apiEventSubscriptions.has(api)) {
+    return;
+  }
+  const unsubscribe = api.pi.onEvent(({ sessionId, event }) => {
+    const cacheKey = sessionCacheKey(serverId, sessionId);
+    if (event.type === "omo_session_file") {
+      for (const listener of fileSyncListeners.get(cacheKey) ?? []) {
+        listener();
+      }
+      return;
+    }
+    handlePiEvent(
+      event,
+      cacheKey,
+      (value) => {
+        streamingSessions.set(cacheKey, value);
+        notifySession(cacheKey);
+      },
+      (next) => {
+        windows.set(cacheKey, next);
+        notifySession(cacheKey);
+      }
+    );
+  });
+  apiEventSubscriptions.set(api, unsubscribe);
+}
+
+function subscribeSession(cacheKey: string, listener: () => void) {
+  const listeners = sessionListeners.get(cacheKey) ?? new Set<() => void>();
+  listeners.add(listener);
+  sessionListeners.set(cacheKey, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) {
+      sessionListeners.delete(cacheKey);
+    }
+  };
+}
+
+function subscribeFileSync(cacheKey: string, listener: () => void) {
+  const listeners = fileSyncListeners.get(cacheKey) ?? new Set<() => void>();
+  listeners.add(listener);
+  fileSyncListeners.set(cacheKey, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) {
+      fileSyncListeners.delete(cacheKey);
+    }
+  };
+}
+
+function readComposerText(cacheKey: string) {
+  try {
+    return localStorage.getItem(`${COMPOSER_STORAGE_PREFIX}${cacheKey}`) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 const trailingSlashes = /[\\/]+$/;
 const leadingSlashes = /^[/\\]+/;
 const backslashes = /\\/g;
@@ -331,11 +415,13 @@ async function preparePrompt(
   const attachedImages: ImageContent[] = images.map(
     ({ id: _id, ...image }) => image
   );
-  const fileText: string[] = [];
+  // 只有图片附件需要在这里读出内容并作为 image 传给模型；文本文件不内联内容，
+  // 会话文本里已有的 `@path` 就是引用地址，由 agent 用自己的文件工具自行读取。
+  const imageFiles = files.filter((file) => file.image);
   const results = await Promise.all(
-    files.map(async (file) => ({
+    imageFiles.map(async (file) => ({
       file,
-      result: await api.fs.read(file.path, file.image),
+      result: await api.fs.read(file.path, true),
     }))
   );
   for (const { file, result } of results) {
@@ -352,11 +438,9 @@ async function preparePrompt(
         name: file.name,
         type: "image",
       });
-    } else if (result.content !== undefined) {
-      fileText.push(`<file name="${file.path}">\n${result.content}\n</file>\n`);
     }
   }
-  return { images: attachedImages, text: `${fileText.join("")}${value}` };
+  return { images: attachedImages, text: value };
 }
 
 const completionIcon = (directory?: boolean) =>
@@ -528,25 +612,38 @@ export function ChatView({
   onSessionBound: (binding: SessionBinding) => void;
 }) {
   const { t } = useI18n();
-  const api = getServerApi(session?.serverId);
+  const serverId = session?.serverId ?? "local";
+  const api = getServerApi(serverId);
   const key = session?.key ?? "draft";
+  const cacheKey = sessionCacheKey(serverId, key);
   const sessionCwd = session?.cwd;
   const sessionPath = session?.path;
+  const composerDraft = composerDrafts.get(cacheKey);
   const [turnWindow, setTurnWindow] = useState<TurnWindow>(
-    () => windows.get(key) ?? windowFromMessages([], 0, false)
+    () => windows.get(cacheKey) ?? windowFromMessages([], 0, false)
   );
-  const [streaming, setStreaming] = useState(false);
+  const [streaming, setStreaming] = useState(
+    () => streamingSessions.get(cacheKey) ?? false
+  );
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"local" | "worktree">("local");
+  const [mode, setMode] = useState<"local" | "worktree">(
+    () => composerDraft?.mode ?? "local"
+  );
   const [branches, setBranches] = useState<
     { name: string; current: boolean }[]
   >([]);
   const [models, setModels] = useState<AgentModelInfo[]>([]);
   const [model, setModel] = useState("");
   const [thinking, setThinking] = useState("max");
-  const [text, setText] = useState("");
-  const [images, setImages] = useState<ImageAttachment[]>([]);
-  const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([]);
+  const [text, setText] = useState(
+    () => composerDraft?.text ?? readComposerText(cacheKey)
+  );
+  const [images, setImages] = useState<ImageAttachment[]>(
+    () => composerDraft?.images ?? []
+  );
+  const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>(
+    () => composerDraft?.fileAttachments ?? []
+  );
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [completion, setCompletion] = useState<CompletionContext | null>(null);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -563,6 +660,8 @@ export function ChatView({
   const jumpToken = useRef(0);
   const keyRef = useRef(key);
   keyRef.current = key;
+  const cacheKeyRef = useRef(cacheKey);
+  cacheKeyRef.current = cacheKey;
   const sessionPathRef = useRef(sessionPath);
   sessionPathRef.current = sessionPath;
   const streamingRef = useRef<boolean>(false);
@@ -581,19 +680,21 @@ export function ChatView({
 
   const setWindow = useCallback(
     (next: TurnWindow) => {
-      windows.set(key, next);
-      setTurnWindow((current) => (keyRef.current === key ? next : current));
+      windows.set(cacheKey, next);
+      setTurnWindow(next);
+      notifySession(cacheKey);
     },
-    [key]
+    [cacheKey]
   );
 
   const loadHistoryPage = (): Promise<TurnWindow | undefined> => {
     const targetKey = keyRef.current;
+    const targetCacheKey = cacheKeyRef.current;
     const inFlight = loadingOlder.current;
     if (inFlight?.key === targetKey) {
       return inFlight.promise;
     }
-    const current = windows.get(targetKey) ?? turnWindow;
+    const current = windows.get(targetCacheKey) ?? turnWindow;
     if (!(session && current.hasOlder)) {
       return Promise.resolve(undefined);
     }
@@ -603,7 +704,7 @@ export function ChatView({
         if (keyRef.current !== targetKey) {
           return;
         }
-        const latest = windows.get(targetKey) ?? current;
+        const latest = windows.get(targetCacheKey) ?? current;
         if (result.cursor >= latest.start && !result.messages.length) {
           return;
         }
@@ -641,7 +742,7 @@ export function ChatView({
     jumpToken.current = token;
     jumping.current.add(targetKey);
     try {
-      let current = windows.get(keyRef.current) ?? turnWindow;
+      let current = windows.get(cacheKeyRef.current) ?? turnWindow;
       const target = current.metas.find((meta) => meta.id === turnId);
       let index = findTurnIndex(current, turnId, target?.absoluteIndex);
       let loadedOlder = false;
@@ -696,9 +797,34 @@ export function ChatView({
   };
 
   useEffect(() => {
+    ensureApiEventBridge(api, serverId);
+    return subscribeSession(cacheKey, () => {
+      const nextWindow = windows.get(cacheKey);
+      if (nextWindow) {
+        setTurnWindow(nextWindow);
+      }
+      setStreaming(streamingSessions.get(cacheKey) ?? false);
+    });
+  }, [api, cacheKey, serverId]);
+
+  useEffect(() => {
+    composerDrafts.set(cacheKey, { fileAttachments, images, mode, text });
+    try {
+      if (text) {
+        localStorage.setItem(`${COMPOSER_STORAGE_PREFIX}${cacheKey}`, text);
+      } else {
+        localStorage.removeItem(`${COMPOSER_STORAGE_PREFIX}${cacheKey}`);
+      }
+    } catch {
+      // Draft persistence is best effort (private mode and quotas may reject it).
+    }
+  }, [cacheKey, fileAttachments, images, mode, text]);
+
+  useEffect(() => {
     loadSession(
       api,
       key,
+      cacheKey,
       sessionCwd,
       sessionPath,
       setTurnWindow,
@@ -707,7 +833,7 @@ export function ChatView({
       setModel,
       setThinking
     );
-  }, [api, key, sessionCwd, sessionPath, setWindow]);
+  }, [api, cacheKey, key, sessionCwd, sessionPath, setWindow]);
 
   useEffect(() => {
     api.models
@@ -796,16 +922,18 @@ export function ChatView({
 
   useEffect(() => {
     streamingRef.current = streaming;
-  }, [streaming]);
+    streamingSessions.set(cacheKey, streaming);
+  }, [cacheKey, streaming]);
 
   // Merge file-based sync (TUI or external writes) into the window.
   const syncFromFile = useCallback(async () => {
     const targetKey = keyRef.current;
+    const targetCacheKey = cacheKeyRef.current;
     const path = sessionPathRef.current;
     if (!path || streamingRef.current) {
       return;
     }
-    const current = windows.get(targetKey) ?? turnWindow;
+    const current = windows.get(targetCacheKey) ?? turnWindow;
     const turnCount = current.start + current.turns.length;
     const tailItemCount = current.turns.at(-1)?.items.length ?? 0;
     try {
@@ -818,22 +946,19 @@ export function ChatView({
       if (keyRef.current !== targetKey) {
         return;
       }
-      const latest = windows.get(targetKey) ?? current;
+      const latest = windows.get(targetCacheKey) ?? current;
       setWindow(mergeSyncResult(latest, result));
     } catch {
       // Sync is best effort; the next file change retries.
     }
   }, [api, setWindow, turnWindow]);
 
-  useEffect(() => {
-    const unsubscribe = api.pi.onEvent(({ sessionId: sid, event }) => {
-      if (sid !== keyRef.current) {
-        return;
-      }
-      if (event.type === "omo_session_file") {
+  useEffect(
+    () =>
+      subscribeFileSync(cacheKey, () => {
         // Session JSONL changed on disk (e.g. the same session is active in
         // the pi TUI). Debounce and re-read the tail from disk.
-        // biome-ignore lint/suspicious/noUnnecessaryConditions: streamingRef is mutated by another effect, biome's type inference cannot track it
+        // biome-ignore lint/suspicious/noUnnecessaryConditions: the ref is mutated by the streaming subscription.
         if (streamingRef.current) {
           return;
         }
@@ -841,12 +966,9 @@ export function ChatView({
         syncTimer.current = setTimeout(() => {
           syncFromFile().catch(() => undefined);
         }, 300);
-        return;
-      }
-      handlePiEvent(event, keyRef.current, setStreaming, setWindow);
-    });
-    return unsubscribe;
-  }, [api, setWindow, syncFromFile]);
+      }),
+    [cacheKey, syncFromFile]
+  );
 
   const replaceCompletion = (
     replacement: string,
@@ -939,7 +1061,7 @@ export function ChatView({
       setInputError(error instanceof Error ? error.message : String(error));
       return;
     }
-    const current = windows.get(key) ?? turnWindow;
+    const current = windows.get(cacheKey) ?? turnWindow;
     const next = appendMessages(current, [
       {
         id: randomUUID(),
@@ -1600,6 +1722,7 @@ function completeLastAssistant(
 async function loadSession(
   api: omoApi,
   key: string,
+  cacheKey: string,
   sessionCwd: string | undefined,
   sessionPath: string | undefined,
   setTurnWindow: (next: TurnWindow) => void,
@@ -1608,7 +1731,7 @@ async function loadSession(
   setModel: (value: string) => void,
   setThinking: (value: string) => void
 ) {
-  const cached = windows.get(key);
+  const cached = windows.get(cacheKey);
   setTurnWindow(cached ?? windowFromMessages([], 0, false));
   if (cached) {
     setLoading(false);
@@ -1627,6 +1750,7 @@ async function loadSession(
       outline,
       model: sessionModel,
       thinkingLevel,
+      isStreaming,
     } = await api.pi.open(key, sessionCwd, sessionPath);
     setWindow(
       windowFromMessages(history as ChatMessage[], cursor, hasMore, outline)
@@ -1637,6 +1761,8 @@ async function loadSession(
     if (thinkingLevel) {
       setThinking(thinkingLevel);
     }
+    streamingSessions.set(cacheKey, isStreaming ?? false);
+    notifySession(cacheKey);
     setLoading(false);
   } catch (error) {
     const failed: ChatMessage[] = [

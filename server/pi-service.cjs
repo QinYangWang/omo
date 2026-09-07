@@ -77,9 +77,14 @@ class PiService {
         resolvedCwd,
         resolvedSessionPath
       );
+      const { isStreaming } = session;
+      const turnStartSequence = isStreaming
+        ? this.events.latestTurnStartSequence(sessionId)
+        : 0;
       return {
         ...page,
         eventSequence: this.events.latestSequence(sessionId),
+        isStreaming,
         model: session.model
           ? {
               id: session.model.id,
@@ -88,16 +93,24 @@ class PiService {
             }
           : null,
         outline: history.metas,
+        replayFromSequence: turnStartSequence
+          ? Math.max(0, turnStartSequence - 1)
+          : undefined,
         sessionFile: resolvedSessionPath,
         sessionId: manager.getSessionId(),
         thinkingLevel: session.thinkingLevel,
       };
     }
     const session = await this.ensure(sessionId, cwd);
+    const { isStreaming } = session;
+    const turnStartSequence = isStreaming
+      ? this.events.latestTurnStartSequence(sessionId)
+      : 0;
     return {
       cursor: 0,
       eventSequence: this.events.latestSequence(sessionId),
       hasMore: false,
+      isStreaming,
       messages: [],
       model: session.model
         ? {
@@ -106,6 +119,9 @@ class PiService {
             provider: session.model.provider,
           }
         : null,
+      replayFromSequence: turnStartSequence
+        ? Math.max(0, turnStartSequence - 1)
+        : undefined,
       sessionFile: session.sessionFile,
       sessionId: session.sessionId,
       thinkingLevel: session.thinkingLevel,

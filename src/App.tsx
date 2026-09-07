@@ -448,6 +448,7 @@ export default function App() {
             </div>
             <div className="min-h-0 flex-1 bg-background">
               <ChatView
+                key={`${active?.serverId ?? "local"}:${active?.key ?? "draft"}`}
                 onClearProject={() => setActive(null)}
                 onRequestAddProject={() => setAddOpen(true)}
                 onSelectProject={(project) =>

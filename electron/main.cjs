@@ -216,6 +216,7 @@ function createWindow() {
       const session = await ensurePi(sessionId, cwd, sessionPath);
       return {
         ...page,
+        isStreaming: session.isStreaming,
         model: session.model
           ? {
               id: session.model.id,
@@ -233,6 +234,7 @@ function createWindow() {
     return {
       cursor: 0,
       hasMore: false,
+      isStreaming: session.isStreaming,
       messages: [],
       model: session.model
         ? {

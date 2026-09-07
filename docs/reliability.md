@@ -42,7 +42,13 @@ SSE 每 15 秒发送注释心跳，并发送 `retry: 1000`。客户端断线后�
 - 最大等待 30 秒。
 - 每次加入最多 20% 随机抖动。
 
-客户端收到记录后先保存 sequence，再派发给聊天或 Provider 认证监听器。
+客户端收到记录后先保存 sequence，再派发给聊天或 Provider 认证监听器。Pi 事件由 API 级长期事件桥消费，不依赖当前显示的是哪个会话，因此后台并行 Session 的 sequence 推进与 UI 状态更新保持一致。
+
+## 运行中 Turn 恢复
+
+`pi.open` 会返回 `isStreaming`。远程 Session 仍在运行时还会返回 `replayFromSequence`，其值位于 SQLite 中最近一次 `turn_start` 之前。新 renderer 会从持久化历史建立窗口，再把 SSE 起点回退到该位置，重新归并当前未完成 Turn 的持久化事件；这避免 Session JSONL 尚未写入完整 assistant 消息时只恢复到半截正文。
+
+Electron 本地模式没有远程 SQLite 事件日志；同一 renderer 内的窗口切换由常驻事件桥恢复实时状态，完整重启后以 Pi Session JSONL 的持久化历史为准。
 
 ## 历史与事件边界
 

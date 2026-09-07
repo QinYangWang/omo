@@ -159,11 +159,15 @@ ChatView 处理已实现的事件：
 
 text 和 thinking delta 追加到当前 Session 最后一个对应消息；tool call delta 追加输入；tool execution end 写入 output、状态和耗时。
 
-## 流式状态
+## 并行会话与流式状态
 
-- Assistant `message_start` 将 Session 标记为 streaming。
-- `agent_end` 清除 streaming，并标记最后一个 Assistant block 的完成时间和耗时。
-- streaming 期间最后一个 Turn 渲染闪烁光标与运行状态；`omo_session_file` 触发的文件同步在 streaming 期间跳过。
+Agent 生命周期不属于 `ChatView`。执行端以 client Session ID 缓存独立的 `AgentSession`，因此多个 Session 可以并行运行；切换路由、工作区面板或 React 组件挂载状态不会取消 Prompt。
+
+渲染层使用 `${serverId}:${sessionId}` 作为隔离键，维护每个 Session 的 Turn window、streaming 状态和输入草稿。每个后端 API 只安装一个长期事件桥，事件先按 Session ID 写入对应缓存，再通知当前可见的 `ChatView`；不可见 Session 的 delta 不会被丢弃。重新进入会话时组件从缓存恢复，而不是继承上一个会话的输入框或 streaming 状态。文本草稿同时写入 localStorage，图片和文件附件仅保留在当前 renderer 内存中，避免把文件内容持久化到浏览器存储。
+
+- Assistant `message_start` 将对应 Session 标记为 streaming。
+- `agent_end` 只清除对应 Session 的 streaming，并标记其最后一个 Assistant block 的完成时间和耗时。
+- streaming 期间仅该 Session 最后一个 Turn 渲染闪烁光标与运行状态；`omo_session_file` 触发的文件同步在该 Session streaming 期间跳过。
 - 当前 Session 正 streaming 时，新 Prompt 使用 `streamingBehavior: "followUp"`。
 - 非 streaming 时直接调用 Pi `session.prompt`。
-- Abort 调用当前 Agent Session 的 `abort()`。
+- Abort 按 Session ID 调用对应 Agent Session 的 `abort()`。

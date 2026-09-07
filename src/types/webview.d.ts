@@ -187,6 +187,8 @@ interface omoApi {
       }[];
       model?: { id: string; provider: string; name: string } | null;
       thinkingLevel?: string;
+      isStreaming?: boolean;
+      replayFromSequence?: number;
     }>;
     history: (
       sessionId: string,

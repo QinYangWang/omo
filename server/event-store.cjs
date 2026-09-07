@@ -39,6 +39,9 @@ class EventStore {
     this.after = this.db.prepare(
       "SELECT * FROM session_events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT ?"
     );
+    this.latestTurnStart = this.db.prepare(
+      "SELECT COALESCE(MAX(sequence), 0) AS value FROM session_events WHERE session_id = ? AND type = 'turn_start'"
+    );
     this.trim = this.db.prepare(
       "DELETE FROM session_events WHERE session_id = ? AND sequence <= ?"
     );
@@ -77,6 +80,10 @@ class EventStore {
 
   latestSequence(sessionId) {
     return Number(this.latest.get(sessionId).value);
+  }
+
+  latestTurnStartSequence(sessionId) {
+    return Number(this.latestTurnStart.get(sessionId).value);
   }
 
   list(sessionId, after = 0, limit = 5000) {

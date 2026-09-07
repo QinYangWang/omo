@@ -319,13 +319,21 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
           }[];
           model?: { id: string; name: string; provider: string } | null;
           thinkingLevel?: string;
+          isStreaming?: boolean;
+          replayFromSequence?: number;
         }>("/pi/open", {
           cwd,
           sessionId,
           sessionPath,
         });
         const sequenceKey = `omo:event-sequence:${base}:${sessionId}`;
-        if (
+        const storedSequence = Number(localStorage.getItem(sequenceKey) || 0);
+        if (typeof result.replayFromSequence === "number") {
+          localStorage.setItem(
+            sequenceKey,
+            String(Math.min(storedSequence, result.replayFromSequence))
+          );
+        } else if (
           typeof result.eventSequence === "number" &&
           !localStorage.getItem(sequenceKey)
         ) {

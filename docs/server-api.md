@@ -58,7 +58,7 @@ JSON 请求体上限为 16MB。错误响应格式：
 { "sessionId": "client-id", "cwd": "/workspace/project", "sessionPath": "optional" }
 ```
 
-返回 UI 历史分页、完整会话 Outline 元数据、Pi Session 信息和当前 event sequence。`cursor` 按会话轮次计数，分页不会拆开一个轮次。`outline` 的每项包含 `id`、`absoluteIndex` 和 `userPreview`，因此未加载正文的早期轮次仍可显示在大纲中。
+返回 UI 历史分页、完整会话 Outline 元数据、Pi Session 信息、`isStreaming` 和当前 event sequence。`cursor` 按会话轮次计数，分页不会拆开一个轮次。`outline` 的每项包含 `id`、`absoluteIndex` 和 `userPreview`，因此未加载正文的早期轮次仍可显示在大纲中。运行中的远程 Session 还会返回 `replayFromSequence`，客户端用它重放 SQLite 中当前未完成 Turn。
 
 ### `POST /pi/history`
 
