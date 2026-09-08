@@ -69,20 +69,23 @@ class PiService {
       const { SessionManager } = await this.sdk;
       this.watchSessionFile(sessionId, resolvedSessionPath);
       const manager = SessionManager.open(resolvedSessionPath);
-      const history = createHistorySnapshot(sessionHistoryMessages(manager));
-      this.history.set(sessionId, history);
-      const page = historyPage(history);
       const session = await this.ensure(
         sessionId,
         resolvedCwd,
         resolvedSessionPath
       );
       const { isStreaming } = session;
+      const history = createHistorySnapshot(sessionHistoryMessages(manager), {
+        running: isStreaming,
+      });
+      this.history.set(sessionId, history);
+      const page = historyPage(history);
       const turnStartSequence = isStreaming
         ? this.events.latestTurnStartSequence(sessionId)
         : 0;
       return {
         ...page,
+        contextUsage: session.getContextUsage() ?? null,
         eventSequence: this.events.latestSequence(sessionId),
         isStreaming,
         model: session.model
@@ -107,6 +110,7 @@ class PiService {
       ? this.events.latestTurnStartSequence(sessionId)
       : 0;
     return {
+      contextUsage: session.getContextUsage() ?? null,
       cursor: 0,
       eventSequence: this.events.latestSequence(sessionId),
       hasMore: false,
@@ -126,6 +130,12 @@ class PiService {
       sessionId: session.sessionId,
       thinkingLevel: session.thinkingLevel,
     };
+  }
+
+  /** Current context-window usage from the live session, if any. */
+  async contextUsage({ sessionId, cwd, sessionPath }) {
+    const session = await this.ensure(sessionId, cwd, sessionPath);
+    return session.getContextUsage() ?? null;
   }
 
   /** Notify subscribers when the session JSONL changes on disk (e.g. TUI). */
@@ -177,7 +187,9 @@ class PiService {
       await this.sessionWorkspace.resolveExisting(sessionPath);
     const { SessionManager } = await this.sdk;
     const manager = SessionManager.open(resolvedSessionPath);
-    const history = createHistorySnapshot(sessionHistoryMessages(manager));
+    const history = createHistorySnapshot(sessionHistoryMessages(manager), {
+      running: this.sessions.get(sessionId)?.isStreaming ?? false,
+    });
     this.history.set(sessionId, history);
     const totalTurns = history.turnStarts.length;
     const knownTurns = Number(turnCount) || 0;
@@ -208,6 +220,7 @@ class PiService {
   async models() {
     const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
     return (await (await this.runtime()).getAvailable()).map((model) => ({
+      contextWindow: model.contextWindow,
       id: model.id,
       name: model.name || model.id,
       provider: model.provider,
@@ -261,6 +274,49 @@ class PiService {
       throw new Error("Open a session first");
     }
     session.setThinkingLevel(level);
+  }
+
+  async branch(sessionId, entryId) {
+    const session = await this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error("Open a session first");
+    }
+    if (!session.isIdle) {
+      throw new Error(
+        "Wait for the current response to finish before branching"
+      );
+    }
+    let targetId = entryId;
+    if (entryId.startsWith("turn:")) {
+      const targetIndex = Number(entryId.slice(5));
+      let turnIndex = -1;
+      for (const entry of session.sessionManager.getBranch()) {
+        if (entry.type === "message" && entry.message?.role === "user") {
+          turnIndex += 1;
+          if (turnIndex > targetIndex) {
+            break;
+          }
+        }
+        if (turnIndex === targetIndex) {
+          targetId = entry.id;
+        }
+      }
+    }
+    const result = await session.navigateTree(targetId, { summarize: false });
+    if (result.cancelled) {
+      return { cancelled: true };
+    }
+    const history = createHistorySnapshot(
+      sessionHistoryMessages(session.sessionManager),
+      { running: session.isStreaming }
+    );
+    this.history.set(sessionId, history);
+    return {
+      ...historyPage(history),
+      cancelled: false,
+      editorText: result.editorText,
+      outline: history.metas,
+    };
   }
 
   async prompt({ sessionId, message, cwd, sessionPath, requestId, images }) {
@@ -356,6 +412,21 @@ class PiService {
           providerId,
         }),
       prompt: (prompt) => {
+        const deviceCodeOption = prompt.options?.find((option) =>
+          ["device_code", "device-code"].includes(option.id)
+        );
+        if (prompt.type === "select" && deviceCodeOption) {
+          this.events.append("__providers", {
+            event: {
+              message:
+                "Using device-code OAuth so the browser can return to this server.",
+              type: "info",
+            },
+            kind: "notify",
+            providerId,
+          });
+          return Promise.resolve(deviceCodeOption.id);
+        }
         const requestId = crypto.randomUUID();
         this.events.append("__providers", {
           kind: "prompt",

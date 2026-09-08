@@ -12,6 +12,7 @@ export interface UserMessage {
   id: string;
   images?: ImageContent[];
   role: "user";
+  sessionEntryId?: string;
   text: string;
   timestamp?: number;
   turnEnd?: boolean;
@@ -23,6 +24,7 @@ export interface AssistantMessage {
   durationMs?: number;
   id: string;
   role: "assistant";
+  sessionEntryId?: string;
   text: string;
   timestamp?: number;
   turnEnd?: boolean;

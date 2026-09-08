@@ -21,6 +21,7 @@ const {
 } = require("./agent-config.cjs");
 const { TerminalService } = require("./terminal-service.cjs");
 const { fetchQuotas } = require("./quotas.cjs");
+const { sessionCost, sessionMarkdown } = require("./session-metadata.cjs");
 
 const workspace = createWorkspaceGuard(config.workspaceRoots);
 const sessionWorkspace = createWorkspaceGuard([config.sessionRoot]);
@@ -266,6 +267,49 @@ async function projectRoutes(req, res, url) {
     });
     return true;
   }
+  if (route(req, url, "POST", "/api/v1/sessions/rename")) {
+    const input = await body(req);
+    const sessionPath = await sessionWorkspace.resolveExisting(input.path);
+    const { SessionManager } = await pi.sdk;
+    SessionManager.open(sessionPath).appendSessionInfo(
+      String(input.name).trim()
+    );
+    json(res, 200, { ok: true });
+    return true;
+  }
+  if (route(req, url, "POST", "/api/v1/sessions/clone")) {
+    const input = await body(req);
+    const sessionPath = await sessionWorkspace.resolveExisting(input.path);
+    const { SessionManager } = await pi.sdk;
+    const manager = SessionManager.open(sessionPath);
+    json(res, 200, {
+      path: manager.createBranchedSession(manager.getLeafId()),
+    });
+    return true;
+  }
+  if (route(req, url, "GET", "/api/v1/sessions/context")) {
+    const sessionPath = await sessionWorkspace.resolveExisting(
+      url.searchParams.get("path")
+    );
+    const { SessionManager } = await pi.sdk;
+    json(res, 200, {
+      markdown: sessionMarkdown(SessionManager.open(sessionPath)),
+    });
+    return true;
+  }
+  if (route(req, url, "GET", "/api/v1/sessions/details")) {
+    const sessionPath = await sessionWorkspace.resolveExisting(
+      url.searchParams.get("path")
+    );
+    const cwd = await workspace.resolveExisting(url.searchParams.get("cwd"));
+    const { SessionManager } = await pi.sdk;
+    const branchOutput = String(await git(["branch", "--show-current"], cwd));
+    json(res, 200, {
+      branch: gitErrorPrefix.test(branchOutput) ? "" : branchOutput.trim(),
+      cost: sessionCost(SessionManager.open(sessionPath)),
+    });
+    return true;
+  }
   return false;
 }
 
@@ -291,6 +335,10 @@ async function piRoutes(req, res, url) {
     json(res, 200, await pi.commands(await body(req)));
     return true;
   }
+  if (route(req, url, "POST", "/api/v1/pi/context-usage")) {
+    json(res, 200, await pi.contextUsage(await body(req)));
+    return true;
+  }
   if (route(req, url, "POST", "/api/v1/pi/model")) {
     const input = await body(req);
     await pi.setModel(input.sessionId, input.provider, input.modelId);
@@ -301,6 +349,11 @@ async function piRoutes(req, res, url) {
     const input = await body(req);
     await pi.setThinking(input.sessionId, input.level);
     json(res, 200, { ok: true });
+    return true;
+  }
+  if (route(req, url, "POST", "/api/v1/pi/branch")) {
+    const input = await body(req);
+    json(res, 200, await pi.branch(input.sessionId, input.entryId));
     return true;
   }
   if (route(req, url, "POST", "/api/v1/pi/prompt")) {

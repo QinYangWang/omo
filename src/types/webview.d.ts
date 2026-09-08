@@ -50,12 +50,22 @@ interface PiSession {
   path: string;
 }
 
+/** Current context-window usage reported by the pi session. */
+interface PiContextUsage {
+  contextWindow: number;
+  /** Context usage as percentage of the window, null when tokens are unknown. */
+  percent: number | null;
+  /** Estimated context tokens, null when unknown (e.g. right after compaction). */
+  tokens: number | null;
+}
+
 interface AgentSkillInfo {
   description: string;
   filePath: string;
   name: string;
 }
 interface AgentModelInfo {
+  contextWindow: number;
   enabled: boolean;
   id: string;
   name: string;
@@ -172,6 +182,21 @@ interface omoApi {
     remove: (source: string) => Promise<AgentPackageInfo[]>;
   };
   pi: {
+    branch: (
+      sessionId: string,
+      entryId: string
+    ) => Promise<{
+      cancelled: boolean;
+      cursor?: number;
+      editorText?: string;
+      hasMore?: boolean;
+      messages?: unknown[];
+      outline?: {
+        absoluteIndex: number;
+        id: string;
+        userPreview: string;
+      }[];
+    }>;
     open: (
       sessionId: string,
       cwd: string,
@@ -185,11 +210,17 @@ interface omoApi {
         id: string;
         userPreview: string;
       }[];
+      contextUsage?: PiContextUsage | null;
       model?: { id: string; provider: string; name: string } | null;
       thinkingLevel?: string;
       isStreaming?: boolean;
       replayFromSequence?: number;
     }>;
+    contextUsage: (
+      sessionId: string,
+      cwd: string,
+      sessionPath?: string
+    ) => Promise<PiContextUsage | null>;
     history: (
       sessionId: string,
       before: number
@@ -237,7 +268,7 @@ interface omoApi {
   providers: {
     quotas: (
       force?: boolean
-    ) => Promise<{ installed: boolean; items: QuotaItem[] }>;
+    ) => Promise<{ installed: boolean; items: QuotaItem[]; stale?: boolean }>;
     list: () => Promise<ProviderInfo[]>;
     login: (providerId: string, type: "api_key" | "oauth") => Promise<boolean>;
     respond: (requestId: string, value: string) => Promise<boolean>;
@@ -246,9 +277,16 @@ interface omoApi {
     onAuthEvent: (cb: (event: ProviderAuthEvent) => void) => () => void;
   };
   sessions: {
-    list: (cwd: string) => Promise<PiSession[]>;
     all: () => Promise<PiSession[]>;
+    clone: (sessionPath: string) => Promise<string>;
+    context: (sessionPath: string) => Promise<string>;
+    details: (
+      sessionPath: string,
+      cwd: string
+    ) => Promise<{ branch: string; cost: number }>;
     import: (sourcePath: string, cwd: string) => Promise<string>;
+    list: (cwd: string) => Promise<PiSession[]>;
+    rename: (sessionPath: string, name: string) => Promise<boolean>;
   };
   skills: {
     list: () => Promise<AgentSkillInfo[]>;

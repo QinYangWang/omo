@@ -13,6 +13,10 @@ const os = require("node:os");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const { spawn, execFile } = require("node:child_process");
+const {
+  sessionCost,
+  sessionMarkdown,
+} = require("../server/session-metadata.cjs");
 let displayMessagesModule;
 let agentConfigModule;
 let quotasModule;
@@ -38,6 +42,26 @@ const createHistorySnapshot = (...args) =>
 const historyPage = (...args) => getDisplayMessages().historyPage(...args);
 const sessionHistoryMessages = (...args) =>
   getDisplayMessages().sessionHistoryMessages(...args);
+const resolveBranchTarget = (manager, entryId) => {
+  if (!entryId.startsWith("turn:")) {
+    return entryId;
+  }
+  const targetIndex = Number(entryId.slice(5));
+  let targetId = entryId;
+  let turnIndex = -1;
+  for (const entry of manager.getBranch()) {
+    if (entry.type === "message" && entry.message?.role === "user") {
+      turnIndex += 1;
+      if (turnIndex > targetIndex) {
+        break;
+      }
+    }
+    if (turnIndex === targetIndex) {
+      targetId = entry.id;
+    }
+  }
+  return targetId;
+};
 const installPackage = (...args) => getAgentConfig().installPackage(...args);
 const listModels = (...args) => getAgentConfig().listModels(...args);
 const listPackages = (...args) => getAgentConfig().listPackages(...args);
@@ -299,16 +323,18 @@ function createWindow() {
   });
   // pi SDK: direct AgentSession, no subprocess/protocol
   ipcMain.handle("pi:open", async (_e, { sessionId, cwd, sessionPath }) => {
-    const { SessionManager } = await getSdk();
     if (sessionPath) {
       watchSessionFile(sessionId, sessionPath);
-      const manager = SessionManager.open(sessionPath);
-      const history = createHistorySnapshot(sessionHistoryMessages(manager));
+      const session = await ensurePi(sessionId, cwd, sessionPath);
+      const history = createHistorySnapshot(
+        sessionHistoryMessages(session.sessionManager),
+        { running: session.isStreaming }
+      );
       historyPages.set(sessionId, history);
       const page = historyPage(history);
-      const session = await ensurePi(sessionId, cwd, sessionPath);
       return {
         ...page,
+        contextUsage: session.getContextUsage() ?? null,
         isStreaming: session.isStreaming,
         model: session.model
           ? {
@@ -319,12 +345,13 @@ function createWindow() {
           : null,
         outline: history.metas,
         sessionFile: sessionPath,
-        sessionId: manager.getSessionId(),
+        sessionId: session.sessionId,
         thinkingLevel: session.thinkingLevel,
       };
     }
     const session = await ensurePi(sessionId, cwd);
     return {
+      contextUsage: session.getContextUsage() ?? null,
       cursor: 0,
       hasMore: false,
       isStreaming: session.isStreaming,
@@ -341,12 +368,28 @@ function createWindow() {
       thinkingLevel: session.thinkingLevel,
     };
   });
+  ipcMain.handle(
+    "pi:context-usage",
+    async (_e, { sessionId, cwd, sessionPath }) => {
+      const session = await ensurePi(sessionId, cwd, sessionPath);
+      return session.getContextUsage() ?? null;
+    }
+  );
   ipcMain.handle("pi:models", async () => {
     const runtime = await getModelRuntime();
+    const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
     return (await runtime.getAvailable()).map((model) => ({
+      contextWindow: model.contextWindow,
       id: model.id,
       name: model.name || model.id,
       provider: model.provider,
+      reasoning: !!model.reasoning,
+      thinkingLevels: model.reasoning
+        ? levels.filter(
+            (level) =>
+              level === "off" || model.thinkingLevelMap?.[level] !== null
+          )
+        : ["off"],
     }));
   });
   ipcMain.handle("pi:commands", async (_e, { sessionId, cwd, sessionPath }) => {
@@ -397,6 +440,34 @@ function createWindow() {
     }
     session.setThinkingLevel(level);
   });
+  ipcMain.handle("pi:branch", async (_e, { sessionId, entryId }) => {
+    retainSession(sessionId);
+    const session = await piSessions.get(sessionId);
+    if (!session) {
+      throw new Error("Open a session first");
+    }
+    if (!session.isIdle) {
+      throw new Error(
+        "Wait for the current response to finish before branching"
+      );
+    }
+    const targetId = resolveBranchTarget(session.sessionManager, entryId);
+    const result = await session.navigateTree(targetId, { summarize: false });
+    if (result.cancelled) {
+      return { cancelled: true };
+    }
+    const history = createHistorySnapshot(
+      sessionHistoryMessages(session.sessionManager),
+      { running: session.isStreaming }
+    );
+    historyPages.set(sessionId, history);
+    return {
+      ...historyPage(history),
+      cancelled: false,
+      editorText: result.editorText,
+      outline: history.metas,
+    };
+  });
   ipcMain.handle("pi:history", (_e, { sessionId, before }) => {
     retainSession(sessionId);
     return historyPage(
@@ -409,7 +480,10 @@ function createWindow() {
     async (_e, { sessionId, sessionPath, turnCount, tailItemCount }) => {
       const { SessionManager } = await getSdk();
       const manager = SessionManager.open(sessionPath);
-      const history = createHistorySnapshot(sessionHistoryMessages(manager));
+      const session = piSessions.get(sessionId);
+      const history = createHistorySnapshot(sessionHistoryMessages(manager), {
+        running: session?.isStreaming ?? false,
+      });
       historyPages.set(sessionId, history);
       const totalTurns = history.turnStarts.length;
       const knownTurns = Number(turnCount) || 0;
@@ -496,19 +570,37 @@ function createWindow() {
   ipcMain.handle("skills:list", () => listSkills(agentDir));
   ipcMain.handle("models:list", async () => {
     const runtime = await getModelRuntime();
+    const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
     const available = (await runtime.getAvailable()).map((model) => ({
+      contextWindow: model.contextWindow,
       id: model.id,
       name: model.name || model.id,
       provider: model.provider,
+      reasoning: !!model.reasoning,
+      thinkingLevels: model.reasoning
+        ? levels.filter(
+            (level) =>
+              level === "off" || model.thinkingLevelMap?.[level] !== null
+          )
+        : ["off"],
     }));
     return listModels(agentDir, available);
   });
   ipcMain.handle("models:set-enabled", async (_e, { enabled }) => {
     const runtime = await getModelRuntime();
+    const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
     const available = (await runtime.getAvailable()).map((model) => ({
+      contextWindow: model.contextWindow,
       id: model.id,
       name: model.name || model.id,
       provider: model.provider,
+      reasoning: !!model.reasoning,
+      thinkingLevels: model.reasoning
+        ? levels.filter(
+            (level) =>
+              level === "off" || model.thinkingLevelMap?.[level] !== null
+          )
+        : ["off"],
     }));
     return setModelsEnabled(agentDir, available, enabled);
   });
@@ -761,6 +853,28 @@ function createWindow() {
     const { SessionManager } = await getSdk();
     const manager = SessionManager.forkFrom(sourcePath, cwd);
     return manager.getSessionFile();
+  });
+  ipcMain.handle("sessions:rename", async (_e, { sessionPath, name }) => {
+    const { SessionManager } = await getSdk();
+    SessionManager.open(sessionPath).appendSessionInfo(String(name).trim());
+    return true;
+  });
+  ipcMain.handle("sessions:clone", async (_e, { sessionPath }) => {
+    const { SessionManager } = await getSdk();
+    const manager = SessionManager.open(sessionPath);
+    return manager.createBranchedSession(manager.getLeafId());
+  });
+  ipcMain.handle("sessions:context", async (_e, { sessionPath }) => {
+    const { SessionManager } = await getSdk();
+    return sessionMarkdown(SessionManager.open(sessionPath));
+  });
+  ipcMain.handle("sessions:details", async (_e, { sessionPath, cwd }) => {
+    const { SessionManager } = await getSdk();
+    const branch = String(await git(["branch", "--show-current"], cwd));
+    return {
+      branch: gitErrorPrefix.test(branch) ? "" : branch.trim(),
+      cost: sessionCost(SessionManager.open(sessionPath)),
+    };
   });
 
   ipcMain.handle("app:cwd", () => app.getAppPath());

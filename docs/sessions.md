@@ -107,7 +107,11 @@ Virtuoso 设置了 `firstItemIndex={start}`，其公开 API（`scrollToIndex`、
 - **thinking**：默认折叠为一行状态条（Collapsible）。运行中显示「正在思考…」脉冲 + spinner；完成后显示「思考过程」，点击展开内容。
 - **tools**：连续的 tool 项聚合为一个折叠块，标题为「N 次工具调用」；运行中实时显示当前工具名 + spinner，有失败显示失败计数（destructive）。展开后每个工具是独立的二级折叠行（名称 + 输入摘要 + 状态图标），再展开查看 input/output。
 
-用户消息为右对齐气泡，hover 显示时间与复制按钮；assistant 完成后页脚显示耗时和复制全文按钮。Turn 尚无输出且正在 streaming 时显示「正在工作…」。
+用户消息为右对齐气泡，hover 显示时间与复制按钮。Assistant 区域顶部是一条 Marker 状态行（`role="status"`，border 变体带底部分割线）：运行中显示 Spinner +「Working for …s / 已工作 …s」实时计时（以用户消息时间戳为起点每秒刷新），完成后显示真实耗时 `durationMs`；悬停、点击与展开状态均无背景，仅文字在 `muted-foreground` 与 `foreground` 间切换。
+
+点击状态行展开活动列表（与状态行左对齐，无竖线）：思考、连续聚合的工具调用、以及工具调用之间的中间输出文本。只有 Turn 最后一段 assistant 文本作为正文渲染；中间说明文本折叠进活动列表，以 TextIcon + 首行摘要展示，点击展开完整 Markdown。思考与工具子项再点击展开详情（thinking 内容、工具 input/output）。Assistant 完成后页脚只有复制全文按钮和分支按钮（耗时已并入状态行）；分支按钮通过 `AgentSession.navigateTree()` 将活动叶节点移动到该回答，下一条 Prompt 在同一 Session JSONL 中形成新分支。Turn 尚无输出且正在 streaming 时，状态行本身就是「Working…」指示。
+
+打开历史会话时，若 Session 未在运行但存在缺少 toolResult 的工具调用（例如 agent 进程在工具返回前被中断），这些 dangling 工具会被标记为 error 并附中断说明，避免一直显示 running。
 
 ## Pi RenderBlock adapter
 

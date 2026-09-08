@@ -11,6 +11,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function eventStreamCursor(
+  sessionId: string,
+  sequenceKey: string,
+  firstConnection: boolean
+): number {
+  // Provider auth events are transient UI actions. Never replay them on the
+  // initial subscription: doing so launches an old OAuth flow merely by
+  // visiting Settings or switching servers. Reconnects still resume from the
+  // last event so an active flow is not interrupted.
+  if (firstConnection && sessionId === "__providers") {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Number(localStorage.getItem(sequenceKey) || 0);
+}
+
 function eventData(block: string) {
   return block
     .split("\n")
@@ -133,6 +148,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     const controller = new AbortController();
     streams.set(sessionId, controller);
     let retry = 1000;
+    let firstConnection = true;
 
     const connectOnce = async (sequenceKey: string, after: number) => {
       const response = await fetch(
@@ -156,7 +172,12 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     const run = async () => {
       while (!controller.signal.aborted) {
         const sequenceKey = `omo:event-sequence:${base}:${sessionId}`;
-        const after = Number(localStorage.getItem(sequenceKey) || 0);
+        const after = eventStreamCursor(
+          sessionId,
+          sequenceKey,
+          firstConnection
+        );
+        firstConnection = false;
         try {
           // biome-ignore lint/performance/noAwaitInLoops: event streams reconnect sequentially.
           await connectOnce(sequenceKey, after);
@@ -297,8 +318,12 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
       abort: async (sessionId) => {
         await post("/pi/abort", { sessionId });
       },
+      branch: (sessionId, entryId) =>
+        post("/pi/branch", { entryId, sessionId }),
       commands: (sessionId, cwd, sessionPath) =>
         post("/pi/commands", { cwd, sessionId, sessionPath }),
+      contextUsage: (sessionId, cwd, sessionPath) =>
+        post("/pi/context-usage", { cwd, sessionId, sessionPath }),
       history: (sessionId, before) =>
         post("/pi/history", { before, sessionId }),
       models: () => request("/pi/models"),
@@ -317,6 +342,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
             id: string;
             userPreview: string;
           }[];
+          contextUsage?: PiContextUsage | null;
           model?: { id: string; name: string; provider: string } | null;
           thinkingLevel?: string;
           isStreaming?: boolean;
@@ -390,10 +416,25 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     },
     sessions: {
       all: () => request("/sessions/all"),
+      clone: async (sessionPath) =>
+        (await post<{ path: string }>("/sessions/clone", { path: sessionPath }))
+          .path,
+      context: async (sessionPath) =>
+        (
+          await request<{ markdown: string }>(
+            `/sessions/context?${query({ path: sessionPath })}`
+          )
+        ).markdown,
+      details: (sessionPath, cwd) =>
+        request(`/sessions/details?${query({ cwd, path: sessionPath })}`),
       import: async (sourcePath, cwd) =>
         (await post<{ path: string }>("/sessions/import", { cwd, sourcePath }))
           .path,
       list: (cwd) => request(`/sessions?${query({ cwd })}`),
+      rename: async (sessionPath, name) => {
+        await post("/sessions/rename", { name, path: sessionPath });
+        return true;
+      },
     },
     skills: { list: () => request("/skills") },
     term: {

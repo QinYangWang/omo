@@ -3,11 +3,13 @@ import {
   ArrowRight01Icon,
   Cancel01Icon,
   Copy01Icon,
+  GitForkIcon,
+  TextIcon,
   Tick02Icon,
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MarkdownBlock } from "@/components/chat/render-blocks";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +17,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { Spinner } from "@/components/ui/spinner";
 import type { ChatMessage, ConversationTurn } from "@/lib/conversation-turns";
 import { useI18n } from "@/lib/i18n";
@@ -75,14 +78,6 @@ export const formatTime = (timestamp?: number) =>
         weekday: "long",
       }).format(timestamp)
     : "";
-
-export const formatDuration = (ms?: number) => {
-  if (ms === undefined) {
-    return "";
-  }
-  const minutes = ms / 60_000;
-  return minutes < 1 ? "<1 min" : `${Math.round(minutes)} min`;
-};
 
 export const copyToClipboard = async (text: string) => {
   try {
@@ -168,7 +163,7 @@ function ThinkingSegment({
   const [open, setOpen] = useState(false);
   return (
     <Collapsible onOpenChange={setOpen} open={open}>
-      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground">
+      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md py-1.5 text-muted-foreground text-xs hover:bg-transparent hover:text-foreground">
         <HugeiconsIcon className="size-3.5 shrink-0" icon={AiBrain01Icon} />
         <span className={cn(segment.running && "animate-pulse")}>
           {segment.running ? t("turn_thinking_active") : t("turn_thinking")}
@@ -183,8 +178,39 @@ function ThinkingSegment({
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-muted/50 px-3 py-2 text-muted-foreground text-xs leading-5">
+        <div className="mt-1 ml-6 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-muted/50 px-3 py-2 text-muted-foreground text-xs leading-5">
           {segment.text || "…"}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ---------- intermediate text ----------
+
+function IntermediateTextSegment({
+  segment,
+}: {
+  segment: Extract<Segment, { kind: "markdown" }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const preview = segment.text.replace(/\s+/g, " ").trim().slice(0, 120);
+  return (
+    <Collapsible onOpenChange={setOpen} open={open}>
+      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md py-1.5 text-muted-foreground text-xs hover:bg-transparent hover:text-foreground">
+        <HugeiconsIcon className="size-3.5 shrink-0" icon={TextIcon} />
+        <span className="min-w-0 flex-1 truncate text-left">{preview}</span>
+        <HugeiconsIcon
+          className={cn(
+            "ml-auto size-3.5 shrink-0 transition-transform",
+            open && "rotate-90"
+          )}
+          icon={ArrowRight01Icon}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-1 ml-6 max-h-72 overflow-auto rounded-md bg-muted/50 px-3 py-2 text-muted-foreground text-xs leading-5">
+          <MarkdownBlock content={segment.text} />
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -212,7 +238,7 @@ function ToolRow({ tool }: { tool: ToolItem }) {
   const [open, setOpen] = useState(false);
   return (
     <Collapsible onOpenChange={setOpen} open={open}>
-      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent">
+      <CollapsibleTrigger className="flex w-full items-center gap-2 py-1 text-left hover:bg-transparent">
         <HugeiconsIcon
           className={cn(
             "size-3 shrink-0 text-muted-foreground transition-transform",
@@ -228,14 +254,14 @@ function ToolRow({ tool }: { tool: ToolItem }) {
       </CollapsibleTrigger>
       <CollapsibleContent>
         {tool.input ? (
-          <pre className="mx-2 mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">
+          <pre className="mt-1 ml-6 max-h-56 overflow-auto whitespace-pre-wrap rounded bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">
             {tool.input}
           </pre>
         ) : null}
         {tool.output ? (
           <pre
             className={cn(
-              "mx-2 mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/50 px-2 py-1.5 text-[11px]",
+              "mt-1 ml-6 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted/50 px-2 py-1.5 text-[11px]",
               tool.status === "error" && "text-destructive"
             )}
           >
@@ -266,7 +292,7 @@ function ToolsSegment({
   const errors = segment.tools.filter((tool) => tool.status === "error").length;
   return (
     <Collapsible onOpenChange={setOpen} open={open}>
-      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground text-xs hover:bg-accent hover:text-foreground">
+      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md py-1.5 text-muted-foreground text-xs hover:bg-transparent hover:text-foreground">
         <HugeiconsIcon className="size-3.5 shrink-0" icon={Wrench01Icon} />
         <span>{t("turn_tools", { count: String(segment.tools.length) })}</span>
         {runningTool ? (
@@ -299,18 +325,158 @@ function ToolsSegment({
   );
 }
 
+function formatWorkingDuration(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0
+    ? `${minutes}m ${remainingSeconds}s`
+    : `${remainingSeconds}s`;
+}
+
+function ActivityMarker({
+  durationMs,
+  segments,
+  startedAt,
+  streaming,
+}: {
+  durationMs?: number;
+  segments: Segment[];
+  startedAt?: number;
+  streaming?: boolean;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [mountedAt] = useState(Date.now);
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!streaming) {
+      return;
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [streaming]);
+  const elapsed = durationMs ?? Math.max(0, now - (startedAt ?? mountedAt));
+  const hasActivity = segments.length > 0;
+  const label = streaming
+    ? t("turn_working_for", { duration: formatWorkingDuration(elapsed) })
+    : t("turn_worked_for", { duration: formatWorkingDuration(elapsed) });
+  const marker = (
+    <Marker className="pt-2" render={<span />} role="status" variant="border">
+      {streaming ? (
+        <MarkerIcon>
+          <Spinner />
+        </MarkerIcon>
+      ) : null}
+      <MarkerContent className="truncate text-xs">{label}</MarkerContent>
+      {hasActivity ? (
+        <HugeiconsIcon
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90"
+          )}
+          icon={ArrowRight01Icon}
+        />
+      ) : null}
+    </Marker>
+  );
+  if (!hasActivity) {
+    return marker;
+  }
+  return (
+    <Collapsible onOpenChange={setOpen} open={open}>
+      <CollapsibleTrigger
+        className="h-auto w-full items-center justify-start rounded-md px-0 text-muted-foreground hover:bg-transparent hover:text-foreground active:bg-transparent aria-expanded:bg-transparent dark:hover:bg-transparent"
+        render={<Button type="button" variant="ghost" />}
+      >
+        {marker}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-2 flex flex-col gap-1">
+          {segments.map((segment) => {
+            if (segment.kind === "thinking") {
+              return <ThinkingSegment key={segment.id} segment={segment} />;
+            }
+            if (segment.kind === "tools") {
+              return <ToolsSegment key={segment.id} segment={segment} />;
+            }
+            return (
+              <IntermediateTextSegment key={segment.id} segment={segment} />
+            );
+          })}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function AnswerActions({
+  answer,
+  branchEntryId,
+  onBranch,
+  streaming,
+}: {
+  answer: string;
+  branchEntryId: string;
+  onBranch: (entryId: string) => Promise<void>;
+  streaming?: boolean;
+}) {
+  const { t } = useI18n();
+  const [branching, setBranching] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const branch = async () => {
+    setBranching(true);
+    try {
+      await onBranch(branchEntryId);
+    } finally {
+      setBranching(false);
+    }
+  };
+  return (
+    <div className="flex items-center gap-1 px-2 pt-1 text-muted-foreground text-xs">
+      <Button
+        aria-label={copied ? t("turn_copied") : t("turn_copy")}
+        className="size-6 opacity-60 hover:opacity-100"
+        onClick={async () => {
+          await copyToClipboard(answer);
+          setCopied(true);
+        }}
+        size="icon"
+        title={copied ? t("turn_copied") : t("turn_copy")}
+        type="button"
+        variant="ghost"
+      >
+        <HugeiconsIcon icon={copied ? Tick02Icon : Copy01Icon} />
+      </Button>
+      <Button
+        aria-label={t("turn_branch")}
+        className="size-6 opacity-60 hover:opacity-100"
+        disabled={branching || streaming}
+        onClick={branch}
+        size="icon"
+        title={t("turn_branch")}
+        type="button"
+        variant="ghost"
+      >
+        {branching ? <Spinner /> : <HugeiconsIcon icon={GitForkIcon} />}
+      </Button>
+    </div>
+  );
+}
+
 // ---------- turn card ----------
 
 export function TurnCard({
   highlighted,
+  onBranch,
   streaming,
   turn,
 }: {
   highlighted?: boolean;
+  onBranch: (entryId: string) => Promise<void>;
   streaming?: boolean;
   turn: ConversationTurn;
 }) {
-  const { t } = useI18n();
   const segments = toSegments(turn.items);
   const completed = turn.items
     .filter(
@@ -323,6 +489,21 @@ export function TurnCard({
     .filter(Boolean)
     .join("\n\n");
   const lastSegment = segments.at(-1);
+  // Only the final assistant text is shown as the answer body; intermediate
+  // commentary between tool calls is folded into the activity list.
+  const finalMarkdown = [...segments]
+    .reverse()
+    .find((segment) => segment.kind === "markdown");
+  const activitySegments = segments.filter(
+    (segment) => segment !== finalMarkdown
+  );
+  const markdownSegments = finalMarkdown ? [finalMarkdown] : [];
+  const branchEntryId =
+    completed?.sessionEntryId ?? `turn:${turn.absoluteIndex}`;
+  const showMarker =
+    streaming ||
+    activitySegments.length > 0 ||
+    completed?.durationMs !== undefined;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-2">
@@ -368,44 +549,33 @@ export function TurnCard({
             </div>
           </div>
         ) : null}
-        <div className="flex flex-col gap-1 px-2 pt-1 pb-2 text-[15px] leading-relaxed">
-          {segments.map((segment) => {
-            if (segment.kind === "thinking") {
-              return <ThinkingSegment key={segment.id} segment={segment} />;
-            }
-            if (segment.kind === "tools") {
-              return <ToolsSegment key={segment.id} segment={segment} />;
-            }
-            return (
+        <div className="px-2 pt-1 pb-2 text-[15px] leading-relaxed">
+          {showMarker ? (
+            <ActivityMarker
+              durationMs={completed?.durationMs}
+              segments={activitySegments}
+              startedAt={turn.user.timestamp}
+              streaming={streaming}
+            />
+          ) : null}
+          <div className={cn("flex flex-col gap-1", showMarker && "mt-3")}>
+            {markdownSegments.map((segment) => (
               <div key={segment.id}>
                 <MarkdownBlock content={segment.text} />
                 {streaming && segment === lastSegment ? (
                   <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-foreground/70 align-text-bottom" />
                 ) : null}
               </div>
-            );
-          })}
-          {streaming && !segments.length ? (
-            <div className="flex items-center gap-2 px-2 py-1.5 text-muted-foreground text-xs">
-              <Spinner className="size-3" />
-              <span className="animate-pulse">{t("turn_working")}</span>
-            </div>
-          ) : null}
+            ))}
+          </div>
         </div>
         {completed ? (
-          <div className="flex items-center gap-2 px-2 pb-1 text-muted-foreground text-xs">
-            <span>{formatDuration(completed.durationMs)}</span>
-            <Button
-              aria-label="Copy01Icon answer"
-              className="size-6 opacity-60 hover:opacity-100"
-              onClick={() => copyToClipboard(answer).catch(() => undefined)}
-              size="icon"
-              title="Copy01Icon full answer"
-              variant="ghost"
-            >
-              <HugeiconsIcon className="size-3.5" icon={Copy01Icon} />
-            </Button>
-          </div>
+          <AnswerActions
+            answer={answer}
+            branchEntryId={branchEntryId}
+            onBranch={onBranch}
+            streaming={streaming}
+          />
         ) : null}
       </div>
     </div>

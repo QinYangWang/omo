@@ -20,7 +20,7 @@ Base UI 约定：
 ## 组件与主题规范
 
 - 所有 UI 必须使用 `src/components/ui` 中的 shadcn 组件（`Button`、`Input`、`Textarea`、`Select` 等），不要引入裸的 `<button>`/`<input>`/`<textarea>`/`<select>`。自定义布局（列表项、图标按钮、导航项）用 `Button variant="ghost"` + `className` 覆盖实现。例外仅限无语义化替代的原生控件（颜色选择器 `type="color"`、滑块 `type="range"`）和纯视觉指示器（如会话大纲刻度）。
-- 图标统一使用 `@hugeicons/core-free-icons` + `@hugeicons/react`（`<HugeiconsIcon icon={...} />`），不要引入其他图标库；嵌套在 Button 内的图标按钮使用 `nativeButton={false}` + `render={<span />}`。例外：模型 / Provider 品牌图标使用 `@lobehub/icons`（经 `src/components/provider-icon.tsx` 的 `ProviderIcon` / `ProviderAvatar`），渲染在固定品牌色底块上，不使用 CDN 图片。
+- 图标统一使用 `@hugeicons/core-free-icons` + `@hugeicons/react`（`<HugeiconsIcon icon={...} />`），不要引入其他图标库；嵌套在 Button 内的图标按钮使用 `nativeButton={false}` + `render={<span />}`。例外：模型 / Provider 品牌图标使用 `@thesvg/react`（经 `src/components/provider-icon.tsx` 的 `ProviderIcon` / `ProviderAvatar`），强制黑白单色（mono/light/wordmarkLight 变体或 CSS 强制 `fill-current`），无映射时用大写首字母兜底，不使用 CDN 图片。
 - 颜色一律使用语义化 CSS 变量（`foreground`、`muted-foreground`、`accent`、`destructive`、`success`、`warning`、`info`、`sidebar-*` 等），禁止硬编码调色板类（`text-red-400`、`bg-emerald-500`）或十六进制色值，保证 Appearance 的主题编辑器（`src/lib/theme.tsx` + `src/lib/theme-tokens.ts`）能统一控制所有样式。
 - 新增可定制 token 时同步加入 `themeTokenGroups`。
 - 终端等 canvas 表面不支持 CSS 变量，从 `getComputedStyle` 读取后用 `normalizeColorToHex()` 转换。
@@ -90,6 +90,8 @@ Markdown 使用 React Markdown AST、shadcn/typeset 与 AICSS `TextResponse` 渲
 
 Prompt 输入框基于 AICSS `AI Agent Input` registry 原版视觉重构为受控的 shadcn `InputGroup` 组合：使用 20px 圆角、轻量 hairline 与低对比阴影，输入正文采用 14px / 22px 排版，底部操作使用 28px 圆形按钮。项目、运行模式和分支位于卡片外的上下文行；模型与 Thinking 使用同一套 28px 胶囊控件，统一背景、圆角、hover、focus 与展开状态，并与附件、提交动作共同位于卡片内的底部操作区。Thinking 的显示名称使用本地化产品文案，提交值继续保持 Pi Agent 原始枚举。registry 示例中的演示模型、假技能、模拟“增强提示词”请求和自维护状态不会进入业务组件。
 
+Thinking 选择器右侧是上下文用量环（`/pi/context-usage` 或 IPC `pi:context-usage`，数据来自 Pi `AgentSession.getContextUsage()` 估算的 `ContextUsage { tokens, contextWindow, percent }`）：28px 圆钮内环形进度，< 70% 用 `muted-foreground`、70–90% 用 `warning`、≥ 90% 用 `destructive`，tooltip 显示 “已用 K / 总 K · %”；会话切换时拉取一次，每轮结束（streaming 由 true 变 false）后刷新，compaction 后 token 未知时显示空环与“上下文用量未知”。最近一次用量按会话缓存在模块级 Map，切回会话直接复用上次数值，不会再出现空环闪烁。
+
 Prompt 输入框保留图片粘贴、`@` 文件补全和 `/` 命令补全；AICSS 原版“＋”菜单提供图片选择与工作区文件入口，工作区文件入口通过插入 `@` 复用真实补全流程。`@` 补全插入的 `@path` 即会话里的文件引用：提交时文本文件不再读取内容内联到 prompt（不生成 `<file>…内容…</file>`），而是把 `@path` 原样作为引用地址，由 agent 用自己的文件工具（`read`/`grep` 等）自行读取；只有图片附件才在提交时读回内容并以 image 附件传给模型。`@` 与 `/` 补全窗使用和输入框一致的 AICSS 弹层语言：不透明 `popover` 背景、10px 外圆角、7px 选项圆角、3px 内边距、紧凑行高与低对比层叠阴影，同时保留方向键、Enter/Tab 和 Esc 键盘行为。命令项只展示 `/命令名`，不显示前置斜杠图标；命令说明通过 hover 或键盘聚焦 Tooltip 展示。`InputGroupTextarea` 必须先于 block addon 出现在 DOM 中，以保持 shadcn 的焦点管理与键盘语义。
 
 模型按 Provider 分组；Provider 标题可点击展开或收起。切换模型时若当前思考强度超出新模型的 `thinkingLevels` 支持范围，自动降为该模型支持的最高档位（并同步 `pi.setThinking`），避免选择器丢选中。模型选择弹层使用不透明 `popover` 背景，宽度限制为 `min(14.375rem, 视口可用宽度)`，相较上一版增加 25%，最大高度不超过 `min(17.5rem, 47vh)`；默认展开当前模型所属 Provider，搜索时展开匹配分组。外框使用 10px 圆角，搜索框按 3px inset 使用同心的 7px 圆角。搜索框固定在弹层顶部，通过分割线与 Provider 列表分区，只有搜索框下方的 Provider 与模型列表滚动；关闭或完成选择后清空搜索。模型行不重复显示 Provider 图标，Provider 标题负责表达分组归属；超长模型名显示省略号，并通过原生 `title` 在 hover 时展示完整名称。Trigger 始终显示会话当前生效的模型（来自 `pi.open` 返回的会话模型）：当该模型不在已启用列表中时，选择器合成一个兜底条目如实显示，而不是回落到占位符；Provider 图标以 14px 品牌色底块显示在模型名前。
@@ -102,7 +104,7 @@ Prompt 输入框整体宽度与消息正文一致（`mx-auto max-w-3xl`），不
 - 当前会话始终可见，即使它不在默认的前 5 条中。
 - 顶部入口按钮与项目行、会话行左侧对齐（icon 对齐 PROJECTS 标题，会话名文字保持缩进，但 hover/选中背景与项目行左缘对齐）。
 - “导入会话”与项目行“新会话”按钮只在 hover 或键盘聚焦时显示；PROJECTS 行的添加按钮常显但保持低对比。
-- 会话标题保持单行省略，完整内容通过原生 title 提示查看；置顶/归档按钮以绝对定位浮在标题上方，不压缩标题宽度，只在 hover/聚焦时淡入（无叠加底色）。hover 时标题收缩到按钮组左侧，超出部分以 marquee 动画来回滚动展示（`--marquee-dist` 由 hover 时实测溢出宽度计算）。置顶行的置顶按钮固定在行左侧（实心图标，点击取消置顶），置顶时不显示归档按钮；归档按钮只在 hover/聚焦时出现，选中态也不例外。
+- 会话行左侧固定位置是置顶/取消置顶按钮（置顶时常显实心图标，未置顶时 hover/聚焦淡入）；右侧悬停区同一位置显示进行中 Spinner 或 `MoreHorizontalCircle02Icon` 操作菜单（重命名、克隆、复制上下文、归档，均带图标）。会话名 hover 弹出 HoverCard，显示会话 ID、Git 分支、工作目录（local/worktree）与累计 cost。重命名写入 Session 的 `session_info`；克隆在当前 cwd 下创建包含当前分支的新 Session 文件并选中；复制上下文将当前分支导出为 Markdown。hover 时标题以 marquee 动画来回滚动展示（`--marquee-dist` 由 hover 时实测溢出宽度计算）。
 - 置顶会话固定在项目内最前，按创建时间从新到旧排序；归档会话从侧边栏隐藏，可在设置「已归档」恢复。
 
 ## 右侧面板

@@ -10,6 +10,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { AddProjectDialog } from "@/components/AddProjectDialog";
 import { ChatView } from "@/components/ChatView";
 import { Sidebar } from "@/components/Sidebar";
+import { SessionActions } from "@/components/session-actions";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { omo } from "@/lib/omo";
@@ -19,6 +20,7 @@ import {
   type OmoServer,
   useServers,
 } from "@/lib/servers";
+import { sessionKey, setSessionPref } from "@/lib/session-prefs";
 import { useTheme } from "@/lib/theme";
 import { normalizeColorToHex } from "@/lib/theme-tokens";
 import { cn, randomUUID } from "@/lib/utils";
@@ -76,6 +78,18 @@ function useTitleBarOverlay(theme: "dark" | "light" | "system") {
   }, [theme]);
 }
 
+function dedupeSessions(items: PiSession[]): PiSession[] {
+  const unique = new Map<string, PiSession>();
+  for (const session of items) {
+    const key = session.id || session.path;
+    const current = unique.get(key);
+    if (!current || session.modified > current.modified) {
+      unique.set(key, session);
+    }
+  }
+  return [...unique.values()];
+}
+
 async function loadTaggedProjects(servers: OmoServer[]): Promise<Project[]> {
   const results = await Promise.all(
     servers.map(async (server) => {
@@ -92,7 +106,11 @@ async function loadTaggedProjects(servers: OmoServer[]): Promise<Project[]> {
       }
     })
   );
-  return results.flat();
+  const unique = new Map<string, Project>();
+  for (const project of results.flat()) {
+    unique.set(`${project.serverId}:${project.cwd}`, project);
+  }
+  return [...unique.values()];
 }
 
 async function loadSessionMap(
@@ -102,9 +120,9 @@ async function loadSessionMap(
   await Promise.all(
     tagged.map(async (project) => {
       try {
-        nextSessions[project.id] = await getServerApi(
-          project.serverId
-        ).sessions.list(project.cwd);
+        nextSessions[project.id] = dedupeSessions(
+          await getServerApi(project.serverId).sessions.list(project.cwd)
+        );
       } catch (error) {
         console.warn(`Unable to list sessions of ${project.name}`, error);
       }
@@ -212,7 +230,7 @@ export default function App() {
     loadWidth("omo.layout.sidebarW", 310)
   );
   const [convW, setConvW] = useState(() => loadWidth("omo.layout.convW", 460));
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState<boolean>(() => false);
   const [collapsed, setCollapsed] = useState(false);
   const isMac = macPlatformPattern.test(navigator.platform);
   const { t } = useI18n();
@@ -243,8 +261,9 @@ export default function App() {
     const list = await getServerApi(project.serverId).sessions.list(
       project.cwd
     );
-    setSessions((current) => ({ ...current, [project.id]: list }));
-    return list;
+    const unique = dedupeSessions(list);
+    setSessions((current) => ({ ...current, [project.id]: unique }));
+    return unique;
   }, []);
 
   // pi writes the session JSONL asynchronously (often only once the first
@@ -314,6 +333,44 @@ export default function App() {
     localStorage.setItem("omo.layout.convW", String(convW));
   }, [convW]);
 
+  const activeProject = projects.find((item) => item.id === active?.projectId);
+  const activeSessionInfo = activeProject
+    ? (sessions[activeProject.id] ?? []).find(
+        (item) => item.path === active?.path || item.id === active?.key
+      )
+    : undefined;
+
+  const sessionChanged = async (
+    project: Project,
+    sessionPath: string,
+    name?: string
+  ) => {
+    await refreshSessions(project);
+    if (name) {
+      setActive((current) =>
+        current?.projectId === project.id && current.path === sessionPath
+          ? { ...current, title: name }
+          : current
+      );
+    }
+  };
+
+  const sessionCloned = async (project: Project, path: string) => {
+    const list = await refreshSessions(project);
+    const cloned = list.find((item) => item.path === path);
+    if (cloned) {
+      setActive({
+        cwd: project.cwd,
+        key: cloned.id,
+        path: cloned.path,
+        project: project.name,
+        projectId: project.id,
+        serverId: project.serverId,
+        title: cloned.name || cloned.firstMessage || t("new_session"),
+      });
+    }
+  };
+
   const headerNavigation = (
     <HeaderNav
       collapsed={collapsed}
@@ -321,9 +378,11 @@ export default function App() {
     />
   );
 
+  // 0.75rem puts the collapse button's centered icon on the same vertical
+  // line as the sidebar icon column (px-3 container + px-2 row).
   const titlebarLeftPadding = isMac
-    ? "max(0.5rem, calc(env(titlebar-area-x, 68px) + 0.5rem))"
-    : "0.5rem";
+    ? "max(0.75rem, calc(env(titlebar-area-x, 68px) + 0.5rem))"
+    : "0.75rem";
   const titlebarRightPadding = isMac
     ? "0.5rem"
     : "max(0.5rem, calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 0px) + 0.5rem))";
@@ -406,6 +465,20 @@ export default function App() {
                       "Untitled session",
                   })
                 }
+                onSessionsChanged={async (
+                  project,
+                  clonedPath,
+                  renamedPath,
+                  name
+                ) => {
+                  if (clonedPath) {
+                    await sessionCloned(project, clonedPath);
+                  } else if (renamedPath) {
+                    await sessionChanged(project, renamedPath, name);
+                  } else {
+                    await refreshSessions(project);
+                  }
+                }}
                 projects={projects}
                 sessions={sessions}
               />
@@ -440,9 +513,44 @@ export default function App() {
                 className="size-4 shrink-0 text-muted-foreground"
                 icon={Folder01Icon}
               />
-              <span className="min-w-0 flex-1 truncate font-medium text-sm">
-                {active ? active.title || t("new_session") : null}
-              </span>
+              <div className="flex min-w-0 items-center gap-0.5">
+                <span className="min-w-0 max-w-[min(28rem,50vw)] truncate font-medium text-sm">
+                  {active ? active.title || t("new_session") : null}
+                </span>
+                {activeProject && activeSessionInfo ? (
+                  <SessionActions
+                    className="size-7 shrink-0"
+                    onArchived={() => {
+                      setSessionPref(
+                        sessionKey(
+                          activeProject.serverId,
+                          activeSessionInfo.path
+                        ),
+                        {
+                          archived: true,
+                          project: activeProject.name,
+                          title:
+                            activeSessionInfo.name ||
+                            activeSessionInfo.firstMessage ||
+                            t("untitled"),
+                        }
+                      );
+                      setActive(null);
+                    }}
+                    onChanged={(name) =>
+                      sessionChanged(
+                        activeProject,
+                        activeSessionInfo.path,
+                        name
+                      )
+                    }
+                    onCloned={(path) => sessionCloned(activeProject, path)}
+                    project={activeProject}
+                    session={activeSessionInfo}
+                  />
+                ) : null}
+              </div>
+              <span className="min-w-0 flex-1" />
               <Button
                 aria-label="Toggle workspace"
                 aria-pressed={panelOpen}

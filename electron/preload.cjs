@@ -33,8 +33,12 @@ contextBridge.exposeInMainWorld("omo", {
   },
   pi: {
     abort: (sessionId) => ipcRenderer.invoke("pi:abort", { sessionId }),
+    branch: (sessionId, entryId) =>
+      ipcRenderer.invoke("pi:branch", { entryId, sessionId }),
     commands: (sessionId, cwd, sessionPath) =>
       ipcRenderer.invoke("pi:commands", { cwd, sessionId, sessionPath }),
+    contextUsage: (sessionId, cwd, sessionPath) =>
+      ipcRenderer.invoke("pi:context-usage", { cwd, sessionId, sessionPath }),
     history: (sessionId, before) =>
       ipcRenderer.invoke("pi:history", { before, sessionId }),
     models: () => ipcRenderer.invoke("pi:models"),
@@ -89,9 +93,17 @@ contextBridge.exposeInMainWorld("omo", {
   },
   sessions: {
     all: () => ipcRenderer.invoke("sessions:all"),
+    clone: (sessionPath) =>
+      ipcRenderer.invoke("sessions:clone", { sessionPath }),
+    context: (sessionPath) =>
+      ipcRenderer.invoke("sessions:context", { sessionPath }),
+    details: (sessionPath, cwd) =>
+      ipcRenderer.invoke("sessions:details", { cwd, sessionPath }),
     import: (sourcePath, cwd) =>
       ipcRenderer.invoke("sessions:import", { cwd, sourcePath }),
     list: (cwd) => ipcRenderer.invoke("sessions:list", cwd),
+    rename: (sessionPath, name) =>
+      ipcRenderer.invoke("sessions:rename", { name, sessionPath }),
   },
   skills: { list: () => ipcRenderer.invoke("skills:list") },
   term: {

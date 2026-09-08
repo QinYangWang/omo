@@ -91,6 +91,10 @@ import {
 import { useI18n } from "@/lib/i18n";
 import { adaptPiEvent, adaptPiMessages } from "@/lib/pi-adapter";
 import { getServerApi } from "@/lib/servers";
+import {
+  isSessionStreaming,
+  setSessionStreaming,
+} from "@/lib/session-streaming";
 import { cn, randomUUID } from "@/lib/utils";
 
 interface ActiveSession {
@@ -166,7 +170,15 @@ const imageMimeTypes: Record<string, string> = {
 const windows = new Map<string, TurnWindow>();
 const windowAccess = new Map<string, number>();
 const MAX_CACHED_SESSION_WINDOWS = 12;
-const streamingSessions = new Map<string, boolean>();
+// Remember the session's model/thinking so returning to a cached window
+// restores the same model instead of falling back to the default one.
+const sessionMetaCache = new Map<
+  string,
+  { model?: string; thinking?: string }
+>();
+// Last known context usage per session; prevents the usage ring from
+// flashing empty when switching back to a session.
+const contextUsageCache = new Map<string, PiContextUsage | null>();
 const sessionListeners = new Map<string, Set<() => void>>();
 const fileSyncListeners = new Map<string, Set<() => void>>();
 const apiEventSubscriptions = new WeakMap<omoApi, () => void>();
@@ -194,7 +206,7 @@ function cacheWindow(cacheKey: string, value: TurnWindow) {
     .filter(
       ([key]) =>
         key !== cacheKey &&
-        !streamingSessions.get(key) &&
+        !isSessionStreaming(key) &&
         !sessionListeners.get(key)?.size
     )
     .sort((left, right) => left[1] - right[1]);
@@ -235,7 +247,7 @@ function ensureApiEventBridge(api: omoApi, serverId: string) {
       event,
       cacheKey,
       (value) => {
-        streamingSessions.set(cacheKey, value);
+        setSessionStreaming(cacheKey, value);
         notifySession(cacheKey);
       },
       (next) => {
@@ -286,7 +298,7 @@ function cacheComposer(
     return;
   }
   const oldest = [...composerDrafts.keys()].find(
-    (key) => key !== cacheKey && !streamingSessions.get(key)
+    (key) => key !== cacheKey && !isSessionStreaming(key)
   );
   if (oldest) {
     composerDrafts.delete(oldest);
@@ -675,8 +687,8 @@ export function ChatView({
   const [turnWindow, setTurnWindow] = useState<TurnWindow>(
     () => readWindow(cacheKey) ?? windowFromMessages([], 0, false)
   );
-  const [streaming, setStreaming] = useState(
-    () => streamingSessions.get(cacheKey) ?? false
+  const [streaming, setStreaming] = useState(() =>
+    isSessionStreaming(cacheKey)
   );
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"local" | "worktree">(
@@ -698,6 +710,16 @@ export function ChatView({
     () => composerDraft?.fileAttachments ?? []
   );
   const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [contextUsage, setContextUsageState] = useState<PiContextUsage | null>(
+    () => contextUsageCache.get(cacheKey) ?? null
+  );
+  const setContextUsage = useCallback(
+    (usage: PiContextUsage | null) => {
+      contextUsageCache.set(cacheKey, usage);
+      setContextUsageState(usage);
+    },
+    [cacheKey]
+  );
   const [completion, setCompletion] = useState<CompletionContext | null>(null);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [inputError, setInputError] = useState("");
@@ -866,7 +888,7 @@ export function ChatView({
       if (nextWindow) {
         setTurnWindow(nextWindow);
       }
-      setStreaming(streamingSessions.get(cacheKey) ?? false);
+      setStreaming(isSessionStreaming(cacheKey));
     });
   }, [api, cacheKey, serverId]);
 
@@ -984,8 +1006,39 @@ export function ChatView({
   );
 
   useEffect(() => {
+    let active = true;
+    if (!sessionCwd) {
+      setContextUsage(null);
+      return;
+    }
+    api.pi
+      .contextUsage(key, sessionCwd, sessionPath)
+      .then((usage) => {
+        if (active) {
+          setContextUsage(usage);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [api, key, sessionCwd, sessionPath, setContextUsage]);
+
+  // Refresh the ring after every completed turn (agent_end).
+  const completionStreamingRef = useRef(streaming);
+  useEffect(() => {
+    if (completionStreamingRef.current && !streaming && sessionCwd) {
+      api.pi
+        .contextUsage(key, sessionCwd, sessionPath)
+        .then(setContextUsage)
+        .catch(() => undefined);
+    }
+    completionStreamingRef.current = streaming;
+  }, [api, key, sessionCwd, sessionPath, streaming, setContextUsage]);
+
+  useEffect(() => {
     streamingRef.current = streaming;
-    streamingSessions.set(cacheKey, streaming);
+    setSessionStreaming(cacheKey, streaming);
   }, [cacheKey, streaming]);
 
   // Merge file-based sync (TUI or external writes) into the window.
@@ -1155,6 +1208,7 @@ export function ChatView({
       branches={branches}
       completion={completion}
       completionItems={completionItems}
+      contextUsage={contextUsage}
       fileAttachments={fileAttachments}
       fileLoading={fileLoading}
       handlePaste={handlePaste}
@@ -1177,6 +1231,10 @@ export function ChatView({
       onChangeMode={(value) => setMode(value as "local" | "worktree")}
       onChangeModel={(value) => {
         setModel(value);
+        sessionMetaCache.set(cacheKey, {
+          ...sessionMetaCache.get(cacheKey),
+          model: value,
+        });
         const selected = models.find(
           (item) => `${item.provider}/${item.id}` === value
         );
@@ -1200,6 +1258,10 @@ export function ChatView({
       }}
       onChangeThinking={(value) => {
         setThinking(value);
+        sessionMetaCache.set(cacheKey, {
+          ...sessionMetaCache.get(cacheKey),
+          thinking: value,
+        });
         if (session) {
           api.pi.setThinking(key, value);
         }
@@ -1281,6 +1343,28 @@ export function ChatView({
           itemContent={(index, turn) => (
             <TurnCard
               highlighted={turn.id === highlightedId}
+              onBranch={async (entryId) => {
+                setInputError("");
+                try {
+                  const result = await api.pi.branch(key, entryId);
+                  if (result.cancelled) {
+                    return;
+                  }
+                  const next = windowFromMessages(
+                    (result.messages ?? []) as ChatMessage[],
+                    result.cursor ?? 0,
+                    result.hasMore ?? false,
+                    result.outline
+                  );
+                  setWindow(next);
+                  setText(result.editorText ?? "");
+                  requestAnimationFrame(() => textarea.current?.focus());
+                } catch (error) {
+                  setInputError(
+                    error instanceof Error ? error.message : String(error)
+                  );
+                }
+              }}
               streaming={
                 streaming &&
                 index - turnWindow.start === turnWindow.turns.length - 1
@@ -1375,6 +1459,7 @@ interface PromptInputProps {
   branches: { current: boolean; name: string }[];
   completion: CompletionContext | null;
   completionItems: CompletionItem[];
+  contextUsage: PiContextUsage | null;
   fileAttachments: FileAttachment[];
   fileLoading: boolean;
   handlePaste: (
@@ -1414,6 +1499,7 @@ function PromptInput({
   branches,
   completion,
   completionItems,
+  contextUsage,
   fileAttachments,
   fileLoading,
   handlePaste,
@@ -1678,6 +1764,10 @@ function PromptInput({
                 onChange={onChangeThinking}
                 value={thinking}
               />
+              <ContextUsageRing
+                contextWindow={selectedModel?.contextWindow}
+                usage={contextUsage}
+              />
             </div>
             <AiAgentInputButton
               active={canSubmit}
@@ -1796,7 +1886,16 @@ async function loadSession(
 ) {
   const cached = readWindow(cacheKey);
   setTurnWindow(cached ?? windowFromMessages([], 0, false));
+  const remembered = sessionMetaCache.get(cacheKey);
   if (cached) {
+    // Cached windows skip pi.open, so restore the model/thinking we
+    // remembered when the session was last opened or changed.
+    if (remembered?.model) {
+      setModel(remembered.model);
+    }
+    if (remembered?.thinking) {
+      setThinking(remembered.thinking);
+    }
     setLoading(false);
     return;
   }
@@ -1819,12 +1918,21 @@ async function loadSession(
       windowFromMessages(history as ChatMessage[], cursor, hasMore, outline)
     );
     if (sessionModel) {
-      setModel(`${sessionModel.provider}/${sessionModel.id}`);
+      const value = `${sessionModel.provider}/${sessionModel.id}`;
+      setModel(value);
+      sessionMetaCache.set(cacheKey, {
+        ...sessionMetaCache.get(cacheKey),
+        model: value,
+      });
     }
     if (thinkingLevel) {
       setThinking(thinkingLevel);
+      sessionMetaCache.set(cacheKey, {
+        ...sessionMetaCache.get(cacheKey),
+        thinking: thinkingLevel,
+      });
     }
-    streamingSessions.set(cacheKey, isStreaming ?? false);
+    setSessionStreaming(cacheKey, isStreaming ?? false);
     notifySession(cacheKey);
     setLoading(false);
   } catch (error) {
@@ -2105,6 +2213,99 @@ function ProjectSelect({
         </SelectItem>
       </SelectContent>
     </Select>
+  );
+}
+
+function formatContextTokens(count: number): string {
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(count >= 100_000 ? 0 : 1)}K`;
+  }
+  return String(count);
+}
+
+/**
+ * Context-window usage ring next to the reasoning selector. Pure indicator:
+ * a circular progress ring tinted by usage, with the exact token counts in
+ * the tooltip.
+ */
+function ContextUsageRing({
+  usage,
+  contextWindow,
+}: {
+  usage: PiContextUsage | null;
+  contextWindow?: number;
+}) {
+  const { t } = useI18n();
+  if (!usage) {
+    return null;
+  }
+  const total = contextWindow ?? usage.contextWindow;
+  const percent =
+    usage.tokens === null || total <= 0
+      ? (usage.percent ?? 0)
+      : (usage.tokens / total) * 100;
+  let tone = "text-muted-foreground";
+  if (percent >= 90) {
+    tone = "text-destructive";
+  } else if (percent >= 70) {
+    tone = "text-warning";
+  }
+  const radius = 8.5;
+  const circumference = 2 * Math.PI * radius;
+  const filled = (circumference * Math.min(100, Math.max(0, percent))) / 100;
+  const detail =
+    usage.tokens === null
+      ? t("context_usage_unknown")
+      : t("context_usage_detail", {
+          percent: String(Math.round(percent)),
+          total: formatContextTokens(total),
+          used: formatContextTokens(usage.tokens),
+        });
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-label={`${t("context_usage")}: ${detail}`}
+            className="size-7 min-h-0 rounded-full"
+            size="icon-xs"
+            variant="ghost"
+          />
+        }
+      >
+        <svg
+          aria-hidden="true"
+          className="size-5 -rotate-90"
+          viewBox="0 0 22 22"
+        >
+          <circle
+            className="stroke-border"
+            cx="11"
+            cy="11"
+            fill="none"
+            r={radius}
+            strokeWidth="2.5"
+          />
+          <circle
+            className={cn("transition-[stroke-dasharray] duration-300", tone)}
+            cx="11"
+            cy="11"
+            fill="none"
+            r={radius}
+            stroke="currentColor"
+            strokeDasharray={`${filled} ${circumference}`}
+            strokeLinecap="round"
+            strokeWidth="2.5"
+          />
+        </svg>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <span>{detail}</span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

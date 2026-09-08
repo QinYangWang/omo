@@ -2,7 +2,7 @@
 
 ## Provider 管理
 
-Provider 由 Pi `ModelRuntime` 提供。Provider 设置页分为两个 Tab：「添加提供商」管理连接（列表、OAuth / API Key 登录、登出），「配额与余额」展示订阅配额与支持余额查询接口的 Provider 余额。Provider 图标统一使用 `@lobehub/icons` 品牌图标（`src/components/provider-icon.tsx` 的 `ProviderIcon` / `ProviderAvatar`）：图标渲染在固定品牌色底块上（AVATAR_BACKGROUND），字形按官方 Avatar 策略选择 Color 变体或 Mono + AVATAR_COLOR，保证深浅主题下均清晰可见。
+Provider 由 Pi `ModelRuntime` 提供。Provider 设置页分为两个 Tab：「添加提供商」管理连接（列表、OAuth / API Key 登录、登出），「配额与余额」展示订阅配额与支持余额查询接口的 Provider 余额。Provider 图标统一使用 `@thesvg/react` 品牌图标（`src/components/provider-icon.tsx` 的 `ProviderIcon` / `ProviderAvatar`），并强制为黑白单色（`currentColor`）：优先使用包的 `mono` variant；无 mono 的图标改用其纯 currentColor 变体（OpenAI/Qwen 用 `light`，Kimi/Groq 用 `wordmarkLight`）；default 仍含硬编码品牌色的（DeepSeek、Gemini、Azure、Bedrock、Anthropic 等）用 CSS 强制 `fill-current`；无图标映射时回退为大写首字母色块。
 
 列表包含：
 
@@ -40,7 +40,7 @@ Electron 本地模式收到 OAuth URL 时通过系统浏览器打开。Server �
 3. 其他 Provider 查询 `ModelRuntime.getAuth()`。
 4. 支持从 `Authorization: Bearer ...` Header 提取 Key。
 
-结果覆盖 10 个订阅 Provider。`force=true` 绕过内置 TTL 缓存。
+结果覆盖 10 个订阅 Provider。`force=true` 绕过内置 TTL 缓存。除 per-provider TTL 外，服务端还对聚合结果做 60 秒 stale-while-revalidate：已有快照时立即返回旧数据（带 `stale` 标记）并在后台刷新过期的 Provider；客户端（`useQuotas`）按服务器缓存上次结果，重复进入页面即时渲染，收到 `stale` 响应后约 2 秒自动补拉一次（最多 3 次）以拿到新值。
 
 配额在 Providers 页「配额与余额」Tab 按 Provider 分组展示：常规窗口显示进度条、已用百分比与重置时间；`isCurrency` 且有预算窗口的条目额外显示 `$已用 / $上限`；`isCurrency` 且无窗口期（`windowSeconds === 0`）的条目（如 OpenRouter Credits、Codex Credits）按余额直接展示金额。
 

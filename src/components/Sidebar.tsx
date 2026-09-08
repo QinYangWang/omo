@@ -1,14 +1,17 @@
 import {
   Add01Icon,
   AddCircleIcon,
-  Archive01Icon,
-  Folder01Icon,
+  Folder03Icon,
   ImportIcon,
   PinIcon,
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type MouseEvent, useState } from "react";
+import {
+  SessionActions,
+  SessionDetailsHover,
+} from "@/components/session-actions";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -23,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
 import { type I18nKey, useI18n } from "@/lib/i18n";
 import { getServerApi, useServers } from "@/lib/servers";
 import {
@@ -30,6 +34,7 @@ import {
   setSessionPref,
   useSessionPrefs,
 } from "@/lib/session-prefs";
+import { useStreamingSessions } from "@/lib/session-streaming";
 import { cn } from "@/lib/utils";
 
 const COLLAPSED_SESSION_LIMIT = 5;
@@ -52,6 +57,112 @@ function getVisibleSessions(
   return visibleSessions;
 }
 
+function scrollTitleOnHover(event: MouseEvent<HTMLElement>) {
+  const title = event.currentTarget.querySelector<HTMLElement>(
+    "[data-session-title]"
+  );
+  if (!title) {
+    return;
+  }
+  const shrink = Number(title.dataset.shrink ?? 0);
+  const visible = title.scrollWidth - title.clientWidth;
+  // Only compensate for the hover action buttons (shrink) when the title
+  // actually overflows, otherwise fitting titles would scroll needlessly.
+  const overflow = visible > 0 ? visible + shrink : 0;
+  title.style.setProperty("--marquee-dist", `${-Math.max(0, overflow)}px`);
+}
+
+function SessionRow({
+  project,
+  session,
+  prefKey,
+  pinned,
+  isActive,
+  isStreaming,
+  onChanged,
+  onCloned,
+  onSelect,
+}: {
+  project: Project;
+  session: PiSession;
+  prefKey: string;
+  pinned: boolean;
+  isActive: boolean;
+  isStreaming: boolean;
+  onChanged: (name?: string) => Promise<void>;
+  onCloned: (path: string) => Promise<void>;
+  onSelect: () => void;
+}) {
+  const { t } = useI18n();
+  const snapshot = {
+    project: project.name,
+    title: session.name || session.firstMessage || t("untitled"),
+  };
+  return (
+    <div className="group relative">
+      <SessionDetailsHover project={project} session={session}>
+        <Button
+          className={cn(
+            "h-9 w-full justify-start rounded-lg pr-9 pl-8 text-left font-normal text-[13px] text-muted-foreground hover:text-foreground",
+            isActive && "bg-accent text-foreground"
+          )}
+          onClick={onSelect}
+          onMouseEnter={scrollTitleOnHover}
+          variant="ghost"
+        >
+          <span className="min-w-0 flex-1 overflow-hidden">
+            <span
+              className="block truncate group-hover:inline-block group-hover:w-max group-hover:animate-[omo-marquee_4s_ease-in-out_infinite_alternate] group-hover:overflow-visible group-hover:text-clip"
+              data-session-title
+              data-shrink="0"
+            >
+              {session.name || session.firstMessage || t("untitled")}
+            </span>
+          </span>
+        </Button>
+      </SessionDetailsHover>
+      <Button
+        aria-label={pinned ? t("unpin_session") : t("pin_session")}
+        className={cn(
+          "absolute top-1 left-1 size-7 transition-opacity",
+          pinned
+            ? "opacity-80"
+            : "opacity-0 group-focus-within:opacity-70 group-hover:opacity-70"
+        )}
+        onClick={() =>
+          setSessionPref(prefKey, { ...snapshot, pinned: !pinned })
+        }
+        size="icon"
+        title={pinned ? t("unpin_session") : t("pin_session")}
+        type="button"
+        variant="ghost"
+      >
+        <HugeiconsIcon
+          className={cn(pinned && "fill-current")}
+          icon={PinIcon}
+        />
+      </Button>
+      <div className="absolute top-1 right-1 size-7">
+        {isStreaming ? (
+          <span className="absolute inset-0 flex items-center justify-center text-muted-foreground group-focus-within:hidden group-hover:hidden">
+            <Spinner className="size-3.5" />
+          </span>
+        ) : null}
+        <SessionActions
+          className="absolute inset-0 size-7 opacity-0 transition-opacity group-focus-within:opacity-70 group-hover:opacity-70"
+          onArchived={() =>
+            setSessionPref(prefKey, { ...snapshot, archived: true })
+          }
+          onChanged={onChanged}
+          onCloned={onCloned}
+          project={project}
+          session={session}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function Sidebar({
   projects,
   sessions,
@@ -62,6 +173,7 @@ export function Sidebar({
   onSelectSession,
   onImport,
   onOpenSettings,
+  onSessionsChanged,
 }: {
   projects: Project[];
   sessions: Record<string, PiSession[]>;
@@ -72,10 +184,17 @@ export function Sidebar({
   onSelectSession: (project: Project, session: PiSession) => void;
   onImport: (project: Project, path: string) => Promise<void>;
   onOpenSettings: () => void;
+  onSessionsChanged: (
+    project: Project,
+    clonedPath?: string,
+    renamedPath?: string,
+    name?: string
+  ) => Promise<void>;
 }) {
   const { t } = useI18n();
   const servers = useServers();
   const prefs = useSessionPrefs();
+  const streamingSessions = useStreamingSessions();
   const [importProject, setImportProject] = useState<Project | null>(null);
   const [projectSessions, setProjectSessions] = useState<PiSession[]>([]);
   const [expandedProjects, setExpandedProjects] = useState<
@@ -104,26 +223,11 @@ export function Sidebar({
     );
   };
 
-  const scrollTitleOnHover = (event: MouseEvent<HTMLElement>) => {
-    const title = event.currentTarget.querySelector<HTMLElement>(
-      "[data-session-title]"
-    );
-    if (!title) {
-      return;
-    }
-    const shrink = Number(title.dataset.shrink ?? 0);
-    const visible = title.scrollWidth - title.clientWidth;
-    // Only compensate for the hover action buttons (shrink) when the title
-    // actually overflows, otherwise fitting titles would scroll needlessly.
-    const overflow = visible > 0 ? visible + shrink : 0;
-    title.style.setProperty("--marquee-dist", `${-Math.max(0, overflow)}px`);
-  };
-
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       <div className="flex flex-col gap-0.5 px-3 pt-2 pb-5">
         <Button
-          className="h-9 w-full justify-start gap-2.5 rounded-lg border border-sidebar-border/70 bg-background/40 px-3 font-normal shadow-xs"
+          className="h-9 w-full justify-start gap-2.5 rounded-lg border border-sidebar-border/70 bg-background/40 px-2 font-normal shadow-xs"
           disabled={projects.length === 0}
           onClick={onNewSessionAny}
           variant="ghost"
@@ -188,7 +292,7 @@ export function Sidebar({
                     <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
                       <HugeiconsIcon
                         className="size-4 shrink-0 text-muted-foreground"
-                        icon={Folder01Icon}
+                        icon={Folder03Icon}
                       />
                       <span className="min-w-0 flex-1 truncate font-medium text-sm">
                         {project.name}
@@ -228,135 +332,35 @@ export function Sidebar({
                       {visibleSessions.map((session) => {
                         const key = sessionKey(project.serverId, session.path);
                         const pinned = !!prefs[key]?.pinned;
-                        const isActive =
-                          activeSession === session.path ||
-                          activeSession === session.id;
-                        const snapshot = {
-                          project: project.name,
-                          title:
-                            session.name ||
-                            session.firstMessage ||
-                            t("untitled"),
-                        };
                         return (
-                          <Button
-                            className={cn(
-                              "group relative h-9 w-full justify-start rounded-lg py-2 text-left font-normal text-[13px] text-muted-foreground hover:text-foreground",
-                              pinned ? "pr-2 pl-2" : "pr-2 pl-8",
-                              isActive && "bg-accent text-foreground"
-                            )}
+                          <SessionRow
+                            isActive={
+                              activeSession === session.path ||
+                              activeSession === session.id
+                            }
+                            isStreaming={
+                              streamingSessions[
+                                `${project.serverId}:${session.id}`
+                              ] ?? false
+                            }
                             key={session.path}
-                            onClick={(event) => {
-                              if (
-                                (event.target as HTMLElement).closest(
-                                  "[data-session-action]"
-                                )
-                              ) {
-                                return;
-                              }
-                              onSelectSession(project, session);
-                            }}
-                            onMouseEnter={scrollTitleOnHover}
-                            title={session.name || session.firstMessage}
-                            variant="ghost"
-                          >
-                            {pinned ? (
-                              <Button
-                                aria-label={t("unpin_session")}
-                                className="size-5 shrink-0 justify-start opacity-80 hover:opacity-100"
-                                data-session-action
-                                nativeButton={false}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setSessionPref(key, {
-                                    ...snapshot,
-                                    pinned: false,
-                                  });
-                                }}
-                                onMouseDown={(event) => event.preventDefault()}
-                                render={<span />}
-                                size="icon"
-                                title={t("unpin_session")}
-                                variant="ghost"
-                              >
-                                <HugeiconsIcon
-                                  className="size-3.5 fill-current"
-                                  icon={PinIcon}
-                                />
-                              </Button>
-                            ) : null}
-                            <span
-                              className={cn(
-                                "min-w-0 flex-1 overflow-hidden",
-                                !pinned &&
-                                  "group-focus-within:mr-14 group-hover:mr-14"
-                              )}
-                            >
-                              <span
-                                className="block truncate group-hover:inline-block group-hover:w-max group-hover:animate-[omo-marquee_4s_ease-in-out_infinite_alternate] group-hover:overflow-visible group-hover:text-clip"
-                                data-session-title
-                                data-shrink={pinned ? 0 : 56}
-                              >
-                                {session.name ||
-                                  session.firstMessage ||
-                                  t("untitled")}
-                              </span>
-                            </span>
-                            {pinned ? null : (
-                              <span className="pointer-events-none absolute right-1 z-10 flex items-center">
-                                <Button
-                                  aria-label={t("pin_session")}
-                                  className="pointer-events-none size-6 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-70 group-hover:pointer-events-auto group-hover:opacity-70"
-                                  data-session-action
-                                  nativeButton={false}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setSessionPref(key, {
-                                      ...snapshot,
-                                      pinned: true,
-                                    });
-                                  }}
-                                  onMouseDown={(event) =>
-                                    event.preventDefault()
-                                  }
-                                  render={<span />}
-                                  size="icon"
-                                  title={t("pin_session")}
-                                  variant="ghost"
-                                >
-                                  <HugeiconsIcon
-                                    className="size-3.5"
-                                    icon={PinIcon}
-                                  />
-                                </Button>
-                                <Button
-                                  aria-label={t("archive_session")}
-                                  className="pointer-events-none size-6 opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-70 group-hover:pointer-events-auto group-hover:opacity-70"
-                                  data-session-action
-                                  nativeButton={false}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setSessionPref(key, {
-                                      ...snapshot,
-                                      archived: true,
-                                    });
-                                  }}
-                                  onMouseDown={(event) =>
-                                    event.preventDefault()
-                                  }
-                                  render={<span />}
-                                  size="icon"
-                                  title={t("archive_session")}
-                                  variant="ghost"
-                                >
-                                  <HugeiconsIcon
-                                    className="size-3.5"
-                                    icon={Archive01Icon}
-                                  />
-                                </Button>
-                              </span>
-                            )}
-                          </Button>
+                            onChanged={(name) =>
+                              onSessionsChanged(
+                                project,
+                                undefined,
+                                session.path,
+                                name
+                              )
+                            }
+                            onCloned={(path) =>
+                              onSessionsChanged(project, path)
+                            }
+                            onSelect={() => onSelectSession(project, session)}
+                            pinned={pinned}
+                            prefKey={key}
+                            project={project}
+                            session={session}
+                          />
                         );
                       })}
                       {projectSessionItems.length > COLLAPSED_SESSION_LIMIT ? (

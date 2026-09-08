@@ -44,7 +44,7 @@ Project 对应本地或远程执行端目录。添加项目通过目录选择完
 
 Session 条目显示名称或首条消息。创建 Project 后不自动导入 Session；导入按钮只列出当前 Project cwd 下的 Pi Session。
 
-会话行悬停（或键盘聚焦）时在标题上方浮层显示置顶和归档按钮，不挤压标题文字，也不叠加底色；hover 时标题收缩到按钮组左侧并以 marquee 动画滚动显示完整标题。置顶行的置顶按钮固定在行左侧（实心图标，点击取消置顶），置顶行不显示归档按钮：
+会话行左侧固定位置是置顶/取消置顶按钮；右侧悬停区同一位置显示进行中 Spinner 或 `MoreHorizontalCircle02Icon` 操作菜单（重命名、克隆、复制上下文、归档），不挤压标题文字。会话名 hover 弹出 HoverCard，显示会话 ID、Git 分支、工作目录类型与累计 cost。克隆通过 `createBranchedSession` 在同一 cwd 下创建新 Session 文件；复制上下文导出当前分支为 Markdown；重命名写入 Session 的 `session_info`。
 
 - 置顶：会话固定在项目列表最前，多个置顶按会话创建时间从新到旧排序。
 - 归档：仅从侧边栏隐藏，不影响用量统计；可在设置的「已归档」分区恢复。

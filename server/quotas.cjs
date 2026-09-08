@@ -1386,6 +1386,13 @@ function fetchProviderQuotas(authStorage, provider, force) {
 
 // ---------- entry point ----------
 
+// Aggregate stale-while-revalidate cache: opening the settings page should
+// render instantly with the last snapshot while expired providers refresh in
+// the background. The client refetches once when `stale` is set.
+const AGGREGATE_TTL_MS = 60_000;
+let aggregate = null;
+let aggregateRefresh = null;
+
 /**
  * @param piService  object with async runtime() resolving to pi's ModelRuntime
  * @param agentDir   pi agent dir (contains auth.json)
@@ -1414,25 +1421,40 @@ async function fetchQuotas(piService, agentDir, force = false) {
       return auth?.apiKey ?? authorization?.replace(bearerPrefix, "");
     },
   };
-  const items = await Promise.all(
-    SUPPORTED_PROVIDERS.map(async (provider) => {
-      const result = await fetchProviderQuotas(authStorage, provider, force);
-      return {
-        error: result.success ? undefined : result.error,
-        label: PROVIDER_LABELS[provider],
-        provider,
-        success: result.success,
-        windows: result.success
-          ? result.data.windows.map((window) => ({
-              ...window,
-              provider,
-              resetsAt: new Date(window.resetsAt).toISOString(),
-            }))
-          : [],
-      };
-    })
-  );
-  return { installed: true, items };
+  const collect = async (bypass) => {
+    const items = await Promise.all(
+      SUPPORTED_PROVIDERS.map(async (provider) => {
+        const result = await fetchProviderQuotas(authStorage, provider, bypass);
+        return {
+          error: result.success ? undefined : result.error,
+          label: PROVIDER_LABELS[provider],
+          provider,
+          success: result.success,
+          windows: result.success
+            ? result.data.windows.map((window) => ({
+                ...window,
+                provider,
+                resetsAt: new Date(window.resetsAt).toISOString(),
+              }))
+            : [],
+        };
+      })
+    );
+    aggregate = { at: Date.now(), items };
+    return items;
+  };
+  if (!force && aggregate) {
+    const stale = Date.now() - aggregate.at >= AGGREGATE_TTL_MS;
+    if (stale && !aggregateRefresh) {
+      aggregateRefresh = collect(false)
+        .catch(() => undefined)
+        .finally(() => {
+          aggregateRefresh = null;
+        });
+    }
+    return { installed: true, items: aggregate.items, stale };
+  }
+  return { installed: true, items: await collect(force) };
 }
 
 module.exports = { fetchQuotas, PROVIDER_LABELS, SUPPORTED_PROVIDERS };

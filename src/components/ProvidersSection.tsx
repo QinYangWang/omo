@@ -53,16 +53,40 @@ export function formatReset(iso: string, lang: Lang = "en") {
   });
 }
 
+const quotaCache = new Map<
+  string,
+  { installed: boolean; items: QuotaItem[] }
+>();
+const STALE_REFETCH_DELAY_MS = 2000;
+const STALE_REFETCH_MAX_ATTEMPTS = 3;
+
 export function useQuotas(serverId?: string) {
-  const [quotas, setQuotas] = useState<QuotaItem[]>([]);
-  const [installed, setInstalled] = useState(true);
+  const key = serverId ?? "";
+  const [quotas, setQuotas] = useState<QuotaItem[]>(
+    () => quotaCache.get(key)?.items ?? []
+  );
+  const [installed, setInstalled] = useState(
+    () => quotaCache.get(key)?.installed ?? true
+  );
   const refresh = useCallback(
-    async (force = false) => {
+    async (force = false, attempt = 0): Promise<void> => {
       const result = await getServerApi(serverId).providers.quotas(force);
+      quotaCache.set(key, {
+        installed: result.installed,
+        items: result.items,
+      });
       setInstalled(result.installed);
       setQuotas(result.items);
+      // The server answered from its aggregate cache and is refreshing in the
+      // background; poll once more to pick up the fresh values.
+      if (result.stale && attempt < STALE_REFETCH_MAX_ATTEMPTS) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, STALE_REFETCH_DELAY_MS)
+        );
+        await refresh(false, attempt + 1);
+      }
     },
-    [serverId]
+    [key, serverId]
   );
   useEffect(() => {
     refresh().catch(() => undefined);
@@ -332,6 +356,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
                     disabled={!!busy}
                     onClick={() => login(provider, "oauth")}
                     size="sm"
+                    type="button"
                     variant="ghost"
                   >
                     OAuth

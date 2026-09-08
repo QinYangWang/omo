@@ -10,13 +10,14 @@ function clip(value, max) {
     : text;
 }
 
-function appendAssistantText(items, text, timestamp, max) {
+function appendAssistantText(items, text, timestamp, max, sessionEntryId) {
   if (!text) {
     return;
   }
   items.push({
     id: crypto.randomUUID(),
     role: "assistant",
+    sessionEntryId,
     text: clip(text, max),
     timestamp,
   });
@@ -41,6 +42,7 @@ function appendUserMessage(message, items) {
       id: crypto.randomUUID(),
       images: images.length ? images : undefined,
       role: "user",
+      sessionEntryId: message.sessionEntryId,
       text: clip(text, 80_000),
       timestamp: message.timestamp,
     });
@@ -70,22 +72,30 @@ function appendToolCall(part, items, tools) {
 
 function appendAssistantMessage(message, items, tools) {
   let text = "";
+  const appendText = () => {
+    appendAssistantText(
+      items,
+      text,
+      message.timestamp,
+      100_000,
+      message.sessionEntryId
+    );
+    text = "";
+  };
   for (const part of message.content || []) {
     if (part.type === "text") {
       text += part.text;
     }
     if (part.type === "thinking") {
-      appendAssistantText(items, text, message.timestamp, 100_000);
-      text = "";
+      appendText();
       appendThinking(part, items);
     }
     if (part.type === "toolCall") {
-      appendAssistantText(items, text, message.timestamp, 100_000);
-      text = "";
+      appendText();
       appendToolCall(part, items, tools);
     }
   }
-  appendAssistantText(items, text, message.timestamp, 100_000);
+  appendText();
 }
 
 function appendToolResult(message, items, tools) {
@@ -147,6 +157,16 @@ function finishTurns(items) {
   finishTurn();
 }
 
+function finalizeDanglingTools(items) {
+  for (const item of items) {
+    if (item.role === "tool" && item.status === "running") {
+      item.output ??=
+        "Interrupted: the agent stopped before returning a tool result.";
+      item.status = "error";
+    }
+  }
+}
+
 function displayMessages(messages) {
   const items = [];
   const tools = new Map();
@@ -167,14 +187,17 @@ function sessionHistoryMessages(manager) {
   const messages = [];
   for (const entry of manager.getBranch()) {
     if (entry.type === "message" && entry.message) {
-      messages.push(entry.message);
+      messages.push({ ...entry.message, sessionEntryId: entry.id });
     }
   }
   return messages;
 }
 
-function createHistorySnapshot(messages) {
+function createHistorySnapshot(messages, { running = false } = {}) {
   const items = displayMessages(messages);
+  if (!running) {
+    finalizeDanglingTools(items);
+  }
   const turnStarts = [];
   for (let index = 0; index < items.length; index += 1) {
     if (index === 0 || items[index].role === "user") {

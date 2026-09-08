@@ -43,6 +43,7 @@ export function installWebPreviewApi() {
     models: {
       list: async () => [
         {
+          contextWindow: 200_000,
           enabled: true,
           id: "claude-sonnet-4",
           name: "Claude Sonnet 4",
@@ -51,6 +52,7 @@ export function installWebPreviewApi() {
           thinkingLevels: ["off", "low", "medium", "high", "max"],
         },
         {
+          contextWindow: 400_000,
           enabled: false,
           id: "gpt-5.5",
           name: "GPT-5.5",
@@ -75,6 +77,7 @@ export function installWebPreviewApi() {
     },
     pi: {
       abort: async () => undefined,
+      branch: async () => ({ cancelled: false }),
       commands: async () => [
         {
           description: "Review the current changes",
@@ -87,6 +90,7 @@ export function installWebPreviewApi() {
           source: "skill",
         },
       ],
+      contextUsage: async () => null,
       history: async () => ({ cursor: 0, hasMore: false, messages: [] }),
       models: async () => [
         {
@@ -146,8 +150,13 @@ export function installWebPreviewApi() {
     },
     sessions: {
       all: async () => previewSessions,
+      clone: async () => previewSessions[0].path,
+      context: async () =>
+        "## User\n\nPreview\n\n## Assistant\n\nPreview response\n",
+      details: async () => ({ branch: "main", cost: 0.12 }),
       import: async () => previewSessions[0].path,
       list: async () => previewSessions,
+      rename: async () => true,
     },
     skills: {
       list: async () => [

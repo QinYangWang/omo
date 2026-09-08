@@ -50,6 +50,28 @@ JSON 请求体上限为 16MB。错误响应格式：
 
 通过 `SessionManager.forkFrom` 导入 Session。
 
+### `POST /sessions/rename`
+
+```json
+{ "path": "/pi/session.jsonl", "name": "新的会话名" }
+```
+
+### `POST /sessions/clone`
+
+```json
+{ "path": "/pi/session.jsonl" }
+```
+
+从当前叶节点创建一个新的 Session 文件，并返回其路径。
+
+### `GET /sessions/context?path=<session-path>`
+
+将 Session 当前分支导出为 Markdown。
+
+### `GET /sessions/details?path=<session-path>&cwd=<path>`
+
+返回 Session 工作目录的 Git 分支及累计 cost。
+
 ## Pi
 
 ### `POST /pi/open`
@@ -91,6 +113,16 @@ JSON 请求体上限为 16MB。错误响应格式：
 ```json
 { "sessionId": "client-id", "level": "max" }
 ```
+
+### `POST /pi/branch`
+
+从某个回答处切换当前 Session 的树分支，下一条 Prompt 会作为该节点的新子节点写入同一个 Session 文件：
+
+```json
+{ "sessionId": "client-id", "entryId": "session-entry-id" }
+```
+
+返回新活动分支的消息分页、Outline，以及选择用户消息时需要恢复到编辑器的 `editorText`。
 
 ### `POST /pi/prompt`
 
