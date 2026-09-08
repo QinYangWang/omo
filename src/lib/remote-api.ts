@@ -7,8 +7,52 @@ const sseLineEndings = /\r\n/g;
 
 type EventCallback = (data: OmoPiEventEnvelope) => void;
 
+interface RemoteTerminal {
+  cols: number;
+  id: string;
+  listeners: Set<(data: string) => void>;
+  offset: number;
+  reconnect?: ReturnType<typeof setTimeout>;
+  retry: number;
+  rows: number;
+  socket?: WebSocket;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function handleRemoteTerminalMessage(
+  terminal: RemoteTerminal,
+  payload: unknown
+): void {
+  if (!isRecord(payload)) {
+    return;
+  }
+  if (payload.type === "exit") {
+    terminal.id = "";
+    return;
+  }
+  if (payload.type === "reset" && typeof payload.offset === "number") {
+    terminal.offset = payload.offset;
+    for (const listener of terminal.listeners) {
+      listener("\u001bc");
+    }
+    return;
+  }
+  if (
+    payload.type !== "output" ||
+    typeof payload.nextOffset !== "number" ||
+    typeof payload.offset !== "number" ||
+    payload.nextOffset <= terminal.offset
+  ) {
+    return;
+  }
+  const skip = Math.max(0, terminal.offset - payload.offset);
+  terminal.offset = payload.nextOffset;
+  for (const listener of terminal.listeners) {
+    listener(String(payload.data).slice(skip));
+  }
 }
 
 function eventStreamCursor(
@@ -133,13 +177,25 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
 
   const piListeners = new Set<EventCallback>();
   const authListeners = new Set<(event: ProviderAuthEvent) => void>();
-  const terminalListeners = new Set<(data: string) => void>();
+  const terminals = new Map<string, RemoteTerminal>();
   const streams = new Map<string, AbortController>();
-  let terminalId = "";
-  let terminalSocket: WebSocket | undefined;
-  let terminalOffset = 0;
-  let terminalRetry = 1000;
-  let terminalReconnect: ReturnType<typeof setTimeout> | undefined;
+
+  const getTerminal = (key: string): RemoteTerminal => {
+    const existing = terminals.get(key);
+    if (existing) {
+      return existing;
+    }
+    const terminal: RemoteTerminal = {
+      cols: 120,
+      id: "",
+      listeners: new Set(),
+      offset: 0,
+      retry: 1000,
+      rows: 30,
+    };
+    terminals.set(key, terminal);
+    return terminal;
+  };
 
   const connectEvents = (sessionId: string) => {
     if (streams.has(sessionId)) {
@@ -201,87 +257,52 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     );
   };
 
-  const reconnectTerminal = async () => {
-    if (!terminalId) {
-      return;
-    }
-    try {
-      const result = await post<{ ticket: string }>(
-        `/terminals/${encodeURIComponent(terminalId)}/ticket`,
-        {}
-      );
-      connectTerminal(result.ticket);
-    } catch (error) {
-      console.warn("Remote terminal reconnecting", error);
-      terminalReconnect = setTimeout(
-        () => {
-          reconnectTerminal();
-        },
-        terminalRetry + Math.random() * terminalRetry * 0.2
-      );
-    }
-  };
-
-  const scheduleTerminalReconnect = () => {
-    terminalReconnect = setTimeout(
-      () => {
-        reconnectTerminal();
-      },
-      terminalRetry + Math.random() * terminalRetry * 0.2
-    );
-    terminalRetry = Math.min(30_000, terminalRetry * 2);
-  };
-
-  const handleTerminalMessage = (payload: unknown) => {
-    if (!isRecord(payload) || typeof payload.type !== "string") {
-      return;
-    }
-    if (payload.type === "reset" && typeof payload.offset === "number") {
-      terminalOffset = payload.offset;
-      for (const listener of terminalListeners) {
-        listener("\u001bc");
-      }
-      return;
-    }
-    if (
-      payload.type !== "output" ||
-      typeof payload.nextOffset !== "number" ||
-      typeof payload.offset !== "number"
-    ) {
-      return;
-    }
-    if (payload.nextOffset <= terminalOffset) {
-      return;
-    }
-    const skip = Math.max(0, terminalOffset - payload.offset);
-    const data = String(payload.data).slice(skip);
-    terminalOffset = payload.nextOffset;
-    for (const listener of terminalListeners) {
-      listener(data);
-    }
-  };
-
-  const connectTerminal = (ticket: string) => {
-    if (!terminalId) {
+  const connectTerminal = (terminal: RemoteTerminal, ticket: string) => {
+    if (!terminal.id) {
       return;
     }
     const wsBase = base.replace(httpScheme, "ws:").replace(httpsScheme, "wss:");
     const socket = new WebSocket(
-      `${wsBase}/api/v1/terminals/${encodeURIComponent(terminalId)}/stream?${query({ after: String(terminalOffset), ticket })}`
+      `${wsBase}/api/v1/terminals/${encodeURIComponent(terminal.id)}/stream?${query({ after: String(terminal.offset), ticket })}`
     );
-    terminalSocket = socket;
+    terminal.socket = socket;
     socket.onopen = () => {
-      terminalRetry = 1000;
+      terminal.retry = 1000;
+      socket.send(
+        JSON.stringify({
+          cols: terminal.cols,
+          rows: terminal.rows,
+          type: "resize",
+        })
+      );
     };
     socket.onmessage = (event) => {
-      handleTerminalMessage(JSON.parse(String(event.data)) as unknown);
+      handleRemoteTerminalMessage(terminal, JSON.parse(String(event.data)));
     };
     socket.onclose = () => {
-      if (!terminalId || terminalSocket !== socket) {
-        return;
+      if (terminal.id && terminal.socket === socket) {
+        scheduleTerminalReconnect(terminal);
       }
-      scheduleTerminalReconnect();
     };
+  };
+
+  const scheduleTerminalReconnect = (terminal: RemoteTerminal) => {
+    terminal.reconnect = setTimeout(
+      async () => {
+        try {
+          const result = await post<{ ticket: string }>(
+            `/terminals/${encodeURIComponent(terminal.id)}/ticket`,
+            {}
+          );
+          connectTerminal(terminal, result.ticket);
+        } catch (error) {
+          console.warn("Remote terminal reconnecting", error);
+          scheduleTerminalReconnect(terminal);
+        }
+      },
+      terminal.retry + Math.random() * terminal.retry * 0.2
+    );
+    terminal.retry = Math.min(30_000, terminal.retry * 2);
   };
 
   return {
@@ -438,31 +459,61 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     },
     skills: { list: () => request("/skills") },
     term: {
-      create: async (cwd) => {
-        if (terminalId && terminalSocket?.readyState !== WebSocket.CLOSED) {
+      close: async (key = "default") => {
+        const terminal = terminals.get(key);
+        if (!terminal) {
           return;
         }
-        if (terminalReconnect) {
-          clearTimeout(terminalReconnect);
+        if (terminal.reconnect) {
+          clearTimeout(terminal.reconnect);
+        }
+        const previousId = terminal.id;
+        terminal.id = "";
+        terminal.socket?.close();
+        terminals.delete(key);
+        if (previousId) {
+          await request(`/terminals/${encodeURIComponent(previousId)}`, {
+            method: "DELETE",
+          });
+        }
+      },
+      create: async (cwd, cols = 120, rows = 30, key = "default") => {
+        const terminal = getTerminal(key);
+        terminal.cols = cols;
+        terminal.rows = rows;
+        if (terminal.id && terminal.socket?.readyState !== WebSocket.CLOSED) {
+          return;
+        }
+        if (terminal.reconnect) {
+          clearTimeout(terminal.reconnect);
         }
         const result = await post<{
           terminalId: string;
           offset: number;
           ticket: string;
-        }>("/terminals", { cwd });
-        const { terminalId: nextTerminalId, offset, ticket } = result;
-        terminalId = nextTerminalId;
-        terminalOffset = offset;
-        connectTerminal(ticket);
+        }>("/terminals", { cols, cwd, rows });
+        terminal.id = result.terminalId;
+        terminal.offset = result.offset;
+        connectTerminal(terminal, result.ticket);
       },
-      input: (data) => {
-        if (terminalSocket?.readyState === WebSocket.OPEN) {
-          terminalSocket.send(JSON.stringify({ data, type: "input" }));
+      input: (data, key = "default") => {
+        const { socket } = getTerminal(key);
+        if (socket?.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ data, type: "input" }));
         }
       },
-      onData: (callback) => {
-        terminalListeners.add(callback);
-        return () => terminalListeners.delete(callback);
+      onData: (callback, key = "default") => {
+        const { listeners } = getTerminal(key);
+        listeners.add(callback);
+        return () => listeners.delete(callback);
+      },
+      resize: (cols, rows, key = "default") => {
+        const terminal = getTerminal(key);
+        terminal.cols = cols;
+        terminal.rows = rows;
+        if (terminal.socket?.readyState === WebSocket.OPEN) {
+          terminal.socket.send(JSON.stringify({ cols, rows, type: "resize" }));
+        }
       },
     },
     usage: { snapshot: () => request("/usage") },

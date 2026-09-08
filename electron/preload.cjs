@@ -107,13 +107,22 @@ contextBridge.exposeInMainWorld("omo", {
   },
   skills: { list: () => ipcRenderer.invoke("skills:list") },
   term: {
-    create: (cwd) => ipcRenderer.invoke("term:create", cwd),
-    input: (data) => ipcRenderer.send("term:input", data),
-    onData: (cb) => {
-      const h = (_e, d) => cb(d);
-      ipcRenderer.on("term:data", h);
-      return () => ipcRenderer.removeListener("term:data", h);
+    close: (key = "default") => ipcRenderer.invoke("term:close", key),
+    create: (cwd, cols, rows, key = "default") =>
+      ipcRenderer.invoke("term:create", { cols, cwd, key, rows }),
+    input: (data, key = "default") =>
+      ipcRenderer.send("term:input", { data, key }),
+    onData: (cb, key = "default") => {
+      const handler = (_event, message) => {
+        if (message.key === key) {
+          cb(message.data);
+        }
+      };
+      ipcRenderer.on("term:data", handler);
+      return () => ipcRenderer.removeListener("term:data", handler);
     },
+    resize: (cols, rows, key = "default") =>
+      ipcRenderer.send("term:resize", { cols, key, rows }),
   },
   usage: { snapshot: () => ipcRenderer.invoke("usage:snapshot") },
   windowControls: {

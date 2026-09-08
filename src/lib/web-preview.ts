@@ -168,6 +168,7 @@ export function installWebPreviewApi() {
       ],
     },
     term: {
+      close: async () => undefined,
       create: async () => undefined,
       input: () => undefined,
       onData: (callback) => {
@@ -178,6 +179,7 @@ export function installWebPreviewApi() {
         );
         return () => undefined;
       },
+      resize: () => undefined,
     },
     usage: {
       snapshot: async () => ({

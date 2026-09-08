@@ -109,14 +109,14 @@ Prompt 输入框整体宽度与消息正文一致（`mx-auto max-w-3xl`），不
 
 ## 右侧面板
 
-`RightPanel.tsx` 使用 Tabs 管理四个 surface：
+`Workspace.tsx` 使用 Tabs 管理四类 surface，默认打开 Files：
 
-- Browser：Electron 的 `<webview>`
-- Terminal：xterm.js
-- Files：目录树和文本预览
-- Review：Git status 与 diff
+- Files：固定标签；左侧项目目录树，右侧在当前页面预览文件
+- Review：固定标签；左侧仅显示 Git 变更文件树，右侧在当前页面显示 diff
+- Terminal：通过“+”添加，可同时打开多个 xterm.js 标签
+- Browser：通过“+”添加，可同时打开多个 Electron `<webview>` 标签
 
-右侧面板的关闭/打开由悬浮在会话区右上角的 PanelRight 按钮控制。Tabs 内容区不提供独立关闭按钮。
+右侧面板的关闭/打开由会话标题栏右侧的 PanelRight 按钮控制。终端和浏览器标签带关闭按钮；关闭会销毁对应 PTY 或 webview。
 
 ## 样式与主题
 

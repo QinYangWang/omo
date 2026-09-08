@@ -11,7 +11,7 @@ class TerminalService {
     this.cleanupTimer = setInterval(() => this.cleanup(), 60_000).unref();
   }
 
-  async create(cwd) {
+  async create(cwd, cols = 120, rows = 30) {
     const targetCwd = await this.workspace.resolveExisting(
       cwd || this.workspace.roots[0]
     );
@@ -22,11 +22,17 @@ class TerminalService {
         : process.env.SHELL || "/bin/bash";
     const args = process.platform === "win32" ? ["-NoLogo"] : ["--login"];
     const processHandle = pty.spawn(shell, args, {
-      cols: 120,
+      cols: Number.isFinite(cols) ? Math.max(2, Math.trunc(cols)) : 120,
       cwd: targetCwd,
-      env: { ...process.env, COLORTERM: "truecolor", TERM: "xterm-256color" },
+      env: {
+        ...process.env,
+        COLORTERM: "truecolor",
+        LANG: process.env.LANG || "en_US.UTF-8",
+        TERM: "xterm-256color",
+        TERM_PROGRAM: "omo",
+      },
       name: "xterm-256color",
-      rows: 30,
+      rows: Number.isFinite(rows) ? Math.max(1, Math.trunc(rows)) : 30,
     });
     const terminal = {
       chunks: [],
@@ -56,6 +62,17 @@ class TerminalService {
       terminalId: id,
       ticket: this.issueTicket(id),
     };
+  }
+
+  close(terminalId) {
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal) {
+      return;
+    }
+    if (!terminal.exited) {
+      terminal.process.kill();
+    }
+    this.terminals.delete(terminalId);
   }
 
   issueTicket(terminalId) {
@@ -129,8 +146,8 @@ class TerminalService {
         !terminal.exited
       ) {
         terminal.process.resize(
-          Math.max(2, message.cols),
-          Math.max(1, message.rows)
+          Math.max(2, Math.trunc(message.cols)),
+          Math.max(1, Math.trunc(message.rows))
         );
       }
     });

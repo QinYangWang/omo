@@ -325,7 +325,7 @@ const dict = {
     stop_generating: "停止生成",
     surface_browser: "浏览器",
     surface_files: "文件",
-    surface_review: "变更",
+    surface_review: "审查",
     surface_terminal: "终端",
     task_welcome: "今天，我们来构建什么？",
     theme: "主题",

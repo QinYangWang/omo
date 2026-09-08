@@ -292,9 +292,16 @@ interface omoApi {
     list: () => Promise<AgentSkillInfo[]>;
   };
   term: {
-    create: (cwd?: string) => Promise<void>;
-    input: (data: string) => void;
-    onData: (cb: (d: string) => void) => () => void;
+    create: (
+      cwd?: string,
+      cols?: number,
+      rows?: number,
+      key?: string
+    ) => Promise<void>;
+    input: (data: string, key?: string) => void;
+    onData: (cb: (d: string) => void, key?: string) => () => void;
+    close: (key?: string) => Promise<void>;
+    resize: (cols: number, rows: number, key?: string) => void;
   };
   usage: {
     snapshot: () => Promise<{

@@ -82,6 +82,6 @@ Server 每分钟检查终端：
 
 终端进程退出时向订阅者发送 `exit` 消息。
 
-## 与本地终端的区别
+## 本地终端
 
-Electron 本地终端通过 `spawn("powershell.exe", ["-NoLogo"])` 创建裸 shell，并使用 stdout/stderr 管道；它没有 PTY。远程终端通过 `node-pty` 支持全屏交互程序。
+Electron 本地终端同样使用 `node-pty`，并通过 IPC 转发 xterm.js 的输入、输出与尺寸变化，因此支持全屏交互程序。每个会话可以通过“+”创建多个独立终端；关闭终端标签会结束对应 PTY 并释放 xterm。前端使用 Unicode 11 宽度表、10,000 行 scrollback，并通过 `ResizeObserver` 合并连续 resize 后同步 PTY；远程连接建立或重连时会再次发送最新尺寸。远程终端额外提供输出缓冲与断线重连。

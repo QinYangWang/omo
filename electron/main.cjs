@@ -12,7 +12,8 @@ const path = require("node:path");
 const os = require("node:os");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
-const { spawn, execFile } = require("node:child_process");
+const { execFile } = require("node:child_process");
+const pty = require("node-pty");
 const {
   sessionCost,
   sessionMarkdown,
@@ -73,7 +74,7 @@ const fetchProviderQuotas = (...args) => getQuotas().fetchQuotas(...args);
 const readUsageSnapshot = (...args) => getUsage().usageSnapshot(...args);
 
 let win;
-let termProc = null;
+const termProcs = new Map();
 const piSessions = new Map();
 let sdkPromise;
 const getSdk = () => {
@@ -710,25 +711,58 @@ function createWindow() {
 
   ipcMain.handle("quotas:all", (_event, force) => fetchQuotas(!!force));
 
-  // terminal (ponytail: 裸 shell 管道, 无 pty; 需要真 pty 时换 node-pty)
-  ipcMain.handle("term:create", (_e, cwd) => {
-    if (termProc) {
-      return;
-    }
-    termProc = spawn("powershell.exe", ["-NoLogo"], {
+  // terminal
+  const spawnTerminal = ({ cols, cwd, key, rows }) => {
+    const shellName =
+      process.platform === "win32"
+        ? "powershell.exe"
+        : process.env.SHELL || "/bin/bash";
+    const args = process.platform === "win32" ? ["-NoLogo"] : ["--login"];
+    const termProc = pty.spawn(shellName, args, {
+      cols: Number.isFinite(cols) ? Math.max(2, Math.trunc(cols)) : 120,
       cwd: cwd || app.getAppPath(),
+      env: {
+        ...process.env,
+        COLORTERM: "truecolor",
+        LANG: process.env.LANG || "en_US.UTF-8",
+        TERM: "xterm-256color",
+        TERM_PROGRAM: "omo",
+      },
+      name: "xterm-256color",
+      rows: Number.isFinite(rows) ? Math.max(1, Math.trunc(rows)) : 30,
     });
-    termProc.stdout.on("data", (d) =>
-      win?.webContents.send("term:data", d.toString())
+    termProcs.set(key, termProc);
+    termProc.onData((data) =>
+      win?.webContents.send("term:data", { data, key })
     );
-    termProc.stderr.on("data", (d) =>
-      win?.webContents.send("term:data", d.toString())
-    );
-    termProc.on("exit", () => {
-      termProc = null;
+    termProc.onExit(() => {
+      if (termProcs.get(key) === termProc) {
+        termProcs.delete(key);
+      }
     });
+  };
+  ipcMain.handle("term:create", (_event, options) => {
+    if (!termProcs.has(options.key)) {
+      spawnTerminal(options);
+    }
   });
-  ipcMain.on("term:input", (_e, data) => termProc?.stdin.write(data));
+  ipcMain.handle("term:close", (_event, key) => {
+    termProcs.get(key)?.kill();
+    termProcs.delete(key);
+  });
+  ipcMain.on("term:input", (_event, { data, key }) =>
+    termProcs.get(key)?.write(data)
+  );
+  ipcMain.on("term:resize", (_event, { cols, key, rows }) => {
+    if (Number.isFinite(cols) && Number.isFinite(rows)) {
+      termProcs
+        .get(key)
+        ?.resize(
+          Math.max(2, Math.trunc(cols)),
+          Math.max(1, Math.trunc(rows))
+        );
+    }
+  });
 
   // fs
   ipcMain.handle("fs:list", async (_e, dir) => {
@@ -980,7 +1014,10 @@ app.on("before-quit", (event) => {
   for (const sessionId of sessionFileWatchers.keys()) {
     closeSessionFileWatcher(sessionId);
   }
-  termProc?.kill();
+  for (const termProc of termProcs.values()) {
+    termProc.kill();
+  }
+  termProcs.clear();
   Promise.allSettled(
     [...piSessions.values()].map(async (pending) => (await pending).dispose())
   ).finally(() => app.quit());

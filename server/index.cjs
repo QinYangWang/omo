@@ -50,6 +50,7 @@ const imageMime = {
 const MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_TEXT_FILE_BYTES = 300 * 1024;
 const MAX_IMAGE_FILE_BYTES = 5_900_000;
+const terminalPattern = /^\/api\/v1\/terminals\/([^/]+)$/;
 const terminalTicketPattern = /^\/api\/v1\/terminals\/([^/]+)\/ticket$/;
 const terminalStreamPattern = /^\/api\/v1\/terminals\/([^/]+)\/stream$/;
 
@@ -381,7 +382,17 @@ async function piRoutes(req, res, url) {
 async function terminalRoutes(req, res, url) {
   if (route(req, url, "POST", "/api/v1/terminals")) {
     const input = await body(req);
-    json(res, 200, await terminals.create(input.cwd));
+    json(
+      res,
+      200,
+      await terminals.create(input.cwd, input.cols, input.rows)
+    );
+    return true;
+  }
+  const terminalMatch = url.pathname.match(terminalPattern);
+  if (req.method === "DELETE" && terminalMatch) {
+    terminals.close(decodeURIComponent(terminalMatch[1]));
+    json(res, 200, { ok: true });
     return true;
   }
   const terminalTicketMatch = url.pathname.match(terminalTicketPattern);

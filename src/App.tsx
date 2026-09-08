@@ -14,13 +14,13 @@ import { SessionActions } from "@/components/session-actions";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { omo } from "@/lib/omo";
-import {
-  getDefaultServerId,
-  getServerApi,
-  type OmoServer,
-  useServers,
-} from "@/lib/servers";
+import { getServerApi, type OmoServer, useServers } from "@/lib/servers";
 import { sessionKey, setSessionPref } from "@/lib/session-prefs";
+import {
+  rememberSessionWorkspace,
+  type SessionWorkspace,
+  sessionWorkspaceId,
+} from "@/lib/session-workspaces";
 import { useTheme } from "@/lib/theme";
 import { normalizeColorToHex } from "@/lib/theme-tokens";
 import { cn, randomUUID } from "@/lib/utils";
@@ -38,6 +38,16 @@ const Workspace = lazy(() =>
 
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 const macPlatformPattern = /Mac/;
+
+interface ActiveSession {
+  cwd: string;
+  key: string;
+  path?: string;
+  project: string;
+  projectId: string;
+  serverId: string;
+  title: string;
+}
 
 function syncWindowTitle() {
   const styles = getComputedStyle(document.documentElement);
@@ -217,15 +227,10 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<Record<string, PiSession[]>>({});
   const [addOpen, setAddOpen] = useState(false);
-  const [active, setActive] = useState<{
-    key: string;
-    cwd: string;
-    project: string;
-    projectId: string;
-    serverId: string;
-    title: string;
-    path?: string;
-  } | null>(null);
+  const [active, setActive] = useState<ActiveSession | null>(null);
+  const [workspaceContexts, setWorkspaceContexts] = useState<
+    SessionWorkspace[]
+  >([]);
   const [sidebarW, setSidebarW] = useState(() =>
     loadWidth("omo.layout.sidebarW", 310)
   );
@@ -325,6 +330,12 @@ export default function App() {
 
   const clamp = (v: number, lo: number, hi: number) =>
     Math.min(hi, Math.max(lo, v));
+
+  useEffect(() => {
+    setWorkspaceContexts((current) =>
+      rememberSessionWorkspace(current, active)
+    );
+  }, [active]);
 
   useEffect(() => {
     localStorage.setItem("omo.layout.sidebarW", String(sidebarW));
@@ -555,7 +566,7 @@ export default function App() {
                 aria-label="Toggle workspace"
                 aria-pressed={panelOpen}
                 className="size-7"
-                onClick={() => setPanelOpen((v) => !v)}
+                onClick={() => setPanelOpen((value) => !value)}
                 size="icon"
                 variant="ghost"
               >
@@ -601,21 +612,29 @@ export default function App() {
             </div>
           </main>
           {panelOpen ? (
-            <>
-              <Divider
-                onDrag={(dx) => setConvW((w) => clamp(w + dx, 380, 560))}
-              />
-
-              {/* Col 3: Workspace */}
-              <div className="min-w-0 flex-1">
-                <Suspense fallback={null}>
-                  <Workspace
-                    serverId={active?.serverId ?? getDefaultServerId()}
-                  />
-                </Suspense>
-              </div>
-            </>
+            <Divider
+              onDrag={(dx) => setConvW((w) => clamp(w + dx, 380, 560))}
+            />
           ) : null}
+
+          {/* Keep visited terminal and browser surfaces alive while collapsed. */}
+          <div className="min-w-0 flex-1" hidden={!panelOpen}>
+            <Suspense fallback={null}>
+              {workspaceContexts.map((workspace) => (
+                <div
+                  className="h-full"
+                  hidden={workspace.id !== sessionWorkspaceId(active)}
+                  key={workspace.id}
+                >
+                  <Workspace
+                    cwd={workspace.cwd}
+                    serverId={workspace.serverId}
+                    terminalKey={workspace.id}
+                  />
+                </div>
+              ))}
+            </Suspense>
+          </div>
         </div>
       </div>
       <AddProjectDialog

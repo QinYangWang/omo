@@ -11,6 +11,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { File as DiffFile, PatchDiff } from "@pierre/diffs/react";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -28,118 +29,104 @@ import { getServerApi } from "@/lib/servers";
 import { useTheme } from "@/lib/theme";
 import { normalizeColorToHex } from "@/lib/theme-tokens";
 import { cn, randomUUID } from "@/lib/utils";
+import {
+  buildChangedFileTree,
+  parseGitStatus,
+  type WorkspaceFileNode,
+} from "@/lib/workspace-tree";
 import "@xterm/xterm/css/xterm.css";
 
-interface PanelTab {
-  closable?: boolean;
-  cwd?: string;
+type FNode = WorkspaceFileNode;
+
+interface WorkspaceTab {
   id: string;
-  kind: "browser" | "diff" | "file" | "review" | "terminal";
-  path?: string;
-  title?: string;
+  kind: "browser" | "files" | "review" | "terminal";
 }
 
-const baseName = (p: string) => p.split("/").pop() ?? p;
+const pathSeparatorPattern = /[\\/]/;
+const baseName = (path: string) =>
+  path.split(pathSeparatorPattern).pop() ?? path;
+const joinPath = (parent: string, child: string) => `${parent}/${child}`;
 
-export function Workspace({ serverId }: { serverId?: string }) {
+export function Workspace({
+  cwd,
+  serverId,
+  terminalKey,
+}: {
+  cwd?: string;
+  serverId?: string;
+  terminalKey: string;
+}) {
   const { t } = useI18n();
   const api = getServerApi(serverId);
-  const [tabs, setTabs] = useState<PanelTab[]>([
+  const [tabs, setTabs] = useState<WorkspaceTab[]>([
+    { id: "files", kind: "files" },
     { id: "review", kind: "review" },
   ]);
-  const [activeId, setActiveId] = useState("review");
+  const [activeTab, setActiveTab] = useState("files");
+  const [projectCwd, setProjectCwd] = useState(cwd ?? "");
 
-  const openTab = (tab: PanelTab) => {
-    setTabs((current) =>
-      current.some((item) => item.id === tab.id) ? current : [...current, tab]
-    );
-    setActiveId(tab.id);
-  };
-  const closeTab = (id: string) => {
-    setTabs((current) => current.filter((tab) => tab.id !== id));
-    if (activeId === id) {
-      setActiveId("review");
+  useEffect(() => {
+    if (cwd) {
+      setProjectCwd(cwd);
+      return;
     }
-  };
-  const tabLabel = (tab: PanelTab) => {
-    if (tab.title) {
-      return tab.title;
+    api.cwd().then(setProjectCwd);
+  }, [api, cwd]);
+
+  const label = (tab: WorkspaceTab) => {
+    if (tab.kind === "files") {
+      return t("surface_files");
     }
     if (tab.kind === "review") {
       return t("surface_review");
     }
-    if (tab.kind === "browser") {
-      return t("surface_browser");
-    }
-    return t("surface_terminal");
+    return tab.kind === "terminal"
+      ? t("surface_terminal")
+      : t("surface_browser");
   };
-  const activeTab = tabs.find((tab) => tab.id === activeId);
-  const activeFilePath =
-    activeTab?.kind === "file" ? activeTab.path : undefined;
-  const renderTab = (tab: PanelTab) => {
-    if (tab.kind === "review") {
-      return (
-        <ReviewSurface
-          api={api}
-          key={serverId}
-          onOpenDiff={(cwd, file) =>
-            openTab({
-              closable: true,
-              cwd,
-              id: `diff:${file}`,
-              kind: "diff",
-              path: file,
-              title: baseName(file),
-            })
-          }
-        />
-      );
+
+  const addTab = (kind: "browser" | "terminal") => {
+    const id = `${kind}:${randomUUID()}`;
+    setTabs((current) => [...current, { id, kind }]);
+    setActiveTab(id);
+  };
+
+  const closeTab = (tab: WorkspaceTab) => {
+    if (tab.kind === "terminal") {
+      api.term.close(`${terminalKey}:${tab.id}`).catch(() => undefined);
     }
-    if (tab.kind === "file" && tab.path) {
-      return <FileTab api={api} path={tab.path} />;
+    setTabs((current) => current.filter((item) => item.id !== tab.id));
+    if (activeTab === tab.id) {
+      setActiveTab("files");
     }
-    if (tab.kind === "diff" && tab.path && tab.cwd) {
-      return <DiffTab api={api} cwd={tab.cwd} file={tab.path} />;
-    }
-    return (
-      <div className="h-full p-2">
-        {tab.kind === "browser" ? (
-          <BrowserSurface />
-        ) : (
-          <TerminalSurface api={api} />
-        )}
-      </div>
-    );
   };
 
   return (
     <div className="flex h-full w-full flex-col bg-panel">
-      <Tabs className="contents" onValueChange={setActiveId} value={activeId}>
-        <div className="flex h-12 shrink-0 items-center gap-2 border-border border-b px-2">
-          <TabsList
-            aria-label="Workspace tabs"
-            className="gap-2 bg-transparent p-0"
-          >
+      <Tabs className="contents" onValueChange={setActiveTab} value={activeTab}>
+        <div className="flex h-12 shrink-0 items-center gap-1 border-border border-b px-2">
+          <TabsList aria-label="Workspace" variant="line">
             {tabs.map((tab) => (
               <TabsTrigger
-                className="h-8 gap-1.5 rounded-md px-3.5 text-xs"
+                className="h-8 gap-1 px-3 text-xs"
                 key={tab.id}
                 value={tab.id}
               >
-                {tabLabel(tab)}
-                {tab.closable ? (
+                {label(tab)}
+                {tab.kind === "terminal" || tab.kind === "browser" ? (
                   <Button
                     aria-label={t("close")}
-                    className="inline-flex size-4 items-center justify-center border-0 text-foreground hover:bg-transparent focus-visible:border-transparent focus-visible:ring-0 dark:hover:bg-transparent"
+                    className="size-4"
                     nativeButton={false}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.id);
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      closeTab(tab);
                     }}
                     render={<span />}
                     variant="ghost"
                   >
-                    <HugeiconsIcon className="size-3.5" icon={XIcon} />
+                    <HugeiconsIcon icon={XIcon} />
                   </Button>
                 ) : null}
               </TabsTrigger>
@@ -156,65 +143,64 @@ export function Workspace({ serverId }: { serverId?: string }) {
                 />
               }
             >
-              <HugeiconsIcon className="size-4" icon={Add01Icon} />
+              <HugeiconsIcon icon={Add01Icon} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuItem
-                onClick={() =>
-                  openTab({
-                    closable: true,
-                    id: `browser:${randomUUID()}`,
-                    kind: "browser",
-                  })
-                }
-              >
-                <HugeiconsIcon className="size-3.5" icon={GlobeIcon} />
-                {t("surface_browser")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() =>
-                  openTab({
-                    closable: true,
-                    id: `terminal:${randomUUID()}`,
-                    kind: "terminal",
-                  })
-                }
-              >
-                <HugeiconsIcon className="size-3.5" icon={TerminalIcon} />
+              <DropdownMenuItem onClick={() => addTab("terminal")}>
+                <HugeiconsIcon icon={TerminalIcon} />
                 {t("surface_terminal")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => addTab("browser")}>
+                <HugeiconsIcon icon={GlobeIcon} />
+                {t("surface_browser")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </Tabs>
-      <div className="flex min-h-0 flex-1">
-        <main className="min-w-0 flex-1">
-          {tabs.map((tab) => (
-            <div
-              className={tab.id === activeId ? "h-full" : "hidden"}
-              key={tab.id}
-            >
-              {renderTab(tab)}
-            </div>
-          ))}
-        </main>
-        <aside className="w-[clamp(240px,19vw,300px)] shrink-0 border-border border-l">
-          <FilesSurface
-            activePath={activeFilePath}
-            api={api}
-            key={serverId}
-            onOpenFile={(path) =>
-              openTab({
-                closable: true,
-                id: `file:${path}`,
-                kind: "file",
-                path,
-                title: baseName(path),
-              })
-            }
-          />
-        </aside>
+      <div className="min-h-0 flex-1">
+        {tabs.map((tab) => (
+          <div
+            className={cn(
+              tab.id === activeTab ? "h-full" : "hidden",
+              (tab.kind === "terminal" || tab.kind === "browser") && "p-2"
+            )}
+            key={tab.id}
+          >
+            {tab.kind === "files" ? (
+              <FilesSurface api={api} cwd={projectCwd} />
+            ) : null}
+            {tab.kind === "review" ? (
+              <ReviewSurface api={api} cwd={projectCwd} />
+            ) : null}
+            {tab.kind === "terminal" ? (
+              <TerminalSurface
+                api={api}
+                cwd={projectCwd}
+                terminalKey={`${terminalKey}:${tab.id}`}
+              />
+            ) : null}
+            {tab.kind === "browser" ? <BrowserSurface /> : null}
+          </div>
+        ))}
       </div>
+    </div>
+  );
+}
+
+function SplitSurface({
+  children,
+  tree,
+}: {
+  children: React.ReactNode;
+  tree: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-w-0">
+      <aside className="w-[clamp(220px,19vw,300px)] shrink-0 border-border border-r">
+        {tree}
+      </aside>
+      <main className="min-w-0 flex-1">{children}</main>
     </div>
   );
 }
@@ -225,10 +211,11 @@ function BrowserSurface() {
   return (
     <div className="flex h-full flex-col gap-2">
       <Input
+        aria-label="URL"
         className="h-8 rounded-md"
-        onChange={(e) => setUrl(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
+        onChange={(event) => setUrl(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
             ref.current?.loadURL(url);
           }
         }}
@@ -243,40 +230,94 @@ function BrowserSurface() {
   );
 }
 
-function TerminalSurface({ api }: { api: omoApi }) {
+function TerminalSurface({
+  api,
+  cwd,
+  terminalKey,
+}: {
+  api: omoApi;
+  cwd: string;
+  terminalKey: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
+    if (!(cwd && ref.current)) {
+      return;
+    }
+    const element = ref.current;
+    const styles = getComputedStyle(document.documentElement);
     const cssVar = (name: string) =>
-      normalizeColorToHex(
-        getComputedStyle(document.documentElement).getPropertyValue(name)
-      );
-    const term = new XTerm({
-      convertEol: true,
+      normalizeColorToHex(styles.getPropertyValue(name));
+    const terminal = new XTerm({
+      allowProposedApi: true,
+      cursorBlink: true,
+      fontFamily: styles.getPropertyValue("--font-geist-mono") || "monospace",
       fontSize: 13,
+      lineHeight: 1,
+      scrollback: 10_000,
       theme: {
-        background: cssVar("--background") ?? "#1a1a1a",
-        foreground: cssVar("--foreground") ?? "#d4d4d4",
+        background: cssVar("--background") ?? undefined,
+        foreground: cssVar("--foreground") ?? undefined,
       },
     });
     const fit = new FitAddon();
-    term.loadAddon(fit);
-    const element = ref.current;
-    if (element === null) {
-      return;
-    }
-    term.open(element);
-    fit.fit();
-    api.term.create();
-    const off = api.term.onData((d) => term.write(d));
-    term.onData((d) => api.term.input(d));
-    const ro = new ResizeObserver(() => fit.fit());
-    ro.observe(element);
-    return () => {
-      off();
-      ro.disconnect();
-      term.dispose();
+    terminal.loadAddon(fit);
+    terminal.loadAddon(new Unicode11Addon());
+    terminal.unicode.activeVersion = "11";
+    terminal.open(element);
+    terminal.focus();
+
+    let disposed = false;
+    let fontsReady = false;
+    let frame = 0;
+    let started = false;
+    const resize = () => {
+      if (disposed) {
+        return;
+      }
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!(fontsReady && element.offsetWidth && element.offsetHeight)) {
+          return;
+        }
+        fit.fit();
+        if (!started) {
+          started = true;
+          api.term
+            .create(cwd, terminal.cols, terminal.rows, terminalKey)
+            .then(resize)
+            .catch((error: unknown) => {
+              started = false;
+              terminal.writeln(
+                `\r\nTerminal failed: ${error instanceof Error ? error.message : String(error)}`
+              );
+            });
+          return;
+        }
+        api.term.resize(terminal.cols, terminal.rows, terminalKey);
+        terminal.refresh(0, Math.max(0, terminal.rows - 1));
+      });
     };
-  }, [api]);
+    const off = api.term.onData((data) => terminal.write(data), terminalKey);
+    const input = terminal.onData((data) => api.term.input(data, terminalKey));
+    const observer = new ResizeObserver(resize);
+    observer.observe(element);
+    document.fonts.ready.then(() => {
+      fontsReady = true;
+      resize();
+    });
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      off();
+      input.dispose();
+      observer.disconnect();
+      terminal.dispose();
+    };
+  }, [api, cwd, terminalKey]);
+
   return (
     <div
       className="h-full overflow-hidden rounded-md bg-background"
@@ -285,170 +326,185 @@ function TerminalSurface({ api }: { api: omoApi }) {
   );
 }
 
-interface FNode {
-  children?: FNode[];
-  dir: boolean;
-  name: string;
-  open?: boolean;
-  path: string;
-}
-
 function FileNodeToggle({ node }: { node: FNode }) {
   if (!node.dir) {
     return <span className="w-3.5" />;
   }
-  return node.open ? (
-    <HugeiconsIcon className="size-3.5" icon={ArrowDown01Icon} />
-  ) : (
-    <HugeiconsIcon className="size-3.5" icon={ArrowRight01Icon} />
+  return (
+    <HugeiconsIcon
+      className="size-3.5"
+      icon={node.open ? ArrowDown01Icon : ArrowRight01Icon}
+    />
   );
 }
 
-function FilesSurface({
+function FileTree({
   activePath,
-  api,
-  onOpenFile,
+  nodes,
+  onSelect,
+  onToggle,
 }: {
   activePath?: string;
-  api: omoApi;
-  onOpenFile: (path: string) => void;
+  nodes: FNode[];
+  onSelect: (node: FNode) => void;
+  onToggle: (node: FNode) => void;
 }) {
+  const renderNodes = (items: FNode[], depth: number): React.ReactNode =>
+    items.map((node) => (
+      <div key={node.path}>
+        <Button
+          className={cn(
+            "h-7 w-full justify-start gap-1 rounded px-1.5 font-normal text-[13px]",
+            node.path === activePath && "bg-accent"
+          )}
+          onClick={() => (node.dir ? onToggle(node) : onSelect(node))}
+          style={{ paddingLeft: depth * 14 + 6 }}
+          variant="ghost"
+        >
+          <FileNodeToggle node={node} />
+          <HugeiconsIcon
+            className="size-3.5"
+            icon={node.dir ? Folder01Icon : FileIcon}
+          />
+          <span className="truncate">{node.name}</span>
+          {node.status ? (
+            <span className="ml-auto font-mono text-muted-foreground text-xs">
+              {node.status.trim() || "?"}
+            </span>
+          ) : null}
+        </Button>
+        {node.dir && node.open && node.children
+          ? renderNodes(node.children, depth + 1)
+          : null}
+      </div>
+    ));
+
+  return <div className="p-1">{renderNodes(nodes, 0)}</div>;
+}
+
+function FilesSurface({ api, cwd }: { api: omoApi; cwd: string }) {
   const { t } = useI18n();
   const [root, setRoot] = useState<FNode[]>([]);
   const [query, setQuery] = useState("");
+  const [selectedPath, setSelectedPath] = useState<string>();
 
   useEffect(() => {
-    api.cwd().then(async (cwd) => {
-      const entries = await api.fs.list(cwd);
-      setRoot(entries.map((e) => ({ ...e, path: `${cwd}/${e.name}` })));
-    });
-  }, [api]);
-
-  const toggle = async (node: FNode) => {
-    if (!node.dir) {
-      onOpenFile(node.path);
+    if (!cwd) {
       return;
     }
+    setSelectedPath(undefined);
+    api.fs.list(cwd).then((entries) =>
+      setRoot(
+        entries.map((entry) => ({
+          ...entry,
+          path: joinPath(cwd, entry.name),
+        }))
+      )
+    );
+  }, [api, cwd]);
+
+  const toggle = async (node: FNode) => {
     if (!node.children) {
       const entries = await api.fs.list(node.path);
-      node.children = entries.map((e) => ({
-        ...e,
-        path: `${node.path}/${e.name}`,
+      node.children = entries.map((entry) => ({
+        ...entry,
+        path: joinPath(node.path, entry.name),
       }));
     }
     node.open = !node.open;
     setRoot([...root]);
   };
 
-  const filterNodes = (nodes: FNode[], q: string): FNode[] => {
-    if (!q) {
+  const filterNodes = (nodes: FNode[], value: string): FNode[] => {
+    if (!value) {
       return nodes;
     }
-    const out: FNode[] = [];
-    for (const n of nodes) {
-      const kids = n.children ? filterNodes(n.children, q) : [];
-      if (n.name.toLowerCase().includes(q) || kids.length > 0) {
-        out.push({ ...n, children: kids, open: true });
+    const output: FNode[] = [];
+    for (const node of nodes) {
+      const children = node.children ? filterNodes(node.children, value) : [];
+      if (node.name.toLowerCase().includes(value) || children.length > 0) {
+        output.push({ ...node, children, open: true });
       }
     }
-    return out;
+    return output;
   };
 
-  const renderNodes = (nodes: FNode[], depth: number) =>
-    nodes.map((n) => (
-      <div key={n.path}>
-        <Button
-          className={cn(
-            "h-auto w-full justify-start gap-1 rounded px-1.5 py-1 font-normal text-[13px]",
-            n.path === activePath && "bg-accent"
-          )}
-          onClick={() => toggle(n)}
-          style={{ paddingLeft: depth * 14 + 6 }}
-          variant="ghost"
-        >
-          <FileNodeToggle node={n} />
-          {n.dir ? (
-            <HugeiconsIcon className="size-3.5" icon={Folder01Icon} />
-          ) : (
-            <HugeiconsIcon className="size-3.5" icon={FileIcon} />
-          )}
-          <span className="truncate">{n.name}</span>
-        </Button>
-        {n.dir && n.open && n.children
-          ? renderNodes(n.children, depth + 1)
-          : null}
-      </div>
-    ));
-
-  return (
+  const tree = (
     <div className="flex h-full flex-col">
       <div className="p-1.5">
         <Input
           aria-label={t("explorer_search")}
           className="h-8 text-xs"
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(event) => setQuery(event.target.value)}
           placeholder={t("explorer_search")}
           value={query}
         />
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="p-1 pt-0">
-          {renderNodes(filterNodes(root, query.trim().toLowerCase()), 0)}
-        </div>
+        <FileTree
+          activePath={selectedPath}
+          nodes={filterNodes(root, query.trim().toLowerCase())}
+          onSelect={(node) => setSelectedPath(node.path)}
+          onToggle={toggle}
+        />
       </ScrollArea>
     </div>
   );
-}
-
-function ReviewSurface({
-  api,
-  onOpenDiff,
-}: {
-  api: omoApi;
-  onOpenDiff: (cwd: string, file: string) => void;
-}) {
-  const { t } = useI18n();
-  const [status, setStatus] = useState<{ file: string; xy: string }[]>([]);
-  const [cwd, setCwd] = useState("");
-
-  useEffect(() => {
-    api.cwd().then(async (c) => {
-      setCwd(c);
-      const out = await api.git.status(c);
-      setStatus(
-        out
-          .split("\n")
-          .filter(Boolean)
-          .map((l) => ({ file: l.slice(3), xy: l.slice(0, 2) }))
-      );
-    });
-  }, [api]);
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-1">
-        {status.length === 0 && (
-          <p className="p-2 text-muted-foreground text-sm">{t("no_changes")}</p>
-        )}
-        {status.map((s) => (
-          <Button
-            className="h-auto w-full justify-start gap-2 rounded px-2 py-1 font-normal text-sm"
-            key={s.file}
-            onClick={() => onOpenDiff(cwd, s.file)}
-            variant="ghost"
-          >
-            <span className="w-6 font-mono text-muted-foreground text-xs">
-              {s.xy.trim() || "?"}
-            </span>
-            <span className="truncate">{s.file}</span>
-          </Button>
-        ))}
-      </div>
-    </ScrollArea>
+    <SplitSurface tree={tree}>
+      {selectedPath ? <FileView api={api} path={selectedPath} /> : null}
+    </SplitSurface>
   );
 }
 
-function FileTab({ api, path }: { api: omoApi; path: string }) {
+function ReviewSurface({ api, cwd }: { api: omoApi; cwd: string }) {
+  const { t } = useI18n();
+  const [nodes, setNodes] = useState<FNode[]>([]);
+  const [selectedFile, setSelectedFile] = useState<string>();
+
+  useEffect(() => {
+    if (!cwd) {
+      return;
+    }
+    setSelectedFile(undefined);
+    api.git
+      .status(cwd)
+      .then((output) =>
+        setNodes(buildChangedFileTree(cwd, parseGitStatus(output)))
+      );
+  }, [api, cwd]);
+
+  const toggle = (node: FNode) => {
+    node.open = !node.open;
+    setNodes([...nodes]);
+  };
+
+  const tree = (
+    <ScrollArea className="h-full">
+      {nodes.length > 0 ? (
+        <FileTree
+          activePath={selectedFile ? joinPath(cwd, selectedFile) : undefined}
+          nodes={nodes}
+          onSelect={(node) => setSelectedFile(node.path.slice(cwd.length + 1))}
+          onToggle={toggle}
+        />
+      ) : (
+        <p className="p-3 text-muted-foreground text-sm">{t("no_changes")}</p>
+      )}
+    </ScrollArea>
+  );
+
+  return (
+    <SplitSurface tree={tree}>
+      {selectedFile ? (
+        <DiffView api={api} cwd={cwd} file={selectedFile} />
+      ) : null}
+    </SplitSurface>
+  );
+}
+
+function FileView({ api, path }: { api: omoApi; path: string }) {
   const { resolvedTheme } = useTheme();
   const [content, setContent] = useState<string | null>(null);
   const options = useMemo(
@@ -461,13 +517,13 @@ function FileTab({ api, path }: { api: omoApi; path: string }) {
   );
 
   useEffect(() => {
-    api.fs.read(path).then((r) => setContent(r.content ?? r.error ?? ""));
+    setContent(null);
+    api.fs
+      .read(path)
+      .then((result) => setContent(result.content ?? result.error ?? ""));
   }, [api, path]);
 
-  if (content === null) {
-    return null;
-  }
-  return (
+  return content === null ? null : (
     <ScrollArea className="h-full">
       <DiffFile
         className="p-2 text-xs"
@@ -478,7 +534,7 @@ function FileTab({ api, path }: { api: omoApi; path: string }) {
   );
 }
 
-function DiffTab({
+function DiffView({
   api,
   cwd,
   file,
@@ -488,7 +544,7 @@ function DiffTab({
   file: string;
 }) {
   const { resolvedTheme } = useTheme();
-  const [text, setText] = useState<string | null>(null);
+  const [text, setText] = useState("");
   const options = useMemo(
     () => ({
       diffStyle: "unified" as const,
@@ -500,12 +556,10 @@ function DiffTab({
   );
 
   useEffect(() => {
+    setText("");
     api.git.diff(cwd, file).then(setText);
   }, [api, cwd, file]);
 
-  if (text === null) {
-    return null;
-  }
   return (
     <ScrollArea className="h-full">
       <PatchDiff className="p-2 text-xs" options={options} patch={text} />

@@ -23,11 +23,9 @@ Conversation Pane 从上到下：Conversation Header（h-12，folder 图标 + �
 
 ## Workspace
 
-Workspace 默认收起，通过会话名栏右侧的抽屉开关打开（打开后 Conversation 固定 460px 可拖，Workspace 占剩余空间）。结构为 `WorkspaceTabs + Body[Main + Explorer]`：
+Workspace 默认收起，通过会话名栏右侧的抽屉开关打开（打开后 Conversation 固定 460px 可拖，Workspace 占剩余空间）。顶部固定“文件 / 审查”标签，默认打开文件；“+”菜单可添加多个终端和浏览器标签。Workspace 按会话隔离并保持挂载：切换会话后，每个会话的当前标签、文件选择、终端进程和浏览器页面互不影响，切回时恢复原状态。关闭终端或浏览器标签会销毁对应 PTY 或 webview。
 
-- WorkspaceTabs（h-12，与会话名栏同高）：shadcn Tabs 默认 variant 圆角 button 标签——固定的“变更”标签 + 文档标签（文件/diff，可关闭）+ “+”菜单（可添加多个浏览器、终端标签页）。所有标签内容保持挂载（hidden 切换），终端与浏览器状态不丢失。
-- WorkspaceMain：当前标签内容——Changes 列表、文件预览、diff（`@pierre/diffs` 的 `File`/`PatchDiff`）、终端、浏览器。
-- FileExplorer（右侧辅助栏，宽 `clamp(240px, 19vw, 300px)`）：搜索框（过滤已加载节点）+ 可折叠文件树（28px 行高、13px 字号），点击文件在 Main 中打开文档标签，active 文件高亮。
+文件与审查均为左侧文件树、右侧内容的双栏布局：文件树显示项目目录并在当前页面预览所选文件；审查树只显示 Git 变更文件并在当前页面显示所选 diff。文件和 diff 使用 `@pierre/diffs` 的 `File` / `PatchDiff`。
 
 ## Sidebar
 
