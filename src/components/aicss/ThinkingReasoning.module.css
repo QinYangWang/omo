@@ -46,7 +46,7 @@
   padding: 0.25rem 0 0.25rem 0.75rem;
   margin-top: 0.125rem;
   overflow: auto;
-  font-family: var(--font-geist-mono);
+  font-family: var(--font-mono, var(--font-geist-mono));
   font-size: 0.75rem;
   line-height: 1.65;
   color: var(--muted-foreground);

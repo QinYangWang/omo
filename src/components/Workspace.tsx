@@ -103,9 +103,9 @@ export function Workspace({
   };
 
   return (
-    <div className="flex h-full w-full flex-col bg-panel">
+    <div className="flex h-full w-full flex-col bg-background">
       <Tabs className="contents" onValueChange={setActiveTab} value={activeTab}>
-        <div className="flex h-12 shrink-0 items-center gap-1 border-border border-b px-2">
+        <div className="flex h-12 shrink-0 items-center gap-1 border-border border-b bg-background px-2">
           <TabsList aria-label="Workspace" variant="line">
             {tabs.map((tab) => (
               <TabsTrigger
@@ -117,13 +117,13 @@ export function Workspace({
                 {tab.kind === "terminal" || tab.kind === "browser" ? (
                   <Button
                     aria-label={t("close")}
-                    className="size-4"
-                    nativeButton={false}
+                    className="ms-1 shrink-0"
                     onClick={(event) => {
                       event.stopPropagation();
                       closeTab(tab);
                     }}
                     render={<span />}
+                    size="icon-xs"
                     variant="ghost"
                   >
                     <HugeiconsIcon icon={XIcon} />
@@ -196,8 +196,8 @@ function SplitSurface({
   tree: React.ReactNode;
 }) {
   return (
-    <div className="flex h-full min-w-0">
-      <aside className="w-[clamp(220px,19vw,300px)] shrink-0 border-border border-r">
+    <div className="flex h-full min-w-0 bg-background">
+      <aside className="w-64 shrink-0 border-sidebar-border border-r bg-sidebar">
         {tree}
       </aside>
       <main className="min-w-0 flex-1">{children}</main>
@@ -212,7 +212,7 @@ function BrowserSurface() {
     <div className="flex h-full flex-col gap-2">
       <Input
         aria-label="URL"
-        className="h-8 rounded-md"
+        className="h-8"
         onChange={(event) => setUrl(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
@@ -222,7 +222,7 @@ function BrowserSurface() {
         value={url}
       />
       <webview
-        className="min-h-0 flex-1 rounded-md border"
+        className="min-h-0 flex-1 rounded-lg border"
         ref={ref}
         src={url}
       />
@@ -252,7 +252,10 @@ function TerminalSurface({
     const terminal = new XTerm({
       allowProposedApi: true,
       cursorBlink: true,
-      fontFamily: styles.getPropertyValue("--font-geist-mono") || "monospace",
+      fontFamily:
+        styles.getPropertyValue("--font-mono") ||
+        styles.getPropertyValue("--font-geist-mono") ||
+        "monospace",
       fontSize: 13,
       lineHeight: 1,
       scrollback: 10_000,
@@ -354,8 +357,9 @@ function FileTree({
       <div key={node.path}>
         <Button
           className={cn(
-            "h-7 w-full justify-start gap-1 rounded px-1.5 font-normal text-[13px]",
-            node.path === activePath && "bg-accent"
+            "h-7 w-full justify-start gap-1 rounded-lg px-1.5 font-normal text-sidebar-foreground text-xs hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            node.path === activePath &&
+              "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
           )}
           onClick={() => (node.dir ? onToggle(node) : onSelect(node))}
           style={{ paddingLeft: depth * 14 + 6 }}
@@ -379,7 +383,7 @@ function FileTree({
       </div>
     ));
 
-  return <div className="p-1">{renderNodes(nodes, 0)}</div>;
+  return <div className="p-2">{renderNodes(nodes, 0)}</div>;
 }
 
 function FilesSurface({ api, cwd }: { api: omoApi; cwd: string }) {
@@ -431,7 +435,7 @@ function FilesSurface({ api, cwd }: { api: omoApi; cwd: string }) {
 
   const tree = (
     <div className="flex h-full flex-col">
-      <div className="p-1.5">
+      <div className="p-2">
         <Input
           aria-label={t("explorer_search")}
           className="h-8 text-xs"

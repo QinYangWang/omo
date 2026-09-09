@@ -1,51 +1,65 @@
 "use client";
 
 import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
-
+import type React from "react";
 import { cn } from "@/lib/utils";
 
-function HoverCard({ ...props }: PreviewCardPrimitive.Root.Props) {
-  return <PreviewCardPrimitive.Root data-slot="hover-card" {...props} />;
-}
+export const PreviewCard: typeof PreviewCardPrimitive.Root =
+  PreviewCardPrimitive.Root;
 
-function HoverCardTrigger({ ...props }: PreviewCardPrimitive.Trigger.Props) {
+export function PreviewCardTrigger({
+  ...props
+}: PreviewCardPrimitive.Trigger.Props): React.ReactElement {
   return (
-    <PreviewCardPrimitive.Trigger data-slot="hover-card-trigger" {...props} />
+    <PreviewCardPrimitive.Trigger data-slot="preview-card-trigger" {...props} />
   );
 }
 
-function HoverCardContent({
+export function PreviewCardPopup({
   className,
+  children,
+  align = "center",
   side = "bottom",
   sideOffset = 4,
-  align = "center",
-  alignOffset = 4,
+  anchor,
+  portalProps,
   ...props
-}: PreviewCardPrimitive.Popup.Props &
-  Pick<
-    PreviewCardPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset"
-  >) {
+}: PreviewCardPrimitive.Popup.Props & {
+  align?: PreviewCardPrimitive.Positioner.Props["align"];
+  side?: PreviewCardPrimitive.Positioner.Props["side"];
+  sideOffset?: PreviewCardPrimitive.Positioner.Props["sideOffset"];
+  anchor?: PreviewCardPrimitive.Positioner.Props["anchor"];
+  portalProps?: PreviewCardPrimitive.Portal.Props;
+}): React.ReactElement {
   return (
-    <PreviewCardPrimitive.Portal data-slot="hover-card-portal">
+    <PreviewCardPrimitive.Portal {...portalProps}>
       <PreviewCardPrimitive.Positioner
         align={align}
-        alignOffset={alignOffset}
-        className="isolate z-50"
+        anchor={anchor}
+        className="z-50"
+        data-slot="preview-card-positioner"
         side={side}
         sideOffset={sideOffset}
       >
         <PreviewCardPrimitive.Popup
           className={cn(
-            "data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:fade-in-0 data-open:zoom-in-95 data-closed:fade-out-0 data-closed:zoom-out-95 z-50 w-72 origin-(--transform-origin) rounded-lg bg-popover p-4 text-popover-foreground text-sm shadow-lg outline-hidden ring-1 ring-foreground/5 duration-100 data-closed:animate-out data-open:animate-in dark:ring-foreground/10",
+            "relative flex w-64 origin-(--transform-origin) text-balance rounded-lg border bg-popover not-dark:bg-clip-padding p-4 text-popover-foreground text-sm shadow-lg/5 transition-[scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
             className
           )}
-          data-slot="hover-card-content"
+          data-slot="preview-card-content"
           {...props}
-        />
+        >
+          {children}
+        </PreviewCardPrimitive.Popup>
       </PreviewCardPrimitive.Positioner>
     </PreviewCardPrimitive.Portal>
   );
 }
 
-export { HoverCard, HoverCardContent, HoverCardTrigger };
+// biome-ignore lint/performance/noBarrelFile: preserve the project's primitive compatibility export.
+export { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
+export {
+  PreviewCard as HoverCard,
+  PreviewCardPopup as HoverCardContent,
+  PreviewCardTrigger as HoverCardTrigger,
+};

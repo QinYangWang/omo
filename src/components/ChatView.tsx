@@ -1,7 +1,6 @@
 import {
   Add01Icon,
   AiBrain01Icon,
-  ArrowRight01Icon,
   ArrowUp02Icon,
   Cancel01Icon,
   FileAttachmentIcon,
@@ -17,7 +16,14 @@ import {
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { type ListRange, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
   AiAgentInput,
@@ -34,6 +40,20 @@ import { Outline } from "@/components/chat/outline";
 import { ImagePreviews, TurnCard } from "@/components/chat/turn-card";
 import { ProviderIcon } from "@/components/provider-icon";
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxCollection,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxGroupLabel,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSeparator,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -58,12 +78,8 @@ import {
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
-import {
   Select,
+  SelectButton,
   SelectContent,
   SelectGroup,
   SelectItem,
@@ -1074,7 +1090,7 @@ export function ChatView({
       subscribeFileSync(cacheKey, () => {
         // Session JSONL changed on disk (e.g. the same session is active in
         // the pi TUI). Debounce and re-read the tail from disk.
-        // biome-ignore lint/suspicious/noUnnecessaryConditions: the ref is mutated by the streaming subscription.
+        // biome-ignore lint/suspicious/noUnnecessaryConditions: the ref is updated by the streaming subscription.
         if (streamingRef.current) {
           return;
         }
@@ -1583,7 +1599,7 @@ function PromptInput({
   };
   return (
     <div>
-      <div className="mb-2 flex h-7 items-center gap-1 px-1 text-muted-foreground text-xs">
+      <div className="mb-2 flex min-h-7 flex-wrap items-center gap-1.5 px-1 text-muted-foreground text-xs">
         <ProjectSelect
           onAdd={onAddProject}
           onClear={onClearProject}
@@ -1733,7 +1749,7 @@ function PromptInput({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
-                  className="w-44 rounded-[10px] p-[3px] text-xs"
+                  className="w-44 p-1 text-xs"
                   side="top"
                 >
                   <DropdownMenuGroup>
@@ -2160,10 +2176,7 @@ function ProjectSelect({
       }}
       value={items.find((item) => item.value === value) ?? null}
     >
-      <SelectTrigger
-        className="h-6 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1 rounded-[7px] border-0 bg-transparent px-2 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
-        hideIcon
-      >
+      <SelectTrigger className="w-fit min-w-0 max-w-xs" hideIcon size="sm">
         <HugeiconsIcon className="size-3.5" icon={Folder01Icon} />
         <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.id === value)?.name}
@@ -2176,11 +2189,7 @@ function ProjectSelect({
         sideOffset={6}
       >
         {projectItems.map((item) => (
-          <SelectItem
-            className="min-h-8 rounded-md text-sm"
-            key={item.value}
-            value={item}
-          >
+          <SelectItem key={item.value} value={item}>
             <span className="flex min-w-0 items-center gap-2">
               <HugeiconsIcon
                 className="size-4 shrink-0 text-muted-foreground"
@@ -2193,19 +2202,13 @@ function ProjectSelect({
         {!!projectItems.length && (
           <SelectSeparator className="my-1 bg-accent" />
         )}
-        <SelectItem
-          className="min-h-8 rounded-md text-foreground/80 text-sm"
-          value={actions[0]}
-        >
+        <SelectItem className="text-foreground/80" value={actions[0]}>
           <span className="flex items-center gap-2">
             <HugeiconsIcon className="size-4" icon={FolderAddIcon} />{" "}
             {t("new_project")}
           </span>
         </SelectItem>
-        <SelectItem
-          className="min-h-8 rounded-md text-foreground/80 text-sm"
-          value={actions[1]}
-        >
+        <SelectItem className="text-foreground/80" value={actions[1]}>
           <span className="flex items-center gap-2">
             <HugeiconsIcon className="size-4" icon={Cancel01Icon} />{" "}
             {t("no_project")}
@@ -2309,6 +2312,21 @@ function ContextUsageRing({
   );
 }
 
+interface ModelOption {
+  id: string;
+  label: string;
+  name: string;
+  provider: string;
+  value: string;
+}
+
+interface ModelGroup {
+  items: ModelOption[];
+  label: string;
+  provider: string;
+  value: string;
+}
+
 function ModelSelect({
   models,
   value,
@@ -2321,157 +2339,130 @@ function ModelSelect({
   onChange: (value: string) => void;
 }) {
   const { t } = useI18n();
-  const modelItems = models.map((item) => ({
-    ...item,
-    label: item.name,
-    value: `${item.provider}/${item.id}`,
-  }));
+  const modelItems = useMemo<ModelOption[]>(
+    () =>
+      models.map((item) => ({
+        ...item,
+        label: item.name,
+        value: `${item.provider}/${item.id}`,
+      })),
+    [models]
+  );
   // The session's active model (from pi) may not be in the enabled list;
   // synthesize an entry so the trigger shows the real model instead of the
   // placeholder.
-  const selected =
-    modelItems.find((item) => item.value === value) ??
-    (value
-      ? (() => {
-          const slash = value.indexOf("/");
-          const provider = slash > 0 ? value.slice(0, slash) : value;
-          const id = slash > 0 ? value.slice(slash + 1) : value;
-          return {
-            id,
-            label: id,
-            name: id,
-            provider,
-            value,
-          };
-        })()
-      : undefined);
-  const groups = [...new Set(modelItems.map((item) => item.provider))];
-  const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(selected ? [selected.provider] : groups)
-  );
-  const [query, setQuery] = useState("");
-  const selectedProvider = selected?.provider;
-  useEffect(() => {
-    if (!selectedProvider) {
-      return;
+  const selected = useMemo<ModelOption | undefined>(() => {
+    const match = modelItems.find((item) => item.value === value);
+    if (match || !value) {
+      return match;
     }
-    setExpanded((current) => {
-      if (current.has(selectedProvider)) {
-        return current;
+    const slash = value.indexOf("/");
+    const provider = slash > 0 ? value.slice(0, slash) : value;
+    const id = slash > 0 ? value.slice(slash + 1) : value;
+    return { id, label: id, name: id, provider, value };
+  }, [modelItems, value]);
+  const groups = useMemo<ModelGroup[]>(() => {
+    const available =
+      selected && !modelItems.some((item) => item.value === selected.value)
+        ? [selected, ...modelItems]
+        : modelItems;
+    const byProvider = new Map<string, ModelOption[]>();
+    for (const item of available) {
+      const group = byProvider.get(item.provider);
+      if (group) {
+        group.push(item);
+      } else {
+        byProvider.set(item.provider, [item]);
       }
-      const next = new Set(current);
-      next.add(selectedProvider);
-      return next;
-    });
-  }, [selectedProvider]);
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    const matched = normalized
-      ? modelItems.filter((item) =>
-          `${item.provider} ${item.label}`.toLowerCase().includes(normalized)
-        )
-      : modelItems;
-    return selected && !matched.some((item) => item.value === selected.value)
-      ? [selected, ...matched]
-      : matched;
-  }, [modelItems, query, selected]);
-  const filteredGroups = [...new Set(filtered.map((item) => item.provider))];
+    }
+    return [...byProvider].map(([provider, items]) => ({
+      items,
+      label: provider,
+      provider,
+      value: provider,
+    }));
+  }, [modelItems, selected]);
+
   return (
-    <Select
-      items={filtered}
-      itemToStringValue={(item) => item.label}
-      onOpenChange={(open) => {
-        if (!open) {
-          setQuery("");
-        }
-      }}
+    <Combobox
+      aria-label={placeholder}
+      items={groups}
       onValueChange={(item) => {
         if (item) {
           onChange(item.value);
-          setQuery("");
         }
       }}
-      value={selected}
+      value={selected ?? null}
     >
-      <AiAgentInputSelectTrigger title={selected?.label}>
-        <ProviderIcon className="shrink-0" provider={selected?.provider} />
-        <SelectValue placeholder={placeholder}>{selected?.label}</SelectValue>
-      </AiAgentInputSelectTrigger>
-      <SelectContent
-        alignItemWithTrigger={false}
-        className="max-h-[min(17.5rem,47vh)] w-[min(14.375rem,calc(100vw-2rem))] overflow-hidden rounded-[10px] bg-popover p-0"
+      <ComboboxTrigger
+        render={<SelectButton className="w-fit max-w-56" hideIcon size="sm" />}
+        title={selected?.label ?? placeholder}
+      >
+        <ComboboxValue placeholder={placeholder}>
+          {(item: ModelOption | null) =>
+            item ? (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <ProviderIcon className="shrink-0" provider={item.provider} />
+                <span className="truncate">{item.label}</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">{placeholder}</span>
+            )
+          }
+        </ComboboxValue>
+      </ComboboxTrigger>
+      <ComboboxPopup
+        aria-label={placeholder}
+        className="w-[min(18rem,calc(100vw-2rem))]"
         side="top"
         sideOffset={6}
       >
-        <div className="flex max-h-[min(17.5rem,47vh)] flex-col">
-          <div className="shrink-0 p-[3px] pb-0">
-            <InputGroup className="h-8 rounded-[7px] border-0 bg-transparent shadow-none has-[[data-slot=input-group-control]:focus-visible]:border-0 has-[[data-slot=input-group-control]:focus-visible]:ring-0">
-              <InputGroupAddon>
-                <HugeiconsIcon icon={Search01Icon} />
-              </InputGroupAddon>
-              <InputGroupInput
-                className="text-xs"
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => event.stopPropagation()}
-                placeholder={t("search_models")}
-                value={query}
-              />
-            </InputGroup>
-          </div>
-          <div className="min-h-0 overflow-y-auto px-[3px] pb-[3px]">
-            {filteredGroups.map((provider, index) => (
-              <SelectGroup className="scroll-my-0 p-0" key={provider}>
-                {index > 0 && <SelectSeparator className="mx-1 my-0.5" />}
-                <SelectLabel
-                  className="flex min-h-7 w-full cursor-pointer items-center justify-start gap-1.5 rounded-md px-2 py-1 text-left font-medium text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(provider)) {
-                        next.delete(provider);
-                      } else {
-                        next.add(provider);
-                      }
-                      return next;
-                    });
-                  }}
-                  render={<button type="button" />}
-                >
-                  <HugeiconsIcon
-                    className={`size-3 shrink-0 transition-transform ${expanded.has(provider) || query ? "rotate-90" : ""}`}
-                    icon={ArrowRight01Icon}
-                  />
+        <div className="border-b p-2">
+          <ComboboxInput
+            aria-label={t("search_models")}
+            placeholder={t("search_models")}
+            showTrigger={false}
+            size="sm"
+            startAddon={<HugeiconsIcon icon={Search01Icon} />}
+          />
+        </div>
+        <ComboboxEmpty>{t("models_no_results")}</ComboboxEmpty>
+        <ComboboxList>
+          {(group: ModelGroup, index) => (
+            <Fragment key={group.value}>
+              {index > 0 ? <ComboboxSeparator /> : null}
+              <ComboboxGroup items={group.items}>
+                <ComboboxGroupLabel className="flex items-center gap-1.5">
                   <ProviderIcon
                     className="size-3.5 shrink-0"
-                    provider={provider}
+                    provider={group.provider}
                   />
-                  {provider}
-                </SelectLabel>
-                {(expanded.has(provider) || !!query) &&
-                  filtered
-                    .filter((item) => item.provider === provider)
-                    .map((item) => (
-                      <SelectItem
-                        className="min-h-7 max-w-full overflow-hidden rounded-md pr-7 pl-7 text-xs [&>span:first-child]:min-w-0 [&>span:first-child]:shrink [&>span:first-child]:overflow-hidden"
-                        key={`${item.provider}/${item.id}`}
-                        title={item.name}
-                        value={item}
-                      >
-                        <span className="min-w-0 truncate">{item.name}</span>
-                      </SelectItem>
-                    ))}
-              </SelectGroup>
-            ))}
-            {filtered.length === 0 && (
-              <div className="px-3 py-2 text-muted-foreground text-sm">
-                {t("models_no_results")}
-              </div>
-            )}
-          </div>
-        </div>
-      </SelectContent>
-    </Select>
+                  {group.label}
+                </ComboboxGroupLabel>
+                <ComboboxCollection>
+                  {(item: ModelOption) => (
+                    <ComboboxItem
+                      className="min-h-7 max-w-full overflow-hidden rounded-md text-xs"
+                      key={item.value}
+                      title={item.name}
+                      value={item}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <ProviderIcon
+                          className="size-3.5 shrink-0"
+                          provider={item.provider}
+                        />
+                        <span className="truncate">{item.name}</span>
+                      </span>
+                    </ComboboxItem>
+                  )}
+                </ComboboxCollection>
+              </ComboboxGroup>
+            </Fragment>
+          )}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
   );
 }
 
@@ -2520,6 +2511,7 @@ function CompactSelect({
               ? `${contentLabel}: ${selectedLabel}`
               : contentLabel
           }
+          hideIcon
           title={
             contentLabel && selectedLabel
               ? `${contentLabel}: ${selectedLabel}`
@@ -2529,19 +2521,14 @@ function CompactSelect({
           {triggerContent}
         </AiAgentInputSelectTrigger>
       ) : (
-        <SelectTrigger
-          className="h-6 min-h-0 w-fit min-w-0 max-w-none items-center justify-start gap-1.5 rounded-[7px] border-0 bg-transparent px-1.5 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
-          hideIcon
-        >
+        <SelectTrigger className="w-fit min-w-0 max-w-xs" hideIcon size="sm">
           {triggerContent}
         </SelectTrigger>
       )}
       <SelectContent
         alignItemWithTrigger={false}
         className={cn(
-          appearance === "composer"
-            ? "min-w-40 rounded-[10px] p-[3px]"
-            : "min-w-44 p-1"
+          appearance === "composer" ? "min-w-40 p-1" : "min-w-44 p-1"
         )}
         side="top"
         sideOffset={6}

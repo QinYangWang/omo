@@ -113,7 +113,7 @@ export function Outline({
               {meta.userPreview ? (
                 <HoverCard>
                   <HoverCardTrigger render={tick} />
-                  <HoverCardContent className="w-64" side="left">
+                  <HoverCardContent className="w-64 flex-col gap-1" side="left">
                     <div className="mb-1 text-[11px] text-muted-foreground">
                       User message
                     </div>

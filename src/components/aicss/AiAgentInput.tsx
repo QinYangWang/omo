@@ -63,13 +63,15 @@ function AiAgentInputFooter({
 
 function AiAgentInputSelectTrigger({
   className,
-  hideIcon = true,
+  hideIcon = false,
+  size = "sm",
   ...props
 }: ComponentProps<typeof SelectTrigger>) {
   return (
     <SelectTrigger
       className={cn(styles.selectTrigger, className)}
       hideIcon={hideIcon}
+      size={size}
       {...props}
     />
   );
@@ -129,8 +131,8 @@ function AiAgentInputButton({
     <Button
       className={cn(styles.iconButton, className)}
       data-active={active || undefined}
-      size="icon-xs"
-      variant="ghost"
+      size="icon-sm"
+      variant={active ? "default" : "ghost"}
       {...props}
     />
   );

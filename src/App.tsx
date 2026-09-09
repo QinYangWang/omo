@@ -389,11 +389,11 @@ export default function App() {
     />
   );
 
-  // 0.75rem puts the collapse button's centered icon on the same vertical
-  // line as the sidebar icon column (px-3 container + px-2 row).
+  // 0.5rem puts the collapse button's centered icon on the same vertical
+  // line as the sidebar icon column (px-2 container + px-2 row).
   const titlebarLeftPadding = isMac
     ? "max(0.75rem, calc(env(titlebar-area-x, 68px) + 0.5rem))"
-    : "0.75rem";
+    : "0.5rem";
   const titlebarRightPadding = isMac
     ? "0.5rem"
     : "max(0.5rem, calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 0px) + 0.5rem))";
@@ -506,8 +506,7 @@ export default function App() {
         {/* Content pane: top/left borders curve at the sidebar junction */}
         <div
           className={cn(
-            "flex min-w-0 flex-1 overflow-hidden border-border border-t bg-background",
-            !collapsed && "rounded-tl-lg border-l"
+            "my-2 mr-2 flex min-w-0 flex-1 overflow-hidden rounded-xl border bg-background shadow-sm/5"
           )}
         >
           {/* Col 2: Conversation */}

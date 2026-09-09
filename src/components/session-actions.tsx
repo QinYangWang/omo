@@ -60,14 +60,20 @@ export function SessionDetailsHover({
       }}
     >
       <HoverCardTrigger render={children} />
-      <HoverCardContent align="start" className="w-80" side="right">
-        <div className="flex flex-col gap-2">
-          <div className="truncate font-medium">
+      <HoverCardContent
+        align="start"
+        className="w-80 min-w-0 max-w-[calc(100vw-1rem)] overflow-hidden"
+        side="right"
+      >
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-medium">
             {session.name || session.firstMessage || t("untitled")}
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
             <dt className="text-muted-foreground">{t("session_id")}</dt>
-            <dd className="font-mono">{session.id}</dd>
+            <dd className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono">
+              {session.id}
+            </dd>
             <dt className="text-muted-foreground">{t("branch")}</dt>
             <dd className="truncate">{details?.branch || "—"}</dd>
             <dt className="text-muted-foreground">{t("working_directory")}</dt>

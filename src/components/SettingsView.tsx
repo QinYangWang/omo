@@ -105,13 +105,14 @@ export function SettingsView({
   return (
     <div className="flex h-full bg-background">
       {sidebarOpen ? (
-        <div className="flex w-60 shrink-0 flex-col bg-sidebar">
-          <nav className="flex flex-col gap-0.5 px-3 pt-3">
+        <div className="flex w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
+          <nav className="flex flex-col gap-1 p-2">
             {sections.map(([key, s, Icon]) => (
               <Button
                 className={cn(
-                  "h-auto justify-start gap-2 rounded-md px-2 py-2 font-normal text-muted-foreground text-sm hover:text-foreground",
-                  section === s && "bg-accent text-foreground"
+                  "h-8 justify-start gap-2 rounded-lg px-2 font-normal text-sidebar-foreground text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  section === s &&
+                    "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                 )}
                 key={s}
                 onClick={() => setSection(s)}
@@ -122,9 +123,9 @@ export function SettingsView({
               </Button>
             ))}
           </nav>
-          <div className="mt-auto p-3">
+          <div className="mt-auto p-2">
             <Button
-              className="h-9 w-full justify-start gap-2.5 px-2 font-normal text-muted-foreground"
+              className="h-8 w-full justify-start gap-2 px-2 font-normal text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               onClick={onBack}
               type="button"
               variant="ghost"
@@ -137,8 +138,8 @@ export function SettingsView({
       ) : null}
       <ScrollArea
         className={cn(
-          "min-w-0 flex-1 border-border border-t bg-background",
-          sidebarOpen && "rounded-tl-lg border-l"
+          "min-w-0 flex-1 rounded-xl border bg-background shadow-sm/5",
+          sidebarOpen && "my-2 mr-2"
         )}
       >
         <div className="mx-auto w-full max-w-3xl px-6 py-8">

@@ -31,6 +31,9 @@ export const themeTokenGroups: TokenGroup[] = [
       { name: "--card-foreground" },
       { name: "--popover" },
       { name: "--popover-foreground" },
+      { name: "--code" },
+      { name: "--code-foreground" },
+      { name: "--code-highlight" },
     ],
   },
   {
