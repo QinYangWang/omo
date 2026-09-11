@@ -38,6 +38,7 @@ export function TopBar({
   onNewTab,
   onSelectTab,
   rightPadding,
+  showTabs = true,
   tabs,
 }: {
   activeTabId: string;
@@ -53,6 +54,7 @@ export function TopBar({
   onNewTab: () => void;
   onSelectTab: (id: string) => void;
   rightPadding: string;
+  showTabs?: boolean;
   tabs: TopBarTab[];
 }) {
   const { t } = useI18n();
@@ -94,7 +96,7 @@ export function TopBar({
             <HugeiconsIcon icon={PanelLeftCloseIcon} />
           )}
         </Button>
-        {collapsed ? null : (
+        {collapsed || !showTabs ? null : (
           <>
             <Button
               aria-label={t("previous_tab")}
@@ -122,75 +124,77 @@ export function TopBar({
         )}
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center gap-0.5">
-        <div
-          aria-label={t("open_tabs")}
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          role="tablist"
-        >
-          {tabs.map((tab) => {
-            const active = tab.id === activeTabId;
-            return (
-              <div
-                className={cn(
-                  "group flex h-8 w-fit min-w-36 max-w-60 shrink-0 items-center rounded-lg border bg-muted/60 px-0.5 transition-colors",
-                  active
-                    ? "border-sidebar-border bg-background text-foreground shadow-xs/5"
-                    : "border-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
-                key={tab.id}
-              >
-                <Button
-                  aria-selected={active}
+      {showTabs ? (
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div aria-label={t("open_tabs")} className="contents" role="tablist">
+            {tabs.map((tab) => {
+              const active = tab.id === activeTabId;
+              return (
+                <div
                   className={cn(
-                    "h-7 min-w-0 flex-1 justify-start gap-1.5 border-0 px-2 text-xs",
+                    "group flex h-8 w-fit min-w-36 max-w-60 shrink-0 items-center rounded-lg border bg-muted/60 px-0.5 transition-colors",
                     active
-                      ? "hover:bg-transparent"
-                      : "text-sidebar-foreground hover:bg-transparent hover:text-sidebar-accent-foreground"
+                      ? "border-sidebar-border bg-background text-foreground shadow-xs/5"
+                      : "border-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   )}
-                  onClick={() => onSelectTab(tab.id)}
-                  role="tab"
-                  style={noDrag}
-                  title={tab.title ?? tab.label}
-                  variant="ghost"
+                  key={tab.id}
                 >
-                  {tab.streaming ? (
-                    <Spinner className="size-3.5 shrink-0" />
-                  ) : (
-                    <HugeiconsIcon data-icon="inline-start" icon={File01Icon} />
-                  )}
-                  <span className="min-w-0 truncate">{tab.label}</span>
-                </Button>
-                <Button
-                  aria-label={`${t("close_tab")}: ${tab.label}`}
-                  className="size-6 shrink-0 opacity-70 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onCloseTab(tab.id);
-                  }}
-                  size="icon-xs"
-                  style={noDrag}
-                  title={t("close_tab")}
-                  variant="ghost"
-                >
-                  <HugeiconsIcon icon={XIcon} />
-                </Button>
-              </div>
-            );
-          })}
+                  <Button
+                    aria-selected={active}
+                    className={cn(
+                      "h-7 min-w-0 flex-1 justify-start gap-1.5 border-0 px-2 text-xs",
+                      active
+                        ? "hover:bg-transparent"
+                        : "text-sidebar-foreground hover:bg-transparent hover:text-sidebar-accent-foreground"
+                    )}
+                    onClick={() => onSelectTab(tab.id)}
+                    role="tab"
+                    style={noDrag}
+                    title={tab.title ?? tab.label}
+                    variant="ghost"
+                  >
+                    {tab.streaming ? (
+                      <Spinner className="size-3.5 shrink-0" />
+                    ) : (
+                      <HugeiconsIcon
+                        data-icon="inline-start"
+                        icon={File01Icon}
+                      />
+                    )}
+                    <span className="min-w-0 truncate">{tab.label}</span>
+                  </Button>
+                  <Button
+                    aria-label={`${t("close_tab")}: ${tab.label}`}
+                    className="size-6 shrink-0 opacity-70 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCloseTab(tab.id);
+                    }}
+                    size="icon-xs"
+                    style={noDrag}
+                    title={t("close_tab")}
+                    variant="ghost"
+                  >
+                    <HugeiconsIcon icon={XIcon} />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+          <Button
+            aria-label={t("add_tab")}
+            className="sticky right-0 z-10 size-7 shrink-0 bg-sidebar text-sidebar-foreground hover:bg-sidebar-accent"
+            onClick={onNewTab}
+            size="icon"
+            style={noDrag}
+            variant="ghost"
+          >
+            <HugeiconsIcon icon={Add01Icon} />
+          </Button>
         </div>
-
-        <Button
-          aria-label={t("add_tab")}
-          className="size-7 shrink-0 text-sidebar-foreground"
-          onClick={onNewTab}
-          size="icon"
-          style={noDrag}
-          variant="ghost"
-        >
-          <HugeiconsIcon icon={Add01Icon} />
-        </Button>
-      </div>
+      ) : (
+        <span className="min-w-0 flex-1" />
+      )}
     </header>
   );
 }

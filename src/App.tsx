@@ -13,6 +13,7 @@ import {
 } from "react";
 import { AddProjectDialog } from "@/components/AddProjectDialog";
 import { ChatView } from "@/components/ChatView";
+import { PanelDivider } from "@/components/PanelDivider";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar, type TopBarTab } from "@/components/TopBar";
 import { Button } from "@/components/ui/button";
@@ -67,12 +68,21 @@ const createAppTab = (session: ActiveSession | null = null): AppTab => ({
   session,
 });
 
+function resolveThemeColor(variable: string): string | null {
+  const probe = document.createElement("span");
+  probe.style.color = `var(${variable})`;
+  probe.style.display = "none";
+  document.body.append(probe);
+  const value = getComputedStyle(probe).color;
+  probe.remove();
+  return normalizeColorToHex(value);
+}
+
 function syncWindowTitle() {
-  const styles = getComputedStyle(document.documentElement);
-  const color = normalizeColorToHex(styles.getPropertyValue("--sidebar"));
-  const symbolColor = normalizeColorToHex(
-    styles.getPropertyValue("--window-control")
-  );
+  // Resolve through a real CSS property so nested var() and color-mix() values
+  // exactly match the title bar surface painted by the renderer.
+  const color = resolveThemeColor("--sidebar");
+  const symbolColor = resolveThemeColor("--window-control");
   if (!(color && symbolColor)) {
     return;
   }
@@ -162,56 +172,6 @@ async function loadSessionMap(
 function loadWidth(key: string, fallback: number) {
   const value = Number(localStorage.getItem(key));
   return value > 0 ? value : fallback;
-}
-
-function Divider({
-  className,
-  onDrag,
-}: {
-  className?: string;
-  onDrag: (dx: number) => void;
-}) {
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault();
-      const startX = e.clientX;
-      let last = 0;
-      const move = (ev: PointerEvent) => {
-        onDrag(ev.clientX - startX - last);
-        last = ev.clientX - startX;
-      };
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-    },
-    [onDrag]
-  );
-  return (
-    <Button
-      aria-label="Resize panel"
-      className={cn(
-        "group relative m-0 h-full w-px shrink-0 cursor-col-resize rounded-none border-0 bg-transparent p-0 active:translate-y-0"
-      )}
-      onPointerDown={onPointerDown}
-      type="button"
-      variant="ghost"
-    >
-      <span
-        aria-hidden="true"
-        className="absolute inset-y-0 -right-1 -left-1"
-      />
-      <span
-        aria-hidden="true"
-        className={cn(
-          "absolute bottom-0 left-0 w-px",
-          className ?? "top-0 bg-border/60 group-hover:bg-ring"
-        )}
-      />
-    </Button>
-  );
 }
 
 export default function App() {
@@ -533,7 +493,7 @@ export default function App() {
   };
 
   const topbarTabs: TopBarTab[] = tabs.map(({ id, session }) => {
-    const label = session?.title.trim() || t("new_thread");
+    const label = session?.title.trim() || t("new_session");
     return {
       id,
       label,
@@ -592,6 +552,7 @@ export default function App() {
         selectTab(id);
       }}
       rightPadding={titlebarRightPadding}
+      showTabs={view !== "settings"}
       tabs={topbarTabs}
     />
   );
@@ -608,6 +569,9 @@ export default function App() {
           <Suspense fallback={null}>
             <SettingsView
               onBack={() => setView("chat")}
+              onResizeSidebar={(dx) =>
+                setSidebarW((width) => clamp(width + dx, 240, 400))
+              }
               sidebarOpen={!collapsed}
               sidebarWidth={sidebarW}
             />
@@ -674,7 +638,7 @@ export default function App() {
           </div>
         )}
         {!collapsed && (
-          <Divider
+          <PanelDivider
             className="top-0 bg-transparent hover:bg-transparent group-hover:bg-transparent"
             onDrag={(dx) => setSidebarW((w) => clamp(w + dx, 240, 400))}
           />
@@ -690,7 +654,7 @@ export default function App() {
           >
             <div className="flex h-12 shrink-0 items-center gap-2 border-border border-b px-3">
               <h2 className="min-w-0 truncate font-medium text-sm">
-                {activeSession?.title.trim() || t("new_thread")}
+                {activeSession?.title.trim() || t("new_session")}
               </h2>
               <span className="min-w-0 flex-1" />
               <Button
@@ -749,7 +713,7 @@ export default function App() {
               />
             </div>
           </main>
-          <Divider
+          <PanelDivider
             className={cn(
               "top-0 bg-transparent hover:bg-transparent group-hover:bg-transparent",
               !panelOpen && "hidden"

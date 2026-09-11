@@ -18,6 +18,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
+import { PanelDivider } from "@/components/PanelDivider";
 import { ProvidersSection } from "@/components/ProvidersSection";
 import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
 import { ServerStatusBadge } from "@/components/server-status-badge";
@@ -98,10 +99,12 @@ const tokenNamePattern = /^--/;
 
 export function SettingsView({
   onBack,
+  onResizeSidebar,
   sidebarOpen = true,
   sidebarWidth = 310,
 }: {
   onBack: () => void;
+  onResizeSidebar: (dx: number) => void;
   sidebarOpen?: boolean;
   sidebarWidth?: number;
 }) {
@@ -144,23 +147,28 @@ export function SettingsView({
           </div>
         </div>
       ) : null}
-      <ScrollArea
-        className={cn(
-          "min-h-0 min-w-0 flex-1 rounded-xl border bg-background shadow-sm/5",
-          sidebarOpen && "my-2 mr-2"
-        )}
-      >
-        <div className="mx-auto w-full max-w-3xl px-6 py-8">
-          {section === "Servers" && <ServersSection />}
-          {section === "Providers" && <ProvidersSection />}
-          {section === "Models" && <ModelsSection />}
-          {section === "Skills" && <SkillsSection />}
-          {section === "Usage" && <UsageSection />}
-          {section === "Packages" && <PackagesSection />}
-          {section === "Appearance" && <AppearanceSection />}
-          {section === "Archived" && <ArchivedSection />}
-        </div>
-      </ScrollArea>
+      {sidebarOpen ? (
+        <PanelDivider
+          className="top-0 bg-transparent hover:bg-transparent group-hover:bg-transparent"
+          onDrag={onResizeSidebar}
+        />
+      ) : null}
+      <div className="flex min-w-0 flex-1 p-2">
+        <main className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border bg-background shadow-sm/5">
+          <ScrollArea className="h-full">
+            <div className="mx-auto w-full max-w-3xl px-6 py-8">
+              {section === "Servers" && <ServersSection />}
+              {section === "Providers" && <ProvidersSection />}
+              {section === "Models" && <ModelsSection />}
+              {section === "Skills" && <SkillsSection />}
+              {section === "Usage" && <UsageSection />}
+              {section === "Packages" && <PackagesSection />}
+              {section === "Appearance" && <AppearanceSection />}
+              {section === "Archived" && <ArchivedSection />}
+            </div>
+          </ScrollArea>
+        </main>
+      </div>
     </div>
   );
 }

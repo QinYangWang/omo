@@ -108,7 +108,7 @@ const imageMime = {
 const MAX_TEXT_FILE_BYTES = 300 * 1024;
 const MAX_IMAGE_FILE_BYTES = 5_900_000;
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
-const hexColor = /^#[\da-f]{6}$/i;
+const hexColor = /^#[\da-f]{6}(?:[\da-f]{2})?$/i;
 
 async function getModelRuntime() {
   const { ModelRuntime } = await getSdk();

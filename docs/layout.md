@@ -5,13 +5,13 @@
 应用是顶部多标签栏 + Sidebar + Conversation + Workspace 三栏工作台：
 
 ```text
-┌────────────────── omo · 收缩 · 后退/前进 ── New thread ── + ────────────────────────┐
+┌────────────────── omo · 收缩 · 后退/前进 ── New session ── + ───────────────────────┐
 │ Sidebar       Conversation                              Workspace                  │
 │ 310px         自适应 / 460px                            Tabs + [ Main | Explorer ]  │
 └───────────────┴─────────────────────────────────────────┴──────────────────────────┘
 ```
 
-顶部标签对应会话。`+` 创建独立的新线程标签；从侧栏打开已有会话时会打开或激活对应标签。标签之间切换不会丢失输入草稿、消息缓存和会话级 Workspace 状态。侧栏与内容区之间保留无视觉分割线的拖拽区域。
+顶部标签对应会话。`+` 紧跟最后一个会话标签；标签总宽度溢出时变为吸附在可用顶栏最右侧，并始终避开 Electron 窗口控制键。它创建独立的“新会话”标签；从侧栏打开已有会话时会打开或激活对应标签。标签之间切换不会丢失输入草稿、消息缓存和会话级 Workspace 状态。侧栏与内容区之间保留无视觉分割线的拖拽区域。
 
 Sidebar 默认 310px（可拖 240–400），Conversation 默认 460px（可拖 380–560），Workspace 占剩余全部。两个宽度持久化到 localStorage（`omo.layout.sidebarW` / `omo.layout.convW`）。侧栏拖拽区域不绘制分割线，Conversation 与 Workspace 的 Divider 使用 pointer events。
 
@@ -98,4 +98,4 @@ Archived 分区列出所有已归档会话并可恢复到侧边栏。
 
 Servers 管理本机连接与多个远程服务器（添加/编辑/删除、状态监测）。Appearance 实现主题模式、语言和自定义主题编辑器：逐项覆盖 shadcn / typeset CSS 变量（颜色用调色盘、数值用滑块），可粘贴完整主题 CSS 一键导入，也可导出为自定义主题。Providers 使用 Pi Provider 认证；Models 通过 pi `enabledModels` 筛选可用模型；Skills 与 Packages 展示真实的 agent 技能和 pi 扩展包。Usage 使用 Session JSONL 聚合，按服务器分组展示多语言统计和订阅配额进度。Usage 不显示上下文使用分析。Providers、Models、Skills、Packages 在多服务器时可切换目标服务器。
 
-设置页保留 40px 全局顶栏，为 Electron 原生窗口键预留独立空间：macOS 避开左侧交通灯，Windows/Linux 避开右侧窗口控制键，静态 Web 不使用桌面端回退留白。设置内容居中（`mx-auto max-w-3xl`），侧栏导航项带图标；设置 Sidebar 可通过全局顶栏按钮收起。服务器配置、Provider 认证、主题导入与扩展包安装弹窗统一使用 `DialogHeader`、可滚动 `DialogPanel` 和底部 `DialogFooter`；表单使用 `display: contents` 保持 Footer 位于弹窗内部并保留 Enter 提交语义。
+设置页直接复用 Main 的顶栏、可调宽左侧栏和单一圆角内容面板布局，但不显示右侧 Workspace。顶栏不显示任何会话标签、标签导航或新建按钮，只保留产品标识、侧栏收缩按钮、拖拽区和 Electron 原生窗口键空间：macOS 避开左侧交通灯，Windows/Linux 避开右侧窗口控制键，静态 Web 不使用桌面端回退留白。Windows/Linux 原生窗口键的背景与符号颜色从当前 `--sidebar` / `--window-control` 主题变量解析。设置内容居中（`mx-auto max-w-3xl`），左侧栏使用设置分区选项并与 Main 共用宽度及拖拽调整。服务器配置、Provider 认证、主题导入与扩展包安装弹窗统一使用 `DialogHeader`、可滚动 `DialogPanel` 和底部 `DialogFooter`；表单使用 `display: contents` 保持 Footer 位于弹窗内部并保留 Enter 提交语义。
