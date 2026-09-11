@@ -22,12 +22,19 @@ const {
 const { TerminalService } = require("./terminal-service.cjs");
 const { fetchQuotas } = require("./quotas.cjs");
 const { sessionCost, sessionMarkdown } = require("./session-metadata.cjs");
+const {
+  BrowserService,
+  browserNavigatePattern,
+  browserProxyPattern,
+  browserSessionPattern,
+} = require("./browser-service.cjs");
 
 const workspace = createWorkspaceGuard(config.workspaceRoots);
 const sessionWorkspace = createWorkspaceGuard([config.sessionRoot]);
 const events = new EventStore(config.dataDir, config.eventRetention);
 const pi = new PiService(events, workspace, sessionWorkspace);
 const terminals = new TerminalService(workspace);
+const browsers = new BrowserService();
 const projectsFile = path.join(config.dataDir, "projects.json");
 fs.mkdir(config.dataDir, { recursive: true });
 
@@ -209,6 +216,62 @@ function route(req, url, method, pathname) {
   return req.method === method && url.pathname === pathname;
 }
 
+function browserProxyRequest(url) {
+  return browserProxyPattern.test(url.pathname);
+}
+
+function setBrowserCors(res, req) {
+  const requestedHeaders = req.headers["access-control-request-headers"];
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    requestedHeaders ||
+      "Authorization, Content-Type, Range, If-None-Match, If-Modified-Since"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
+  res.setHeader("Access-Control-Allow-Origin", "*");
+}
+
+async function browserRoutes(req, res, url) {
+  if (route(req, url, "POST", "/api/v1/browser")) {
+    const input = await body(req);
+    json(res, 200, browsers.create(input.url));
+    return true;
+  }
+  const navigateMatch = url.pathname.match(browserNavigatePattern);
+  if (req.method === "POST" && navigateMatch) {
+    const browserId = decodeURIComponent(navigateMatch[1]);
+    const input = await body(req);
+    json(res, 200, browsers.navigate(browserId, input.url));
+    return true;
+  }
+  const sessionMatch = url.pathname.match(browserSessionPattern);
+  if (req.method === "DELETE" && sessionMatch) {
+    browsers.close(decodeURIComponent(sessionMatch[1]));
+    json(res, 200, { ok: true });
+    return true;
+  }
+  const proxyMatch = url.pathname.match(browserProxyPattern);
+  if (proxyMatch) {
+    setBrowserCors(res, req);
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return true;
+    }
+    await browsers.proxy(
+      req,
+      res,
+      decodeURIComponent(proxyMatch[1]),
+      url.searchParams.get("url")
+    );
+    return true;
+  }
+  return false;
+}
+
 async function projectRoutes(req, res, url) {
   if (route(req, url, "GET", "/api/v1/projects")) {
     json(res, 200, await readProjects());
@@ -340,6 +403,10 @@ async function piRoutes(req, res, url) {
     json(res, 200, await pi.contextUsage(await body(req)));
     return true;
   }
+  if (route(req, url, "POST", "/api/v1/pi/context-details")) {
+    json(res, 200, await pi.contextDetails(await body(req)));
+    return true;
+  }
   if (route(req, url, "POST", "/api/v1/pi/model")) {
     const input = await body(req);
     await pi.setModel(input.sessionId, input.provider, input.modelId);
@@ -382,11 +449,7 @@ async function piRoutes(req, res, url) {
 async function terminalRoutes(req, res, url) {
   if (route(req, url, "POST", "/api/v1/terminals")) {
     const input = await body(req);
-    json(
-      res,
-      200,
-      await terminals.create(input.cwd, input.cols, input.rows)
-    );
+    json(res, 200, await terminals.create(input.cwd, input.cols, input.rows));
     return true;
   }
   const terminalMatch = url.pathname.match(terminalPattern);
@@ -595,6 +658,9 @@ async function miscRoutes(req, res, url) {
 }
 
 async function handleApiRequest(req, res, url) {
+  if (await browserRoutes(req, res, url)) {
+    return true;
+  }
   if (await projectRoutes(req, res, url)) {
     return true;
   }
@@ -617,13 +683,17 @@ async function handleApiRequest(req, res, url) {
 }
 
 async function handleRequest(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   setCors(req, res);
-  if (req.method === "OPTIONS") {
+  const isBrowserProxy = browserProxyRequest(url);
+  if (isBrowserProxy) {
+    setBrowserCors(res, req);
+  }
+  if (req.method === "OPTIONS" && !isBrowserProxy) {
     res.writeHead(204);
     res.end();
     return;
   }
-  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   if (url.pathname === "/api/v1/health") {
     json(res, 200, {
       capabilities: [
@@ -634,13 +704,14 @@ async function handleRequest(req, res) {
         "git",
         "providers",
         "terminal",
+        "browser",
       ],
       ok: true,
       version: 1,
     });
     return;
   }
-  if (url.pathname.startsWith("/api/") && !authorized(req)) {
+  if (url.pathname.startsWith("/api/") && !isBrowserProxy && !authorized(req)) {
     json(res, 401, { error: "Unauthorized" });
     return;
   }

@@ -134,14 +134,14 @@ export function SessionActions({
             <Button
               aria-label={t("session_actions")}
               className={className}
-              size="icon"
+              size="icon-xs"
               title={t("session_actions")}
               type="button"
               variant="ghost"
             />
           }
         >
-          <HugeiconsIcon icon={MoreHorizontalCircle02Icon} />
+          <HugeiconsIcon className="size-4" icon={MoreHorizontalCircle02Icon} />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuGroup>

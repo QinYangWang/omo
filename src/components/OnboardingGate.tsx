@@ -1,4 +1,4 @@
-import { ServerStack01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import { PiIcon, ServerStack01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -123,7 +123,7 @@ export function OnboardingGate({ onDone }: { onDone: () => void }) {
         <div className="text-center">
           <HugeiconsIcon
             className="mx-auto mb-4 size-8 text-foreground"
-            icon={SparklesIcon}
+            icon={PiIcon}
             strokeWidth={1.6}
           />
           <h1 className="font-medium text-xl">{t("onboarding_title")}</h1>

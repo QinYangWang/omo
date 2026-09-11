@@ -19,7 +19,9 @@ server/index.cjs            HTTP、SSE、WebSocket、静态文件
 server/pi-service.cjs       远程 Pi 与 Provider 生命周期
 server/event-store.cjs      SQLite 事件与幂等请求
 server/display-messages.cjs Pi 历史消息到 UI 消息适配
+server/pi-context.cjs       Pi 有效上下文、工具与资源快照
 server/terminal-service.cjs 远程 PTY
+server/browser-service.cjs 服务器端浏览器代理与 Cookie 会话
 server/workspace.cjs        路径边界
 server/quotas.cjs           Provider 配额
 server/usage.cjs            JSONL 用量聚合
@@ -76,7 +78,7 @@ Pi event
   → ChatView incremental renderer
 ```
 
-终端单独使用 WebSocket 双向传输，创建和重连 ticket 仍通过已认证的 HTTP 接口完成。
+终端单独使用 WebSocket 双向传输，创建和重连 ticket 仍通过已认证的 HTTP 接口完成。远程 Workspace 的 Browser 通过已认证的 `/browser` 接口创建代理会话，再用随机会话 URL 由 Server 代理页面、资源和表单请求；Electron 本机仍使用 Chromium `<webview>`。
 
 ## Project 与 Session
 

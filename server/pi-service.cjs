@@ -5,6 +5,7 @@ const {
   historyPage,
   sessionHistoryMessages,
 } = require("./display-messages.cjs");
+const { contextDetails } = require("./pi-context.cjs");
 
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 
@@ -136,6 +137,12 @@ class PiService {
   async contextUsage({ sessionId, cwd, sessionPath }) {
     const session = await this.ensure(sessionId, cwd, sessionPath);
     return session.getContextUsage() ?? null;
+  }
+
+  /** Effective prompt, tools, resources, and billing totals for a live session. */
+  async contextDetails({ sessionId, cwd, sessionPath }) {
+    const session = await this.ensure(sessionId, cwd, sessionPath);
+    return contextDetails(session);
   }
 
   /** Notify subscribers when the session JSONL changes on disk (e.g. TUI). */

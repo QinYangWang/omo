@@ -4,7 +4,7 @@
 }
 
 .textarea {
-  min-height: 44px;
+  min-height: 66px;
   max-height: 160px;
   field-sizing: content;
   overflow-y: auto;
@@ -17,7 +17,7 @@
 }
 
 .textarea > textarea {
-  min-height: 44px;
+  min-height: 66px;
   max-height: 160px;
   field-sizing: content;
   overflow-y: auto;

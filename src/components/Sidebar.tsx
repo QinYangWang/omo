@@ -88,7 +88,8 @@ function SessionRow({
       <SessionDetailsHover project={project} session={session}>
         <Button
           className={cn(
-            "h-8 w-full justify-start gap-1.5 rounded-lg pr-14 pl-2 text-left font-normal text-sidebar-foreground text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            "h-8 w-full justify-start gap-1.5 rounded-lg pl-2 text-left font-normal text-sidebar-foreground text-sm hover:bg-sidebar-accent hover:pr-14 hover:text-sidebar-accent-foreground group-focus-within/menu-item:pr-14 group-hover/menu-item:pr-14",
+            pinned || isStreaming ? "pr-14" : "pr-2",
             isActive &&
               "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
           )}
@@ -102,43 +103,45 @@ function SessionRow({
           </span>
         </Button>
       </SessionDetailsHover>
-      <Button
-        aria-label={pinned ? t("unpin_session") : t("pin_session")}
-        className={cn(
-          "absolute top-1 right-8 size-6 transition-opacity",
-          pinned
-            ? "opacity-80"
-            : "opacity-0 group-focus-within/menu-item:opacity-70 group-hover/menu-item:opacity-70"
-        )}
-        onClick={() =>
-          setSessionPref(prefKey, { ...snapshot, pinned: !pinned })
-        }
-        size="icon"
-        title={pinned ? t("unpin_session") : t("pin_session")}
-        type="button"
-        variant="ghost"
-      >
-        <HugeiconsIcon
-          className={cn(pinned && "fill-current")}
-          icon={PinIcon}
-        />
-      </Button>
-      <div className="absolute top-1 right-1 size-6">
-        {isStreaming ? (
-          <span className="absolute inset-0 flex items-center justify-center text-muted-foreground group-focus-within/menu-item:hidden group-hover/menu-item:hidden">
-            <Spinner className="size-3.5" />
-          </span>
-        ) : null}
-        <SessionActions
-          className="absolute inset-0 size-6 opacity-0 transition-opacity group-focus-within/menu-item:opacity-70 group-hover/menu-item:opacity-70"
-          onArchived={() =>
-            setSessionPref(prefKey, { ...snapshot, archived: true })
+      <div className="absolute top-1 right-1 flex h-6 items-center gap-1">
+        <Button
+          aria-label={pinned ? t("unpin_session") : t("pin_session")}
+          className={cn(
+            "size-6 transition-opacity",
+            pinned
+              ? "opacity-80"
+              : "opacity-0 group-focus-within/menu-item:opacity-70 group-hover/menu-item:opacity-70"
+          )}
+          onClick={() =>
+            setSessionPref(prefKey, { ...snapshot, pinned: !pinned })
           }
-          onChanged={onChanged}
-          onCloned={onCloned}
-          project={project}
-          session={session}
-        />
+          size="icon-xs"
+          title={pinned ? t("unpin_session") : t("pin_session")}
+          type="button"
+          variant="ghost"
+        >
+          <HugeiconsIcon
+            className={cn("size-4", pinned && "fill-current")}
+            icon={PinIcon}
+          />
+        </Button>
+        <div className="relative size-6">
+          {isStreaming ? (
+            <span className="absolute inset-0 flex items-center justify-center text-muted-foreground group-focus-within/menu-item:hidden group-hover/menu-item:hidden">
+              <Spinner className="size-3.5" />
+            </span>
+          ) : null}
+          <SessionActions
+            className="absolute inset-0 size-6 opacity-0 transition-opacity group-focus-within/menu-item:opacity-70 group-hover/menu-item:opacity-70"
+            onArchived={() =>
+              setSessionPref(prefKey, { ...snapshot, archived: true })
+            }
+            onChanged={onChanged}
+            onCloned={onCloned}
+            project={project}
+            session={session}
+          />
+        </div>
       </div>
     </div>
   );
@@ -154,6 +157,7 @@ export function Sidebar({
   onSelectSession,
   onImport,
   onOpenSettings,
+  onPrefetchSettings,
   onSessionsChanged,
 }: {
   projects: Project[];
@@ -165,6 +169,7 @@ export function Sidebar({
   onSelectSession: (project: Project, session: PiSession) => void;
   onImport: (project: Project, path: string) => Promise<void>;
   onOpenSettings: () => void;
+  onPrefetchSettings: () => void;
   onSessionsChanged: (
     project: Project,
     clonedPath?: string,
@@ -217,7 +222,7 @@ export function Sidebar({
           {t("new_session")}
         </Button>
       </div>
-      <div className="relative flex h-8 shrink-0 items-center rounded-lg px-2 font-medium text-sidebar-foreground text-xs">
+      <div className="relative flex h-8 shrink-0 items-center rounded-lg px-4 font-medium text-sidebar-foreground text-xs">
         <span>{t("projects")}</span>
         <Button
           aria-label={t("add_project")}
@@ -320,9 +325,14 @@ export function Sidebar({
                               activeSession === session.id
                             }
                             isStreaming={
-                              streamingSessions[
+                              (streamingSessions[
                                 `${project.serverId}:${session.id}`
-                              ] ?? false
+                              ] ??
+                                false) ||
+                              (streamingSessions[
+                                `${project.serverId}:${session.path}`
+                              ] ??
+                                false)
                             }
                             key={session.path}
                             onChanged={(name) =>
@@ -375,6 +385,8 @@ export function Sidebar({
           aria-label={t("settings")}
           className="h-8 w-full justify-start gap-1.5 px-2 font-normal text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           onClick={onOpenSettings}
+          onFocus={onPrefetchSettings}
+          onPointerEnter={onPrefetchSettings}
           variant="ghost"
         >
           <HugeiconsIcon className="size-4" icon={Settings01Icon} />

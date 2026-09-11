@@ -170,7 +170,8 @@ Agent 生命周期不属于 `ChatView`。执行端以 client Session ID 缓存�
 渲染层使用 `${serverId}:${sessionId}` 作为隔离键，维护每个 Session 的 Turn window、streaming 状态和输入草稿。每个后端 API 只安装一个长期事件桥，事件先按 Session ID 写入对应缓存，再通知当前可见的 `ChatView`；不可见 Session 的 delta 不会被丢弃。重新进入会话时组件从缓存恢复，而不是继承上一个会话的输入框或 streaming 状态。文本草稿同时写入 localStorage，图片和文件附件仅保留在当前 renderer 内存中，避免把文件内容持久化到浏览器存储。
 
 - Assistant `message_start` 将对应 Session 标记为 streaming。
-- `agent_end` 只清除对应 Session 的 streaming，并标记其最后一个 Assistant block 的完成时间和耗时。
+- draft 首次 Prompt 返回持久化 `sessionId` 和 `sessionFile` 后，`session-streaming.ts` 将这两个标识绑定为 client Session key 的别名；侧栏同时按 ID 与路径读取状态，因此多个并行新会话都能显示各自的 Spinner。
+- `agent_end` 只清除对应 Session 及其别名的 streaming，并标记其最后一个 Assistant block 的完成时间和耗时；手动 Abort 或 Prompt 失败也立即清除状态，并把仍为 running 的 thinking block 标记完成。
 - streaming 期间仅该 Session 最后一个 Turn 渲染闪烁光标与运行状态；`omo_session_file` 触发的文件同步在该 Session streaming 期间跳过。
 - 当前 Session 正 streaming 时，新 Prompt 使用 `streamingBehavior: "followUp"`。
 - 非 streaming 时直接调用 Pi `session.prompt`。

@@ -10,9 +10,8 @@ import {
   GitBranchIcon,
   Image01Icon,
   Loading03Icon,
-  MonitorIcon,
+  PiIcon,
   Search01Icon,
-  SparklesIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -71,10 +70,8 @@ import {
 import {
   Empty,
   EmptyContent,
-  EmptyDescription,
   EmptyHeader,
   EmptyMedia,
-  EmptyTitle,
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
@@ -108,6 +105,7 @@ import { useI18n } from "@/lib/i18n";
 import { adaptPiEvent, adaptPiMessages } from "@/lib/pi-adapter";
 import { getServerApi } from "@/lib/servers";
 import {
+  bindSessionStreamingAliases,
   isSessionStreaming,
   setSessionStreaming,
 } from "@/lib/session-streaming";
@@ -648,11 +646,12 @@ interface SessionBinding {
 async function sendPrompt(
   api: omoApi,
   key: string,
+  cacheKey: string,
   session: ActiveSession,
   prepared: { text: string; images: ImageContent[] },
   title: string,
   onSessionBound: (binding: SessionBinding) => void
-) {
+): Promise<void> {
   const promptImages = prepared.images.map(({ type, data, mimeType }) => ({
     data,
     mimeType,
@@ -665,9 +664,16 @@ async function sendPrompt(
     session.path,
     promptImages
   );
-  // A draft session gets its JSONL file on the first prompt; bind the
-  // path so the sidebar lists it and the header shows its title.
+  // A draft session gets its JSONL file on the first prompt. Its persisted
+  // id differs from the client key that owns the live agent, so bind both
+  // persisted identifiers before the sidebar row appears.
   if (!session.path && result?.sessionFile) {
+    bindSessionStreamingAliases(cacheKey, [
+      sessionCacheKey(session.serverId, result.sessionFile),
+      ...(result.sessionId
+        ? [sessionCacheKey(session.serverId, result.sessionId)]
+        : []),
+    ]);
     onSessionBound({
       key,
       path: result.sessionFile,
@@ -678,6 +684,7 @@ async function sendPrompt(
 }
 
 export function ChatView({
+  draftKey = "draft",
   session,
   projects,
   onSelectProject,
@@ -685,6 +692,7 @@ export function ChatView({
   onClearProject,
   onSessionBound,
 }: {
+  draftKey?: string;
   session: ActiveSession | null;
   projects: Project[];
   onSelectProject: (project: Project) => void;
@@ -692,10 +700,9 @@ export function ChatView({
   onClearProject: () => void;
   onSessionBound: (binding: SessionBinding) => void;
 }) {
-  const { t } = useI18n();
   const serverId = session?.serverId ?? "local";
   const api = getServerApi(serverId);
-  const key = session?.key ?? "draft";
+  const key = session?.key ?? draftKey;
   const cacheKey = sessionCacheKey(serverId, key);
   const sessionCwd = session?.cwd;
   const sessionPath = session?.path;
@@ -1208,11 +1215,22 @@ export function ChatView({
     setImages([]);
     setFileAttachments([]);
     setCompletion(null);
+    setSessionStreaming(cacheKey, true);
     setStreaming(true);
     if (session) {
       try {
-        await sendPrompt(api, key, session, prepared, value, onSessionBound);
+        await sendPrompt(
+          api,
+          key,
+          cacheKey,
+          session,
+          prepared,
+          value,
+          onSessionBound
+        );
       } catch (error) {
+        setSessionStreaming(cacheKey, false);
+        setStreaming(false);
         setInputError(error instanceof Error ? error.message : String(error));
       }
     }
@@ -1238,6 +1256,11 @@ export function ChatView({
         try {
           await api.pi.abort(key);
         } finally {
+          const current = windows.get(cacheKey);
+          if (current) {
+            completeLastTurn(current, setWindow);
+          }
+          setSessionStreaming(cacheKey, false);
           setStreaming(false);
         }
       }}
@@ -1324,19 +1347,13 @@ export function ChatView({
       <div className="flex h-full flex-col justify-center overflow-y-auto px-4 pb-10">
         <Empty className="flex-none gap-6 px-0 pt-8 pb-7">
           <EmptyHeader className="max-w-lg gap-3">
-            <EmptyMedia className="mb-3 size-10 rounded-lg border border-border/60 bg-muted/50">
+            <EmptyMedia className="mb-3 size-12 rounded-lg border-0 bg-background">
               <HugeiconsIcon
-                className="size-5"
-                icon={SparklesIcon}
+                className="size-7"
+                icon={PiIcon}
                 strokeWidth={1.6}
               />
             </EmptyMedia>
-            <EmptyTitle className="text-2xl tracking-tight">
-              {t("task_welcome")}
-            </EmptyTitle>
-            <EmptyDescription>
-              {t("working_in_project", { name: session.project })}
-            </EmptyDescription>
           </EmptyHeader>
         </Empty>
         <div className="mx-auto w-full max-w-3xl">{input}</div>
@@ -1418,53 +1435,49 @@ function NewTaskEmpty({
   return (
     <Empty className="h-full gap-5 overflow-y-auto rounded-none px-4 pt-8 pb-10">
       <EmptyHeader className="max-w-lg gap-3">
-        <EmptyMedia className="mb-2 size-10 rounded-lg border border-border/60 bg-muted/50">
-          <HugeiconsIcon
-            className="size-5"
-            icon={SparklesIcon}
-            strokeWidth={1.6}
-          />
+        <EmptyMedia className="mb-2 size-12 rounded-lg border-0 bg-background">
+          <HugeiconsIcon className="size-7" icon={PiIcon} />
         </EmptyMedia>
-        <EmptyTitle className="text-2xl tracking-tight">
-          {t("task_welcome")}
-        </EmptyTitle>
-        <EmptyDescription>{t("choose_project_desc")}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent className="w-full gap-1.5">
-        <p className="w-full px-1 pb-1 text-left text-muted-foreground text-xs">
-          {t("choose_project_start")}
-        </p>
-        {visibleProjects.map((project) => (
-          <Button
-            className="group h-auto w-full justify-start rounded-md px-3 py-2 text-left hover:bg-accent"
-            key={project.id}
-            onClick={() => onSelectProject(project)}
-            variant="ghost"
-          >
-            <span className="flex min-w-0 items-center gap-2.5">
-              <HugeiconsIcon data-icon="inline-start" icon={Folder01Icon} />
-              <span className="min-w-0">
-                <span className="block truncate font-medium text-sm">
-                  {project.name}
+        <div className="w-full px-1">
+          <p className="w-full pb-1 text-left text-muted-foreground text-xs">
+            {t("choose_project_start")}
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {visibleProjects.map((project) => (
+              <Button
+                className="group h-auto w-full justify-start rounded-md px-3 py-1.5 text-left hover:bg-accent sm:h-auto"
+                key={project.id}
+                onClick={() => onSelectProject(project)}
+                variant="ghost"
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <HugeiconsIcon data-icon="inline-start" icon={Folder01Icon} />
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-sm leading-5">
+                      {project.name}
+                    </span>
+                    <span className="block truncate text-muted-foreground text-xs leading-4">
+                      {project.cwd}
+                    </span>
+                  </span>
                 </span>
-                <span className="block truncate text-muted-foreground text-xs">
-                  {project.cwd}
-                </span>
-              </span>
-            </span>
-          </Button>
-        ))}
-        <Button
-          className={cn(
-            "mt-1 h-9 w-full rounded-md",
-            projects.length > 0 && "text-muted-foreground"
-          )}
-          onClick={onAddProject}
-          variant={projects.length ? "ghost" : "default"}
-        >
-          <HugeiconsIcon data-icon="inline-start" icon={FolderAddIcon} />
-          {t("add_project")}
-        </Button>
+              </Button>
+            ))}
+            <Button
+              className={cn(
+                "mt-1 h-9 w-full rounded-md",
+                projects.length > 0 && "text-muted-foreground"
+              )}
+              onClick={onAddProject}
+              variant={projects.length ? "ghost" : "default"}
+            >
+              <HugeiconsIcon data-icon="inline-start" icon={FolderAddIcon} />
+              {t("add_project")}
+            </Button>
+          </div>
+        </div>
       </EmptyContent>
     </Empty>
   );
@@ -1584,6 +1597,7 @@ function PromptInput({
   const canSubmit = Boolean(
     streaming || text.trim() || images.length || fileAttachments.length
   );
+  const sessionCreated = Boolean(session?.path);
   const openWorkspaceFile = () => {
     const cursor = inputRef.current?.selectionStart ?? text.length;
     const before = text.slice(0, cursor);
@@ -1599,46 +1613,50 @@ function PromptInput({
   };
   return (
     <div>
-      <div className="mb-2 flex min-h-7 flex-wrap items-center gap-1.5 px-1 text-muted-foreground text-xs">
-        <ProjectSelect
-          onAdd={onAddProject}
-          onClear={onClearProject}
-          onSelect={onSelectProject}
-          projects={projects}
-          value={session?.projectId ?? ""}
-        />
-        <CompactSelect
-          icon={<HugeiconsIcon className="size-3.5" icon={MonitorIcon} />}
-          items={[
-            {
-              icon: <HugeiconsIcon className="size-3.5" icon={MonitorIcon} />,
-              label: t("local"),
-              value: "local",
-            },
-            {
+      {sessionCreated ? null : (
+        <div className="mb-2 flex min-h-7 flex-wrap items-center gap-1.5 px-1 text-muted-foreground text-xs">
+          <ProjectSelect
+            onAdd={onAddProject}
+            onClear={onClearProject}
+            onSelect={onSelectProject}
+            projects={projects}
+            value={session?.projectId ?? ""}
+          />
+          <CompactSelect
+            icon={<HugeiconsIcon className="size-3.5" icon={PiIcon} />}
+            items={[
+              {
+                icon: <HugeiconsIcon className="size-3.5" icon={PiIcon} />,
+                label: t("local"),
+                value: "local",
+              },
+              {
+                icon: (
+                  <HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />
+                ),
+                label: t("worktree"),
+                value: "worktree",
+              },
+            ]}
+            onChange={onChangeMode}
+            value={mode}
+          />
+          <CompactSelect
+            addLabel={t("new_branch")}
+            disabled={!branches.length}
+            icon={<HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />}
+            items={branches.map((branch) => ({
               icon: <HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />,
-              label: t("worktree"),
-              value: "worktree",
-            },
-          ]}
-          onChange={onChangeMode}
-          value={mode}
-        />
-        <CompactSelect
-          addLabel={t("new_branch")}
-          disabled={!branches.length}
-          icon={<HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />}
-          items={branches.map((branch) => ({
-            icon: <HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />,
-            label: branch.name,
-            value: branch.name,
-          }))}
-          onAdd={() => setBranchDialog(true)}
-          onChange={noop}
-          placeholder={t("no_branch")}
-          value={branches.find((branch) => branch.current)?.name ?? ""}
-        />
-      </div>
+              label: branch.name,
+              value: branch.name,
+            }))}
+            onAdd={() => setBranchDialog(true)}
+            onChange={noop}
+            placeholder={t("no_branch")}
+            value={branches.find((branch) => branch.current)?.name ?? ""}
+          />
+        </div>
+      )}
       <div className="relative">
         {completion ? (
           <CompletionMenu
@@ -1852,10 +1870,10 @@ function cloneTurnWindow(current: TurnWindow): TurnWindow {
   };
 }
 
-function completeLastAssistant(
+function completeLastTurn(
   current: TurnWindow,
   setWindow: (next: TurnWindow) => void
-) {
+): void {
   const next = cloneTurnWindow(current);
   const last = next.turns.at(-1);
   if (!last) {
@@ -1868,11 +1886,11 @@ function completeLastAssistant(
       break;
     }
   }
-  if (lastAssistantIndex < 0) {
-    return;
-  }
   const completedAt = Date.now();
   last.items = last.items.map((item, index) => {
+    if (item.role === "thinking" && item.status === "running") {
+      return { ...item, status: "done" };
+    }
     if (index !== lastAssistantIndex || item.role !== "assistant") {
       return item;
     }
@@ -2080,7 +2098,7 @@ function handlePiEvent(
     setStreaming(false);
     const current = windows.get(sessionId);
     if (current) {
-      completeLastAssistant(current, setWindow);
+      completeLastTurn(current, setWindow);
     }
     return;
   }
@@ -2402,7 +2420,10 @@ function ModelSelect({
           {(item: ModelOption | null) =>
             item ? (
               <span className="flex min-w-0 items-center gap-1.5">
-                <ProviderIcon className="shrink-0" provider={item.provider} />
+                <ProviderIcon
+                  className="shrink-0 [&>svg]:mx-0! [&>svg]:size-3!"
+                  provider={item.provider}
+                />
                 <span className="truncate">{item.label}</span>
               </span>
             ) : (

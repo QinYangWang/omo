@@ -22,6 +22,17 @@ export function installWebPreviewApi() {
   }
 
   window.omo = {
+    browser: {
+      close: async () => undefined,
+      navigate: () =>
+        Promise.reject(
+          new Error("The server browser is unavailable in preview mode")
+        ),
+      open: () =>
+        Promise.reject(
+          new Error("The server browser is unavailable in preview mode")
+        ),
+    },
     cwd: async () => previewProjects[0].cwd,
     fs: {
       list: async () => [
@@ -90,6 +101,30 @@ export function installWebPreviewApi() {
           source: "skill",
         },
       ],
+      contextDetails: async () => ({
+        contextUsage: null,
+        extensions: [],
+        injectedMessages: [],
+        resources: {
+          appendSystemPrompt: [],
+          contextFiles: [],
+          skills: [],
+        },
+        stats: {
+          cost: 0,
+          tokens: {
+            cacheRead: 0,
+            cacheWrite: 0,
+            input: 0,
+            output: 0,
+            total: 0,
+          },
+          toolCalls: 0,
+          totalMessages: 0,
+        },
+        systemPrompt: "Preview system prompt",
+        tools: [],
+      }),
       contextUsage: async () => null,
       history: async () => ({ cursor: 0, hasMore: false, messages: [] }),
       models: async () => [

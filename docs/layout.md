@@ -2,16 +2,18 @@
 
 ## App Shell
 
-应用是 Sidebar + Conversation + Workspace 三栏工作台：
+应用是顶部多标签栏 + Sidebar + Conversation + Workspace 三栏工作台：
 
 ```text
-┌──────────────── 顶栏（h-10，与 Sidebar 一体的 --sidebar 色，无文字） ────────────────┐
-│ Sidebar ║ Conversation ║ Workspace                                                 │
-│ 310px   ║ 460px        ║ Tabs + [ Main | Explorer(clamp 240~300px) ]               │
-└──────────╨──────────────╨───────────────────────────────────────────────────────────┘
+┌────────────────── omo · 收缩 · 后退/前进 ── New thread ── + ────────────────────────┐
+│ Sidebar       Conversation                              Workspace                  │
+│ 310px         自适应 / 460px                            Tabs + [ Main | Explorer ]  │
+└───────────────┴─────────────────────────────────────────┴──────────────────────────┘
 ```
 
-Sidebar 默认 310px（可拖 240–400），Conversation 默认 460px（可拖 380–560），Workspace 占剩余全部。两个宽度持久化到 localStorage（`omo.layout.sidebarW` / `omo.layout.convW`）。拖拽 Divider 使用 pointer events。
+顶部标签对应会话。`+` 创建独立的新线程标签；从侧栏打开已有会话时会打开或激活对应标签。标签之间切换不会丢失输入草稿、消息缓存和会话级 Workspace 状态。侧栏与内容区之间保留无视觉分割线的拖拽区域。
+
+Sidebar 默认 310px（可拖 240–400），Conversation 默认 460px（可拖 380–560），Workspace 占剩余全部。两个宽度持久化到 localStorage（`omo.layout.sidebarW` / `omo.layout.convW`）。侧栏拖拽区域不绘制分割线，Conversation 与 Workspace 的 Divider 使用 pointer events。
 
 Sidebar 收起后完全隐藏，收缩按钮留在顶栏左侧。
 
@@ -19,7 +21,7 @@ macOS 按钮位于窗口交通灯右侧；Windows 根据 `titlebar-area-*` 预�
 
 ## Conversation
 
-Conversation Pane 从上到下：Conversation Header（h-12，folder 图标 + 会话标题单行 ellipsis，右侧是 Workspace 抽屉开关，与 Sidebar 交界处 `rounded-tl-lg` 圆角）→ 消息区（Virtuoso 自滚动）→ Composer（固定底部，`px-4 pb-3`，不再二次居中限宽）。无会话时首页/项目选择作为 Conversation 的 empty state 呈现，项目列表为紧凑行而非大卡片。Workspace 收起时 Conversation 自适应占满剩余宽度。
+Conversation Pane 从上到下：Conversation Header（h-12，当前会话标题单行 ellipsis，右侧是 Workspace 开关）→ 消息区（Virtuoso 自滚动）→ Composer（固定底部，`px-4 pb-3`，不再二次居中限宽）。无会话时首页/项目选择作为 Conversation 的 empty state 呈现，项目列表为紧凑行而非大卡片。Workspace 收起时 Conversation 自适应占满剩余宽度。
 
 ## Workspace
 
@@ -55,24 +57,29 @@ Session 条目显示名称或首条消息。创建 Project 后不自动导入 Se
 
 会话中从上到下：
 
-- 标题栏（h-10）：左侧项目名（有会话标题时以“项目 · 标题”形式跟在后面），右侧留空作为拖拽区；该栏横贯右侧 Right Panel 顶部
-- Conversation：历史消息和流式增量；Right Panel 开关悬浮在会话区右上角
+- 顶部标签栏（h-10）：显示当前会话、其他已打开会话以及新建/关闭操作；前进后退和侧栏收缩按钮位于左侧控制区
+- Conversation 区域：独立圆角面板，顶部显示当前会话标题和 Workspace 开关，下面是历史消息与流式增量
+- Workspace：打开时以独立圆角面板显示在 Conversation 右侧；开启状态按会话保存，切换标签会恢复对应会话的状态
 - Prompt Input：输入、模型、Thinking、上下文、Local/Worktree、分支和 Project；默认 placeholder 会提示粘贴图片、`@` 文件和 `/` 命令
 
 Project 选择器包含已有 Project、New project 和 no project。模型选择器按 Provider 分组，并支持展开/收起。
 
 ## Right Panel
 
-Right Panel 位于会话标题栏下方、会话区右侧，宽度 280–640px。
+Right Panel 位于顶栏下方、会话区右侧，宽度 280–640px。
 
-Tab：
+固定 Tab：
+
+- Files
+- Review
+- Context
+
+通过“+”动态添加的 Tab：
 
 - Browser
 - Terminal
-- Files
-- Review
 
-Browser 在 Electron 中使用 `<webview>`。Terminal 使用 xterm.js；远程模式连接服务器 PTY。Files 显示目录树和文本。Review 显示 Git status，并可选择文件查看 diff。
+Context 按当前会话展示上下文窗口用量、累计 Token 与 cost、生效的系统提示、工具定义、上下文文件、技能、扩展和扩展注入的隐藏消息；标签可见时定时刷新。Browser 在 Electron 本机模式使用 `<webview>`；远程 Web/Server 模式通过 omo Server 代理目标网站。Terminal 使用 xterm.js；远程模式连接服务器 PTY。Files 显示目录树和文本。Review 显示 Git status，并可选择文件查看 diff。
 
 ## Settings
 
@@ -91,4 +98,4 @@ Archived 分区列出所有已归档会话并可恢复到侧边栏。
 
 Servers 管理本机连接与多个远程服务器（添加/编辑/删除、状态监测）。Appearance 实现主题模式、语言和自定义主题编辑器：逐项覆盖 shadcn / typeset CSS 变量（颜色用调色盘、数值用滑块），可粘贴完整主题 CSS 一键导入，也可导出为自定义主题。Providers 使用 Pi Provider 认证；Models 通过 pi `enabledModels` 筛选可用模型；Skills 与 Packages 展示真实的 agent 技能和 pi 扩展包。Usage 使用 Session JSONL 聚合，按服务器分组展示多语言统计和订阅配额进度。Usage 不显示上下文使用分析。Providers、Models、Skills、Packages 在多服务器时可切换目标服务器。
 
-设置页内容居中（`mx-auto max-w-3xl`），侧栏导航项带图标。设置页 Sidebar 可以收起，收起后顶部导航按钮移动到设置内容区。
+设置页内容居中（`mx-auto max-w-3xl`），侧栏导航项带图标。设置页 Sidebar 可以收起，收起后顶部导航按钮移动到设置内容区。服务器配置、Provider 认证、主题导入与扩展包安装弹窗统一使用 `DialogHeader`、可滚动 `DialogPanel` 和底部 `DialogFooter`；表单使用 `display: contents` 保持 Footer 位于弹窗内部并保留 Enter 提交语义。

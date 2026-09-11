@@ -9,6 +9,17 @@ contextBridge.exposeInMainWorld("omoSecure", {
 });
 
 contextBridge.exposeInMainWorld("omo", {
+  browser: {
+    close: () => Promise.resolve(),
+    navigate: () =>
+      Promise.reject(
+        new Error("The server browser is unavailable in local mode")
+      ),
+    open: () =>
+      Promise.reject(
+        new Error("The server browser is unavailable in local mode")
+      ),
+  },
   cwd: () => ipcRenderer.invoke("app:cwd"),
   fs: {
     list: (dir) => ipcRenderer.invoke("fs:list", dir),
@@ -37,6 +48,8 @@ contextBridge.exposeInMainWorld("omo", {
       ipcRenderer.invoke("pi:branch", { entryId, sessionId }),
     commands: (sessionId, cwd, sessionPath) =>
       ipcRenderer.invoke("pi:commands", { cwd, sessionId, sessionPath }),
+    contextDetails: (sessionId, cwd, sessionPath) =>
+      ipcRenderer.invoke("pi:context-details", { cwd, sessionId, sessionPath }),
     contextUsage: (sessionId, cwd, sessionPath) =>
       ipcRenderer.invoke("pi:context-usage", { cwd, sessionId, sessionPath }),
     history: (sessionId, before) =>

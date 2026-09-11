@@ -25,7 +25,7 @@ Settings → Servers 支持添加、编辑、删除多个远程服务器，并�
 - Electron：服务器列表经 `window.omoSecure` IPC 存入 userData 的 `remote-server.json`，Token 由 `safeStorage.encryptString()` 加密。旧版单服务器配置在读取时自动迁移为列表。
 - Web：服务器列表保存在当前 Origin 的 localStorage（`omo:servers`），旧版 `omo:server-url` / `omo:server-token` 自动迁移。
 
-跨域部署需要在 Server 设置 `OMO_CORS_ORIGINS`。HTTPS 页面连接远程服务时，远程服务也必须使用 HTTPS/WSS，避免浏览器混合内容限制。
+跨域部署需要在 Server 设置 `OMO_CORS_ORIGINS`。HTTPS 页面连接远程服务时，远程服务也必须使用 HTTPS/WSS，避免浏览器混合内容限制。远程 Workspace 的 Browser 由 omo Server 代理目标网站；代理会话的短期随机 URL 可被 iframe 加载，不会暴露 Server Token。
 
 ## 项目与会话路由
 

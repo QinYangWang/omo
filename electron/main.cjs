@@ -18,6 +18,7 @@ const {
   sessionCost,
   sessionMarkdown,
 } = require("../server/session-metadata.cjs");
+const { contextDetails } = require("../server/pi-context.cjs");
 let displayMessagesModule;
 let agentConfigModule;
 let quotasModule;
@@ -374,6 +375,13 @@ function createWindow() {
     async (_e, { sessionId, cwd, sessionPath }) => {
       const session = await ensurePi(sessionId, cwd, sessionPath);
       return session.getContextUsage() ?? null;
+    }
+  );
+  ipcMain.handle(
+    "pi:context-details",
+    async (_e, { sessionId, cwd, sessionPath }) => {
+      const session = await ensurePi(sessionId, cwd, sessionPath);
+      return contextDetails(session);
     }
   );
   ipcMain.handle("pi:models", async () => {
@@ -757,10 +765,7 @@ function createWindow() {
     if (Number.isFinite(cols) && Number.isFinite(rows)) {
       termProcs
         .get(key)
-        ?.resize(
-          Math.max(2, Math.trunc(cols)),
-          Math.max(1, Math.trunc(rows))
-        );
+        ?.resize(Math.max(2, Math.trunc(cols)), Math.max(1, Math.trunc(rows)));
     }
   });
 

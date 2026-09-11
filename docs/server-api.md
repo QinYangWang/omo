@@ -1,6 +1,6 @@
 # Server API
 
-所有接口前缀为 `/api/v1`。除健康检查和静态文件外，设置 `OMO_TOKEN` 后必须携带：
+所有接口前缀为 `/api/v1`。除健康检查、静态文件和已创建的 Browser 代理能力 URL 外，设置 `OMO_TOKEN` 后必须携带：
 
 ```http
 Authorization: Bearer <token>
@@ -102,6 +102,28 @@ JSON 请求体上限为 16MB。错误响应格式：
 
 返回 `ModelRuntime.getAvailable()` 中的模型。
 
+### `POST /pi/context-usage`
+
+```json
+{ "sessionId": "client-id", "cwd": "/workspace/project", "sessionPath": "optional" }
+```
+
+返回实时 `AgentSession.getContextUsage()`，包含 `tokens`、`contextWindow` 和 `percent`；compaction 后下一次模型响应完成前 Token 可能为 `null`。
+
+### `POST /pi/context-details`
+
+请求体与 `/pi/context-usage` 相同。返回当前会话的完整上下文检查快照：
+
+- `contextUsage`：当前上下文窗口用量
+- `stats`：会话累计消息、Token 与 cost
+- `systemPrompt`：包含扩展逐轮修改的当前有效系统提示
+- `tools`：全部工具的描述、参数 Schema、Prompt guidelines、来源与启用状态
+- `resources`：上下文文件、附加系统提示、技能及来源
+- `extensions`：扩展路径及其注册的事件、命令和工具
+- `injectedMessages`：扩展注入且不在普通会话 UI 显示的 custom messages
+
+该响应可能包含项目指令、工具 Schema 以及扩展注入的敏感内容，只能通过正常 Bearer Token 认证获取。客户端仅在 Context 标签可见时轮询。
+
 ### `POST /pi/model`
 
 ```json
@@ -165,6 +187,38 @@ JSON 请求体上限为 16MB。错误响应格式：
 ```
 
 Provider 认证事件使用保留的 `sessionId=__providers`。Session JSONL 文件被外部进程（如 Pi TUI）修改时推送 `type=omo_session_file`，payload 含文件 `path`；客户端随后调用 `POST /pi/sync` 拉取增量。
+
+## Browser
+
+远程 Web 客户端通过 Server 代理浏览器请求，避免客户端所在网络无法访问目标网站。打开浏览器会创建一个短期、随机 ID 的代理会话；代理页面和资源 URL 使用该 ID 作为能力凭据，因此不需要把 Server Token 放进 iframe URL。
+
+### `POST /browser`
+
+```json
+{ "url": "https://example.com" }
+```
+
+返回：
+
+```json
+{ "browserId": "uuid", "url": "/api/v1/browser/uuid/proxy?url=..." }
+```
+
+### `POST /browser/:id/navigate`
+
+```json
+{ "url": "https://example.com/docs" }
+```
+
+返回新的代理页面 URL。Server 会在会话内保留目标站点的 Cookie。
+
+### `GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS /browser/:id/proxy?url=<target-url>`
+
+代理目标网站的页面、资源和表单请求。HTTP/HTTPS URL、重定向、HTML/CSS 中的相对资源链接会被转换为当前代理会话 URL。代理响应会移除阻止嵌入的 `X-Frame-Options`/CSP 响应头，并限制单次响应为 32MB。
+
+### `DELETE /browser/:id`
+
+关闭代理会话并清理其 Cookie。代理资源 URL 使用随机会话 ID，可在不携带 Authorization header 的 iframe 中加载；打开、导航和关闭接口仍需要正常的 Bearer Token。
 
 ## Terminals
 
