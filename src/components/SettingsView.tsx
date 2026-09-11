@@ -11,15 +11,12 @@ import {
   Loading03Icon,
   PackageIcon,
   PaintBoardIcon,
-  PanelLeftCloseIcon,
-  PanelLeftIcon,
   PencilEdit01Icon,
   PiIcon,
   RotateCcwIcon,
   ServerStack01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type React from "react";
 import { useEffect, useState } from "react";
 import { ProvidersSection } from "@/components/ProvidersSection";
 import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
@@ -98,53 +95,18 @@ const themeLabels: Record<Theme, I18nKey> = {
   system: "theme_system",
 };
 const tokenNamePattern = /^--/;
-const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
 export function SettingsView({
   onBack,
-  onCollapse,
   sidebarOpen = true,
   sidebarWidth = 310,
-  titlebarLeftPadding = "0.5rem",
 }: {
   onBack: () => void;
-  onCollapse: () => void;
   sidebarOpen?: boolean;
   sidebarWidth?: number;
-  titlebarLeftPadding?: string;
 }) {
   const { t } = useI18n();
   const [section, setSection] = useState<Section>("Servers");
-  const sidebarHeader = (
-    <div
-      className={cn(
-        "flex h-10 items-center gap-1 pe-1 [-webkit-app-region:drag]",
-        sidebarOpen ? "shrink-0" : "absolute top-0 left-0 z-10 w-fit bg-sidebar"
-      )}
-      style={{ paddingLeft: titlebarLeftPadding }}
-    >
-      <span
-        aria-label="omo"
-        className="flex size-8 shrink-0 items-center justify-center text-sidebar-foreground"
-        role="img"
-      >
-        <HugeiconsIcon icon={PiIcon} />
-      </span>
-      <span className="min-w-0 flex-1" />
-      <Button
-        aria-label={sidebarOpen ? t("collapse_sidebar") : t("expand_sidebar")}
-        className="size-7"
-        onClick={onCollapse}
-        size="icon"
-        style={noDrag}
-        variant="ghost"
-      >
-        <HugeiconsIcon
-          icon={sidebarOpen ? PanelLeftCloseIcon : PanelLeftIcon}
-        />
-      </Button>
-    </div>
-  );
   return (
     <div className="relative flex h-full min-h-0 overflow-hidden bg-sidebar">
       {sidebarOpen ? (
@@ -152,8 +114,7 @@ export function SettingsView({
           className="flex shrink-0 flex-col bg-sidebar text-sidebar-foreground"
           style={{ width: sidebarWidth }}
         >
-          {sidebarHeader}
-          <nav className="flex flex-col gap-1 p-2 pt-0">
+          <nav className="flex flex-col gap-1 p-2">
             {sections.map(([key, s, Icon]) => (
               <Button
                 className={cn(
@@ -182,9 +143,7 @@ export function SettingsView({
             </Button>
           </div>
         </div>
-      ) : (
-        sidebarHeader
-      )}
+      ) : null}
       <ScrollArea
         className={cn(
           "min-h-0 min-w-0 flex-1 rounded-xl border bg-background shadow-sm/5",

@@ -235,7 +235,8 @@ export default function App() {
     Record<string, boolean>
   >({});
   const [collapsed, setCollapsed] = useState(false);
-  const isMac = macPlatformPattern.test(navigator.platform);
+  const isDesktop = !!window.omoSecure;
+  const isMacDesktop = isDesktop && macPlatformPattern.test(navigator.platform);
   const { t } = useI18n();
   const streamingSessions = useStreamingSessions();
   useTitleBarOverlay(theme);
@@ -545,10 +546,10 @@ export default function App() {
 
   // Keep the tab strip aligned with the sidebar edge. On macOS the traffic
   // lights occupy part of the left padding, so subtract it from the segment.
-  const titlebarLeftPadding = isMac
+  const titlebarLeftPadding = isMacDesktop
     ? "max(0.75rem, calc(env(titlebar-area-x, 68px) + 0.5rem))"
     : "0.5rem";
-  const titlebarRightPadding = isMac
+  const titlebarRightPadding = isMacDesktop
     ? "0.5rem"
     : "max(0.5rem, calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 0px) + 0.5rem))";
   const topbarLeftWidth = (() => {
@@ -601,16 +602,14 @@ export default function App() {
 
   if (view === "settings") {
     return (
-      <div className="relative h-screen overflow-hidden bg-sidebar text-foreground">
+      <div className="flex h-screen flex-col overflow-hidden bg-sidebar text-foreground">
         {topBar}
-        <main className="absolute inset-0 z-30 overflow-hidden">
+        <main className="min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={null}>
             <SettingsView
               onBack={() => setView("chat")}
-              onCollapse={() => setCollapsed((value) => !value)}
               sidebarOpen={!collapsed}
               sidebarWidth={sidebarW}
-              titlebarLeftPadding={titlebarLeftPadding}
             />
           </Suspense>
         </main>

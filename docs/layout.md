@@ -98,4 +98,4 @@ Archived 分区列出所有已归档会话并可恢复到侧边栏。
 
 Servers 管理本机连接与多个远程服务器（添加/编辑/删除、状态监测）。Appearance 实现主题模式、语言和自定义主题编辑器：逐项覆盖 shadcn / typeset CSS 变量（颜色用调色盘、数值用滑块），可粘贴完整主题 CSS 一键导入，也可导出为自定义主题。Providers 使用 Pi Provider 认证；Models 通过 pi `enabledModels` 筛选可用模型；Skills 与 Packages 展示真实的 agent 技能和 pi 扩展包。Usage 使用 Session JSONL 聚合，按服务器分组展示多语言统计和订阅配额进度。Usage 不显示上下文使用分析。Providers、Models、Skills、Packages 在多服务器时可切换目标服务器。
 
-设置页内容居中（`mx-auto max-w-3xl`），侧栏导航项带图标。设置页 Sidebar 可以收起，收起后顶部导航按钮移动到设置内容区。服务器配置、Provider 认证、主题导入与扩展包安装弹窗统一使用 `DialogHeader`、可滚动 `DialogPanel` 和底部 `DialogFooter`；表单使用 `display: contents` 保持 Footer 位于弹窗内部并保留 Enter 提交语义。
+设置页保留 40px 全局顶栏，为 Electron 原生窗口键预留独立空间：macOS 避开左侧交通灯，Windows/Linux 避开右侧窗口控制键，静态 Web 不使用桌面端回退留白。设置内容居中（`mx-auto max-w-3xl`），侧栏导航项带图标；设置 Sidebar 可通过全局顶栏按钮收起。服务器配置、Provider 认证、主题导入与扩展包安装弹窗统一使用 `DialogHeader`、可滚动 `DialogPanel` 和底部 `DialogFooter`；表单使用 `display: contents` 保持 Footer 位于弹窗内部并保留 Enter 提交语义。

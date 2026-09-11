@@ -60,9 +60,9 @@ omo 的默认视觉语言参考 Vercel design system，并遵守本项目已有�
 
 标签切换通过每个标签独立的 draft/session key 保留输入草稿、消息缓存和 Workspace 状态；关闭最后一个标签时会自动留下一个新的空白标签。侧栏收起后仅保留紧凑的展开按钮，顶栏标签仍可继续使用。
 
-macOS 通过 `titlebar-area-x` 预留交通灯按钮区域。其他平台使用 `titlebar-area-width` 动态避开右侧窗口控制键。交互按钮使用 `WebkitAppRegion: no-drag`。
+Electron macOS 通过 `titlebar-area-x`（无环境变量时回退 68px）在左侧预留交通灯区域；Windows 与 Linux 使用 `titlebar-area-x` / `titlebar-area-width` 在右侧动态避开窗口控制键。静态 Web 不应用 macOS 桌面回退留白。交互按钮使用 `WebkitAppRegion: no-drag`。
 
-设置页复用同一组侧栏导航按钮，并支持完全收起设置侧栏。
+设置页保留同一条 40px 顶栏，不再以设置内容覆盖它，因此 macOS、Windows 和 Linux 的原生窗口键始终有独立空间；设置侧栏继续使用顶栏上的收缩按钮并支持完全收起。
 
 ## 会话区
 
