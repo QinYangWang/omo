@@ -1229,9 +1229,14 @@ export function ChatView({
           onSessionBound
         );
       } catch (error) {
-        setSessionStreaming(cacheKey, false);
-        setStreaming(false);
-        setInputError(error instanceof Error ? error.message : String(error));
+        failPrompt(
+          cacheKey,
+          windows.get(cacheKey) ?? turnWindow,
+          error,
+          setWindow,
+          setStreaming,
+          setInputError
+        );
       }
     }
   };
@@ -1870,6 +1875,27 @@ function cloneTurnWindow(current: TurnWindow): TurnWindow {
   };
 }
 
+function failPrompt(
+  cacheKey: string,
+  current: TurnWindow,
+  error: unknown,
+  setWindow: (next: TurnWindow) => void,
+  setStreaming: (value: boolean) => void,
+  setInputError: (message: string) => void
+) {
+  const message = error instanceof Error ? error.message : String(error);
+  setSessionStreaming(cacheKey, false);
+  setStreaming(false);
+  setInputError(message);
+  // Mirror the failure into the conversation so it stays visible after the
+  // composer error is cleared.
+  setWindow(
+    appendMessages(current, [
+      { id: randomUUID(), role: "error", text: message },
+    ])
+  );
+}
+
 function completeLastTurn(
   current: TurnWindow,
   setWindow: (next: TurnWindow) => void
@@ -1973,7 +1999,7 @@ async function loadSession(
     const failed: ChatMessage[] = [
       {
         id: randomUUID(),
-        role: "assistant",
+        role: "error",
         text: `Failed to open session: ${error instanceof Error ? error.message : String(error)}`,
       },
     ];
@@ -2085,20 +2111,49 @@ function useFileCompletion(
   return { fileEntries, fileLoading, fileQuery };
 }
 
+function applyEventToWindow(
+  current: TurnWindow,
+  event: OmoPiEvent
+): TurnWindow {
+  const next = cloneTurnWindow(current);
+  const last = next.turns.at(-1);
+  if (last) {
+    last.items = adaptPiEventItems(last.items, event);
+    return next;
+  }
+  // No turn yet (e.g. the prompt failed before the user message was
+  // mirrored): surface terminal errors as an orphan turn.
+  const items = adaptPiEventItems([], event);
+  return items.length ? appendMessages(current, items) : current;
+}
+
 function handlePiEvent(
   event: OmoPiEvent,
   sessionId: string,
   setStreaming: (value: boolean) => void,
   setWindow: (next: TurnWindow) => void
 ) {
-  if (event.type === "message_start" && event.message?.role === "assistant") {
+  const messageRole =
+    typeof event.message === "object" ? event.message?.role : undefined;
+  if (event.type === "message_start" && messageRole === "assistant") {
     setStreaming(true);
   }
+  if (event.type === "omo_error") {
+    // A rejected prompt has no matching agent_end; clear the running state
+    // here so the session does not spin forever.
+    setStreaming(false);
+  }
   if (event.type === "agent_end") {
+    if (event.willRetry) {
+      // agent_end also fires between auto-retry attempts (e.g. after a 429);
+      // the turn continues, so keep the running state.
+      setStreaming(true);
+      return;
+    }
     setStreaming(false);
     const current = windows.get(sessionId);
     if (current) {
-      completeLastTurn(current, setWindow);
+      completeLastTurn(applyEventToWindow(current, event), setWindow);
     }
     return;
   }
@@ -2106,20 +2161,14 @@ function handlePiEvent(
   if (!current) {
     return;
   }
-  const next = cloneTurnWindow(current);
-  const last = next.turns.at(-1);
-  if (!last) {
-    return;
-  }
-  last.items = adaptPiEventBlocks(last, event);
-  setWindow(next);
+  setWindow(applyEventToWindow(current, event));
 }
 
-function adaptPiEventBlocks(
-  turn: ConversationTurn,
+function adaptPiEventItems(
+  items: ConversationTurn["items"],
   event: OmoPiEvent
 ): ConversationTurn["items"] {
-  const blocks = adaptPiEvent(adaptPiMessages(turn.items), event);
+  const blocks = adaptPiEvent(adaptPiMessages(items), event);
   const byId = new Map<string, ConversationTurn["items"][number]>();
   for (const block of blocks) {
     if (block.type === "markdown") {
@@ -2144,6 +2193,13 @@ function adaptPiEventBlocks(
         role: "tool",
         status: block.status,
         toolName: block.toolName,
+      });
+    } else {
+      byId.set(block.id, {
+        id: block.id,
+        retry: block.retry,
+        role: "error",
+        text: block.content,
       });
     }
   }

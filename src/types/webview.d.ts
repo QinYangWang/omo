@@ -27,13 +27,26 @@ interface OmoPiResultPart {
   text?: string;
   type: string;
 }
+interface OmoPiEventMessage {
+  errorMessage?: string;
+  role?: string;
+  stopReason?: string;
+}
 interface OmoPiEvent {
   assistantMessageEvent?: OmoPiAssistantEvent;
+  attempt?: number;
+  delayMs?: number;
+  errorMessage?: string;
+  finalError?: string;
   isError?: boolean;
-  message?: { role?: string };
+  maxAttempts?: number;
+  message?: string | OmoPiEventMessage;
+  messages?: OmoPiEventMessage[];
   result?: { content?: OmoPiResultPart[] | string };
+  success?: boolean;
   toolCallId?: string;
   type: string;
+  willRetry?: boolean;
 }
 interface OmoPiEventEnvelope {
   event: OmoPiEvent;

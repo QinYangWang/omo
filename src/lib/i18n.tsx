@@ -210,6 +210,9 @@ const dict = {
     turn_branch: "Branch from this answer",
     turn_copied: "Answer copied",
     turn_copy: "Copy answer",
+    turn_request_failed: "Request failed",
+    turn_retrying:
+      "Request failed, retrying in {delay}s ({attempt}/{maxAttempts}): {message}",
     turn_thinking: "Thinking",
     turn_thinking_active: "Thinking…",
     turn_tools: "{count} tool calls",
@@ -429,6 +432,9 @@ const dict = {
     turn_branch: "从此回答创建分支",
     turn_copied: "回答已复制",
     turn_copy: "复制回答",
+    turn_request_failed: "请求失败",
+    turn_retrying:
+      "请求失败，{delay} 秒后自动重试（第 {attempt}/{maxAttempts} 次）：{message}",
     turn_thinking: "思考过程",
     turn_thinking_active: "正在思考…",
     turn_tools: "{count} 次工具调用",

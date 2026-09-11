@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@/lib/conversation-turns";
+import type { ChatMessage, RetryNotice } from "@/lib/conversation-turns";
 import { randomUUID } from "@/lib/utils";
 
 interface PiAssistantEvent {
@@ -12,14 +12,34 @@ interface PiToolResultPart {
   text?: string;
   type: string;
 }
+interface PiEventMessage {
+  errorMessage?: string;
+  role?: string;
+  stopReason?: string;
+}
 interface PiEvent {
   assistantMessageEvent?: PiAssistantEvent;
+  attempt?: number;
+  delayMs?: number;
+  errorMessage?: string;
+  finalError?: string;
   isError?: boolean;
-  message?: string | { role?: string };
+  maxAttempts?: number;
+  message?: string | PiEventMessage;
+  messages?: PiEventMessage[];
   result?: { content?: PiToolResultPart[] | string };
+  success?: boolean;
   toolCallId?: string;
   type: string;
+  willRetry?: boolean;
 }
+
+// Stable id for the transient auto-retry notice so consecutive
+// auto_retry_start events update the same block instead of stacking.
+const AUTO_RETRY_BLOCK_ID = "omo:auto-retry";
+// The SDK emits this exact finalError when the user aborts during the
+// retry backoff; a manual abort must not surface as an error.
+const RETRY_CANCELLED = "Retry cancelled";
 
 export type RenderBlock =
   | { id: string; type: "markdown"; content: string; timestamp?: number }
@@ -37,7 +57,7 @@ export type RenderBlock =
       output?: string;
       status: "running" | "done" | "error";
     }
-  | { id: string; type: "error"; content: string };
+  | { id: string; type: "error"; content: string; retry?: RetryNotice };
 
 export function adaptPiMessages(messages: ChatMessage[]): RenderBlock[] {
   const blocks: RenderBlock[] = [];
@@ -62,6 +82,15 @@ export function adaptPiMessages(messages: ChatMessage[]): RenderBlock[] {
         id: message.id,
         status: message.status,
         type: "reasoning",
+      });
+      continue;
+    }
+    if (message.role === "error") {
+      blocks.push({
+        content: message.text,
+        id: message.id,
+        retry: message.retry,
+        type: "error",
       });
       continue;
     }
@@ -200,20 +229,128 @@ function applyToolResult(next: RenderBlock[], event: PiEvent) {
   }
 }
 
+function errorBlock(content: string, retry?: RetryNotice): RenderBlock {
+  return { content, id: randomUUID(), retry, type: "error" };
+}
+
+/** The trailing error already carries this text (e.g. agent_end ran first). */
+function hasTrailingError(blocks: RenderBlock[], content: string): boolean {
+  const last = blocks.at(-1);
+  return last?.type === "error" && !last.retry && last.content === content;
+}
+
+function applyAutoRetryStart(blocks: RenderBlock[], event: PiEvent) {
+  const content = event.errorMessage || "Unknown error";
+  // The failed attempt's message_end may already have appended this error;
+  // fold it into the retry notice instead of showing both.
+  const base = hasTrailingError(blocks, content) ? blocks.slice(0, -1) : blocks;
+  const notice: RenderBlock = {
+    content,
+    id: AUTO_RETRY_BLOCK_ID,
+    retry: {
+      attempt: event.attempt ?? 1,
+      delayMs: event.delayMs ?? 0,
+      maxAttempts: event.maxAttempts ?? 0,
+    },
+    type: "error",
+  };
+  const index = base.findIndex((block) => block.id === AUTO_RETRY_BLOCK_ID);
+  if (index < 0) {
+    return [...base, notice];
+  }
+  const next = [...base];
+  next[index] = notice;
+  return next;
+}
+
+function applyAutoRetryEnd(blocks: RenderBlock[], event: PiEvent) {
+  const next = blocks.filter((block) => block.id !== AUTO_RETRY_BLOCK_ID);
+  const content = event.finalError ?? "";
+  if (event.success || !content || content === RETRY_CANCELLED) {
+    return next;
+  }
+  // agent_end already appended the terminal error (it fires first).
+  if (hasTrailingError(next, content)) {
+    return next;
+  }
+  return [...next, errorBlock(content)];
+}
+
+function applyMessageEnd(blocks: RenderBlock[], event: PiEvent) {
+  const message = typeof event.message === "object" ? event.message : undefined;
+  if (message?.role !== "assistant" || message.stopReason !== "error") {
+    return blocks;
+  }
+  const content = message.errorMessage ?? "";
+  if (!content || hasTrailingError(blocks, content)) {
+    return blocks;
+  }
+  return [...blocks, errorBlock(content)];
+}
+
+function applyAgentEnd(blocks: RenderBlock[], event: PiEvent) {
+  if (event.willRetry) {
+    return blocks;
+  }
+  // Safety net for a run whose terminal assistant error never surfaced (e.g.
+  // message_end was missed). Only the run's last assistant message counts:
+  // earlier errors belong to turns that already reported them.
+  const lastAssistant = [...(event.messages ?? [])]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const content =
+    lastAssistant?.stopReason === "error"
+      ? (lastAssistant.errorMessage ?? "")
+      : "";
+  if (!content || hasTrailingError(blocks, content)) {
+    return blocks;
+  }
+  return [...blocks, errorBlock(content)];
+}
+
+function applyMessageStart(blocks: RenderBlock[], event: PiEvent) {
+  const role =
+    typeof event.message === "object" ? event.message?.role : undefined;
+  if (role !== "assistant") {
+    return blocks;
+  }
+  // A new assistant attempt supersedes the retry notice and any error left
+  // behind by a previous failed attempt (including ones reloaded from a
+  // session file while the agent was mid-retry).
+  const next = blocks.filter((block) => block.id !== AUTO_RETRY_BLOCK_ID);
+  let end = next.length;
+  while (end > 0 && next[end - 1].type === "error") {
+    end -= 1;
+  }
+  return next.slice(0, end);
+}
+
 export function adaptPiEvent(
   blocks: RenderBlock[],
   event: PiEvent
 ): RenderBlock[] {
   if (event.type === "omo_error") {
-    return [
-      ...blocks,
-      {
-        content:
-          typeof event.message === "string" ? event.message : String(event),
-        id: randomUUID(),
-        type: "error",
-      },
-    ];
+    const content =
+      typeof event.message === "string" && event.message
+        ? event.message
+        : "Unknown error";
+    return [...blocks, errorBlock(content)];
+  }
+
+  if (event.type === "auto_retry_start") {
+    return applyAutoRetryStart(blocks, event);
+  }
+  if (event.type === "auto_retry_end") {
+    return applyAutoRetryEnd(blocks, event);
+  }
+  if (event.type === "agent_end") {
+    return applyAgentEnd(blocks, event);
+  }
+  if (event.type === "message_start") {
+    return applyMessageStart(blocks, event);
+  }
+  if (event.type === "message_end") {
+    return applyMessageEnd(blocks, event);
   }
 
   if (event.type !== "message_update" && event.type !== "tool_execution_end") {
