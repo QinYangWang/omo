@@ -409,7 +409,7 @@ export function Sidebar({
             <div className="space-y-1 pr-2">
               {projectSessions.map((session) => (
                 <Button
-                  className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 text-left font-normal"
+                  className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 text-left font-normal sm:h-auto"
                   key={session.path}
                   onClick={async () => {
                     if (!importProject) {
