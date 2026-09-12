@@ -1,0 +1,10 @@
+{
+  "name": "@omo/control-plane",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./inbox": "./src/inbox.ts"
+  },
+  "main": "./src/inbox.ts"
+}

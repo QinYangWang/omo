@@ -1,0 +1,15 @@
+{
+  "protocolVersion": 0,
+  "serverId": "srv_018f3c9a-0000-7000-8000-aaaaaaaaaaaa",
+  "workspaceId": "wks_demo",
+  "sessionId": "ses_demo",
+  "laneId": "main",
+  "subscriptionId": "sub_018f3c9a-1111-7000-8000-bbbbbbbbbbbb",
+  "bindingEpoch": "3",
+  "requestId": "req-0001",
+  "payloadSchemaVersion": 1,
+  "cursor": "9007199254740993",
+  "publicationSequence": "42",
+  "kind": "lane.update",
+  "payload": { "appliedCursor": "9007199254740993" }
+}

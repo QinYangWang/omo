@@ -1,0 +1,13 @@
+{
+  "name": "@omo/agent-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core-runtime": "./src/core-runtime.ts",
+    "./runtime": "./src/runtime.ts",
+    "./sqlite": "./src/sqlite.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "main": "./src/core-runtime.ts"
+}

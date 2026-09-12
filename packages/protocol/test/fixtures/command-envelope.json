@@ -1,0 +1,18 @@
+{
+  "protocolVersion": 0,
+  "schemaVersion": 1,
+  "commandId": "cmd_018f3c9a-2b7e-7c1d-9e4f-5a6b7c8d9e0f",
+  "clientMutationId": "mut-desktop-2026-0001",
+  "scope": {
+    "workspaceId": "wks_demo",
+    "sessionId": "ses_demo",
+    "laneId": "main"
+  },
+  "kind": "session.prompt",
+  "payload": {
+    "text": " Summarize docs/omo-v2-plan.md §5.4",
+    "images": []
+  },
+  "payloadHash": "6f33ab8fd0232be8a1ba9f8669c88d04ce2c85bab61679e66d10d22423ae1d66",
+  "issuedAt": "2026-09-12T00:00:00.000Z"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@omo/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./command": "./src/command.ts",
+    "./errors": "./src/errors.ts",
+    "./frame": "./src/frame.ts",
+    "./ids": "./src/ids.ts",
+    "./version": "./src/version.ts"
+  },
+  "main": "./src/command.ts"
+}

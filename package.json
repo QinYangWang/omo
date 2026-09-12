@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "tsc -b && vite build",
     "check": "ultracite check",
@@ -11,12 +14,21 @@
     "fix": "ultracite fix",
     "server": "node server/index.cjs",
     "server:dev": "node --watch server/index.cjs",
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node --no-warnings --test test/*.test.mjs 'packages/*/test/*.test.ts'",
+    "test:p0": "node --no-warnings experiments/p0/harness-recovery.mjs",
+    "test:v2": "node --no-warnings --test 'packages/*/test/*.test.ts'",
+    "typecheck": "tsc --noEmit -p packages/tsconfig.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
+    "@earendil-works/chord": "0.85.0",
+    "@earendil-works/pi-agent-core": "0.85.0",
+    "@earendil-works/pi-ai": "0.85.0",
     "@earendil-works/pi-coding-agent": "^0.85.0",
     "@earendil-works/pi-server": "^0.85.0",
+    "@earendil-works/pi-session-backend-sqlite-node": "0.85.0",
+    "@earendil-works/pi-telemetry": "0.85.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@fontsource-variable/outfit": "^5.3.0",

@@ -1,0 +1,12 @@
+{
+  "name": "@omo/storage",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./durability": "./src/durability.ts",
+    "./durable-database": "./src/durable-database.ts",
+    "./session-backend": "./src/session-backend.ts"
+  },
+  "main": "./src/durability.ts"
+}
