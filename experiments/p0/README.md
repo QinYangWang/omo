@@ -5,8 +5,9 @@
 ## 运行
 
 ```bash
-npm test        # 全部单元/契约测试（含 packages/*）
-npm run test:p0 # 功能/恢复闭环实验（本目录）
+npm test            # 全部单元/契约测试（含 packages/*）
+npm run test:p0     # 快速实验（harness-recovery + chord-reload）
+npm run test:p0:all # 全部实验（含掉电对账与多进程容量冒烟，约 1-2 分钟）
 ```
 
 ## 实验清单
@@ -14,6 +15,9 @@ npm run test:p0 # 功能/恢复闭环实验（本目录）
 | 脚本 | 验证内容 | 对应规划条目 |
 | --- | --- | --- |
 | `harness-recovery.mjs` | 功能/恢复闭环：固定 operationId 的 accept→drive→completed；Worker 重启后 open operation 恢复并完成；重复 accept 的非幂等行为与 lane 阻塞 | §13 P0 交付 2、3；§3.3.3 |
+| `chord-reload.mjs` | Chord reload 七场景：同形热替换/失败保留旧版/不 drain 在途调用/结构变化需新宿主/自请求 reload 无死锁/200 次 reload 无泄漏/VM 分代隔离 | §13 P0 交付 5；§3.3.6-8；§7.4 |
+| `durability-receipts.mjs` | 独立回执记录器 + SIGKILL 注入：无幻影回执、回复窗口崩溃可按原身份对账、无重复行 | §5.4/§5.8；§13 P0 交付 7；§14 受理 |
+| `capacity-smoke.mjs` | W 个独立 Session Worker 进程并发推进，聚合吞吐/RSS/p95 延迟；默认 8×15s 冒烟，百会话用同脚本在参考机运行 | §8.1；§13 P0 交付 6 |
 
 ## 已编码为常驻测试的 P0 断言
 
@@ -26,7 +30,7 @@ npm run test:p0 # 功能/恢复闭环实验（本目录）
 
 ## 待补充（P0 后半）
 
-- Chord reload / drain / 失败宿主重建实验（§13 P0 交付 5）。
-- 百会话进程容量与 FULL commit 延迟、存储路线 A/B 比较（§8.6）。
-- 独立回执记录器 + 进程/OS 崩溃与受控断电注入（§5.8 验证流程）。
+- 三平台受控断电流程（Linux/Windows/macOS 真实同步写边界；§5.8）。
+- 百会话完整容量：参考机（16C/32G/NVMe）运行 `capacity-smoke.mjs 100`，比较存储路线 A/B（§8.6）。
 - UI 插件最小样例（§7.10 前置验证）。
+- RN/RNOH 版本与原生模块兼容清单（§6.7）。

@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./inbox": "./src/inbox.ts"
+    "./inbox": "./src/inbox.ts",
+    "./interactions": "./src/interactions.ts"
   },
   "main": "./src/inbox.ts"
 }
