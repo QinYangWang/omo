@@ -40,6 +40,8 @@ npm run server:dev   # omo Server watch 模式
 - [docs/omo-v2-plan.md](docs/omo-v2-plan.md) — v2 规划：多端协作、动态插件与高并发运行时
 - [docs/adr/](docs/adr/README.md) — v2 架构决策记录（ADR-001~007）
 - [docs/v2-upstream-verification.md](docs/v2-upstream-verification.md) — v2 上游能力 P0 实测清单
+- [docs/durability-testing.md](docs/durability-testing.md) — v2 掉电持久性三平台验证流程
+- [docs/mobile-rn-matrix.md](docs/mobile-rn-matrix.md) — RN/RNOH 版本与原生模块兼容清单
 
 
 # Ultracite Code Standards

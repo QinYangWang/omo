@@ -18,6 +18,7 @@ npm run test:p0:all # 全部实验（含掉电对账与多进程容量冒烟，�
 | `chord-reload.mjs` | Chord reload 七场景：同形热替换/失败保留旧版/不 drain 在途调用/结构变化需新宿主/自请求 reload 无死锁/200 次 reload 无泄漏/VM 分代隔离 | §13 P0 交付 5；§3.3.6-8；§7.4 |
 | `durability-receipts.mjs` | 独立回执记录器 + SIGKILL 注入：无幻影回执、回复窗口崩溃可按原身份对账、无重复行 | §5.4/§5.8；§13 P0 交付 7；§14 受理 |
 | `capacity-smoke.mjs` | W 个独立 Session Worker 进程并发推进，聚合吞吐/RSS/p95 延迟；默认 8×15s 冒烟，百会话用同脚本在参考机运行 | §8.1；§13 P0 交付 6 |
+| `ui-plugin-sample.mjs` | UI 插件最小样例：稳定节点装配 + keyed renderer + 代际热替换（不改宿主）+ fallback + 回放一致 + 200 次切换无泄漏 | §13 P0 交付 8；§7.0/§7.10 |
 
 ## 已编码为常驻测试的 P0 断言
 
@@ -28,9 +29,8 @@ npm run test:p0:all # 全部实验（含掉电对账与多进程容量冒烟，�
 | `packages/control-plane/test/inbox.test.ts` | 命令幂等重放、payload 不匹配拒绝、状态机、崩溃窗口、durable 回执 |
 | `packages/protocol/test/protocol.test.ts` | golden wire fixtures、canonical hash、十进制字符串 cursor |
 
-## 待补充（P0 后半）
+## 待补充（P0 收尾）
 
-- 三平台受控断电流程（Linux/Windows/macOS 真实同步写边界；§5.8）。
+- 三平台受控断电实测（程序见 [docs/durability-testing.md](../../docs/durability-testing.md)）。
 - 百会话完整容量：参考机（16C/32G/NVMe）运行 `capacity-smoke.mjs 100`，比较存储路线 A/B（§8.6）。
-- UI 插件最小样例（§7.10 前置验证）。
-- RN/RNOH 版本与原生模块兼容清单（§6.7）。
+- RN/RNOH 真机版本交集与风险样机（清单见 [docs/mobile-rn-matrix.md](../../docs/mobile-rn-matrix.md)，P2 执行）。

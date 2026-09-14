@@ -42,17 +42,21 @@
 
 240 条命令 + 10 次 SIGKILL（6 次随机 + 4 次注入在「提交后/回复前」窗口）：独立回执记录器（ndjson + fsync）收到 246 条回执，重启对账 240 行持久记录：无幻影回执（R1）、回复窗口崩溃按原身份重放返回原回执（R2）、无重复行（R3）。**限制**：SIGKILL 不清 OS 页缓存，三平台受控断电验证流程仍待执行（§5.8）。
 
-## 2.3 多进程容量冒烟（实验 `experiments/p0/capacity-smoke.mjs`，本机 2C/8G）
+## 2.3 UI 插件最小样例（实验 `experiments/p0/ui-plugin-sample.mjs`）
+
+P0 交付 8 达成：「progress card」插件不经主客户端改动完成端到端闭环——事实经 `NodeAssembler` 折叠为稳定 view model；gen1/gen2 两代 renderer 均产出通过有界组件协议校验的声明式组件树；`ContributionRegistry` 热替换运行旧代 cleanup、无重复贡献；未知 renderer / payload 版本不兼容走只读 fallback；实时追加与全量重放渲染结果逐字节一致；200 次代际切换无泄漏。声明式组件协议（`@omo/plugin-ui-schema`）为 target-neutral，直接覆盖 §6.7 多端映射前提。
+
+## 2.4 多进程容量冒烟（实验 `experiments/p0/capacity-smoke.mjs`，本机 2C/8G）
 
 8 个独立 Session Worker × 15s：2039 次 accept→drive 完成，聚合 ~110 ops/s；单 Worker RSS 150-158 MiB（总计 ~1.2 GiB）；drive p95 13-107ms（由每 op 的 FULL 提交主导——正是 §8.6 要测量的成本）。全部 Worker 持续推进、无崩溃。**外推警示**：按当前单 Worker ~150 MiB 基线，100 Worker 约需 15 GiB，贴着 ADR-006 参考档 16 GiB 预算——P4 需优先做懒加载与内存优化；百会话结论必须在参考机复测。
 
 ## 3. 待后续阶段验证
 
 - ~~Chord 同形 reload / 结构增删 / 自身请求 reload / drain / 失败宿主重建~~（已完成，见 §2.1）。
-- 三平台（Windows/macOS）刷盘、文件替换与服务生命周期语义；受控断电对账流程（§5.8）。
+- 三平台（Windows/macOS）刷盘、文件替换与服务生命周期语义；受控断电对账流程（§5.8 → [durability-testing.md](durability-testing.md) 程序已定义，待真实硬件执行）。
 - 百会话完整容量与存储路线 A/B 比较：参考机运行（§8.6；P4 完整基准含 Bun 同拓扑对照）。
 - `pi-telemetry` adapter 接入与 conformance（P1）。
-- UI 插件最小样例与 RN/RNOH 兼容清单（P0 后半 / P2）。
+- RN/RNOH 真机版本交集钉定与风险样机（P2；清单见 [mobile-rn-matrix.md](mobile-rn-matrix.md)）。
 
 ## 4. 当前 P0 测试基线
 
@@ -63,4 +67,4 @@ npm run test:p0     # 快速实验：harness-recovery + chord-reload
 npm run test:p0:all # 全部实验（含掉电对账与容量冒烟）
 ```
 
-基线结果：42+ 个 v2 测试全部通过（含上游 SessionRepo conformance 17 个子用例、Interaction 事务边界 7 用例）；实验断言 harness-recovery 9/9、chord-reload 15/15、durability-receipts 5/5、capacity-smoke 3/3。
+基线结果：87 个 v2 测试全部通过（含上游 SessionRepo conformance 17 个子用例、Interaction 事务边界 7 用例、插件装配/注册表/schema 17 用例）；实验断言 harness-recovery 9/9、chord-reload 15/15、durability-receipts 5/5、capacity-smoke 3/3、ui-plugin-sample 13/13。

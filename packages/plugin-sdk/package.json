@@ -1,0 +1,13 @@
+{
+  "name": "@omo/plugin-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./assembler": "./src/assembler.ts",
+    "./manifest": "./src/manifest.ts",
+    "./registry": "./src/registry.ts",
+    "./slots": "./src/slots.ts"
+  },
+  "main": "./src/registry.ts"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@omo/plugin-ui-schema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./components": "./src/components.ts",
+    "./nodes": "./src/nodes.ts"
+  },
+  "main": "./src/nodes.ts"
+}

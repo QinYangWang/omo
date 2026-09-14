@@ -93,7 +93,9 @@ const stats = [...workers.values()].map((state) => {
       state.snapshots.length >= 2
         ? state.snapshots.at(-1).ops > state.snapshots[0].ops
         : (final?.ops ?? 0) > 0,
-    crashed: state.exitCode !== 0,
+    // A worker that delivered its final report is clean even if the parent's
+    // shutdown SIGTERM raced its process exit.
+    crashed: state.final === undefined && state.exitCode !== 0,
     ops: final?.ops ?? 0,
     p50: final?.latencies.p50 ?? 0,
     p95: final?.latencies.p95 ?? 0,

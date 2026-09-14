@@ -16,7 +16,7 @@
     "server:dev": "node --watch server/index.cjs",
     "start": "electron .",
     "test": "node --no-warnings --test test/*.test.mjs 'packages/*/test/*.test.ts'",
-    "test:p0": "node --no-warnings experiments/p0/harness-recovery.mjs && node --no-warnings experiments/p0/chord-reload.mjs",
+    "test:p0": "node --no-warnings experiments/p0/harness-recovery.mjs && node --no-warnings experiments/p0/chord-reload.mjs && node --no-warnings experiments/p0/ui-plugin-sample.mjs",
     "test:p0:all": "npm run test:p0 && node --no-warnings experiments/p0/durability-receipts.mjs && node --no-warnings experiments/p0/capacity-smoke.mjs",
     "test:v2": "node --no-warnings --test 'packages/*/test/*.test.ts'",
     "typecheck": "tsc --noEmit -p packages/tsconfig.json"
