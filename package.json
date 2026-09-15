@@ -8,17 +8,18 @@
     "omo": "cli/omo.mjs"
   },
   "scripts": {
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && pnpm --filter @omo/web build",
     "check": "ultracite check",
-    "dev": "vite",
-    "dev:desktop": "concurrently -k \"vite\" \"wait-on http://localhost:5188 && electron .\"",
-    "dev:web": "vite",
+    "dev": "pnpm --filter @omo/web dev",
+    "dev:desktop": "concurrently -k \"pnpm --filter @omo/web dev\" \"wait-on http://localhost:5188 && pnpm --filter @omo/desktop start\"",
+    "dev:web": "pnpm --filter @omo/web dev",
     "fix": "ultracite fix",
-    "omo": "node cli/omo.mjs",
+    "omo": "pnpm --filter @omo/cli start",
     "restart:web": "bash scripts/restart-web-server.sh",
-    "server": "node server/index.cjs",
-    "server:dev": "node --watch server/index.cjs",
-    "start": "electron ."
+    "server": "pnpm --filter @omo/host start",
+    "server:dev": "pnpm --filter @omo/host dev",
+    "start": "pnpm --filter @omo/desktop start",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
@@ -76,6 +77,6 @@
     "vite": "^8.0.0",
     "wait-on": "latest"
   },
-  "packageManager": "pnpm@12.4.1",
+  "packageManager": "pnpm@10.34.5",
   "productName": "omo"
 }
