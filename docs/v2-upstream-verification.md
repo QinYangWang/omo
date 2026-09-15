@@ -63,8 +63,55 @@ P0 交付 8 达成：「progress card」插件不经主客户端改动完成端�
 ```bash
 npm test            # v1 既有测试 + packages/* 全部测试
 npm run test:v2     # 仅 v2 packages
-npm run test:p0     # 快速实验：harness-recovery + chord-reload
+npm run test:p0     # 快速实验：harness-recovery + chord-reload + ui-plugin-sample
 npm run test:p0:all # 全部实验（含掉电对账与容量冒烟）
 ```
 
-基线结果：87 个 v2 测试全部通过（含上游 SessionRepo conformance 17 个子用例、Interaction 事务边界 7 用例、插件装配/注册表/schema 17 用例）；实验断言 harness-recovery 9/9、chord-reload 15/15、durability-receipts 5/5、capacity-smoke 3/3、ui-plugin-sample 13/13。
+基线结果：`npm test` 142 个测试全部通过（v2 packages 119 个，含上游 SessionRepo conformance 17 个子用例、Interaction 事务边界 7 用例、插件装配/注册表/schema 17 用例、daemon 组装 55 用例；`test/*.test.mjs` 23 个 = v1 既有 21 个 + Electron 薄壳 2 个）；实验断言 harness-recovery 9/9、chord-reload 15/15、durability-receipts 5/5、capacity-smoke 3/3、ui-plugin-sample 13/13。
+
+> 验收复核（P1 开工前）：已重跑以上全部命令核对；依赖实测 7 个 `@earendil-works/*` 包安装版本与锁文件均为 0.85.0，其中 v2 直接使用的 5 包为精确钉版（`pi-coding-agent`/`pi-server` 属 v1 执行栈与调研依赖，按 §12.2 在 P5 移除）。
+
+## 5. P1 进行中：统一 daemon（packages/daemon）
+
+P1 已完成切片：
+
+1. **控制面骨架 + HTTP 入口**：CommandInbox / InteractionStore / AgentRuntime 组装为模块化 daemon；配对 / 撤销、202 持久回执、命令查询、Interaction、单写者锁、启动对账三崩溃窗口。
+2. **Workspace 注册表 + 路径守卫**：roots 内 fail-closed 注册（`--workspace-root` / `OMO_WORKSPACE_ROOTS`，默认 cwd，与 v1 一致）、规范化路径幂等、symlink/TOCTOU 守卫；session catalog 投影；所有命令 scope 校验已注册 workspace。
+3. **Artifact 存储 + 文件可靠保存**：内容寻址 artifact（对象先落盘、元数据后提交、读时校验、启动孤儿 GC）；`file.save` 命令带 baseHash CAS + temp/fsync/rename 落盘协议 + 按内容崩溃对账。
+4. **历史分页投影**：`Session.findEntries` 经持有 Session 的 Worker 串行读取，decimal-string cursor；绕开未实现的 `watchSession()`（§3.3.1）。
+5. **Telemetry**：pi-telemetry 契约的有界 NDJSON sink（轮转、写失败静默），`omo.command.submit/execute` span。
+6. **Provider 接线**：`--provider/--model` 走 pi `ModelRuntime` 凭据库（§10.1）。
+
+详见 [daemon.md](daemon.md)。
+
+## 6. P2 进行中：同步协议核心（WSS）
+
+已落地：
+
+- **WSS 多路复用**（`packages/daemon/src/sync.ts`）：一条连接多频道（daemon / workspace / session / terminal），一次性票证认证（§10.1），订阅即快照 + 每订阅严格递增 `publicationSequence` + 溢出 `reset_required`（§6.4、§8.5.10）。
+- **事件总线**（`packages/daemon/src/events.ts`）：所有 store 在 FULL 提交后才发射事件；lane 事件经 supervisor watch 转发。
+- **草稿**：用户级 CAS 版本化存储 + HTTP + 同步事件（§6.1）。
+- **TS 客户端**（`packages/client`）：HTTP `OmoClient` + `OmoSyncClient`（自动重连、一次性票证刷新、客户端序列校验、缺口即重订阅）。
+- 两端一致性：两个客户端订阅同一 session 收到完全相同的帧序（§6.6，sync.test.ts 覆盖）。
+- **终端 PTY + 输入权**：`terminal.create/kill/control` 持久命令；WS `terminal:<id>` 频道（快照 = 记录 + offset/floor 输出尾）；单设备输入控制、断连免 force 移交、force 接管审计（§6.6）；重启孤儿标记（§8.4 默认不附着）；真实 node-pty e2e 通过（terminal-e2e.test.ts）。
+
+## 7. Electron 薄壳（P1 收尾 / §4.2）
+
+- `electron/daemon.cjs` `DaemonSupervisor`：`ELECTRON_RUN_AS_NODE` 子进程托管 daemon；健康门 + safeStorage 令牌 + 有界崩溃重启 + 退出清理；`test/daemon-supervisor.test.mjs` 用真实 daemon 子进程验证（含 SIGKILL 重启后同 token / 同 serverId）。
+- renderer 经 `src/lib/omo-v2.ts` + Settings → Daemon 面板走通标准协议；v1 `pi:*` 执行栈保留，按 §12.2 双轨过渡。
+- **v2 会话面起步**：`DaemonSessionsView` 完全走 daemon 协议（目录 / 创建 / 历史分页 / prompt / abort / 草稿 / lane 运行态实时帧）。
+
+## 8. Server 部署（新形态）
+
+- `scripts/restart-omo-daemon.sh`（参考 restart-omo-server.sh）：setsid 脱离、env 驱动、`--faux` 警告、可选 TLS。已实测：启动 → 配对 → pkill 重启后设备保持。
+- daemon TLS：`DaemonHttpServer` 接受 cert/key（https + wss 同监听）；`tls.test.ts` 用自签证书验证；域名证书 fullchain.pem + key.pem 实测可用（客户端须按域名访问）。
+- **Web 托管**：`--web-root` / `OMO_WEB_ROOT`（v1 同约定）——同一进程服务 dist/ SPA + 协议；`webroot.test.ts` 覆盖静态 / SPA 回退 / 逃逸守卫；实测 SPA + /v1/hello + WSS 票证同端口全通。
+- `Dockerfile.daemon` + compose `omo-daemon` 服务（`/data` 卷 + `~/.pi/agent` 凭据挂载）。
+
+## 9. P2 收尾状态
+
+- v2 会话面（`DaemonSessionsView`）：目录 / 创建 / 历史分页（text/thinking/toolCall/toolResult/图片块）/ prompt + 图片附件（artifactIds）/ `session.configure` 改模型与思考级别（§6.6 下一运行边界，串行链保证）/ 草稿 / abort。
+- Web 远程接入：无桌面桥时 URL + bootstrap code 配对；令牌为可撤销设备凭据（§10.1）。
+- **RN/RNOH 风险样机：仍需指定鸿蒙真机验证（P2 gate 硬性要求，不接受 Android 兼容 APK 代替）**——协议 / 客户端 / 终端通道 / 历史 / 文件保存均已就绪。
+
+P1 剩余（均不阻塞 P2 gate）：三平台服务生命周期（桌面已由 DaemonSupervisor 覆盖）、Session Worker 独立进程化（P4）。

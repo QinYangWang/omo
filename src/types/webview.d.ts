@@ -403,6 +403,9 @@ interface omoApi {
 }
 
 interface Window {
+  /** Injected by the daemon when it serves the SPA. */
+  __OMO_DAEMON_URL__?: string;
+  __OMO_DAEMON_WEB_MODE__?: "v1" | "v2";
   __OMO_SERVER_URL__?: string;
   omo: omoApi;
   omoSecure?: {

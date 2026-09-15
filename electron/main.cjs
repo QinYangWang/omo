@@ -19,6 +19,10 @@ const {
   sessionMarkdown,
 } = require("../server/session-metadata.cjs");
 const { contextDetails } = require("../server/pi-context.cjs");
+const {
+  DaemonSupervisor,
+  createSafeStorageTokenStore,
+} = require("./daemon.cjs");
 let displayMessagesModule;
 let agentConfigModule;
 let quotasModule;
@@ -78,6 +82,65 @@ let win;
 const termProcs = new Map();
 const piSessions = new Map();
 let sdkPromise;
+let daemonSupervisor;
+
+/**
+ * v2 thin shell (plan §4.2, §12.2): the desktop owns the daemon lifecycle;
+ * the renderer talks to it over the same omo protocol as any remote client.
+ * Provider defaults to the pi auth store when OMO_DESKTOP_PROVIDER +
+ * OMO_DESKTOP_MODEL are set, otherwise --faux for now (real default model
+ * selection lands with the P1 provider slice polish).
+ */
+const startDaemon = async () => {
+  const userData = app.getPath("userData");
+  const dataDir = path.join(userData, "omo-daemon");
+  const projectsFile = path.join(userData, "projects.json");
+  let workspaceRoots = [];
+  try {
+    const projects = JSON.parse(fsSync.readFileSync(projectsFile, "utf8"));
+    workspaceRoots = projects.map((project) => project.path).filter(Boolean);
+  } catch {
+    workspaceRoots = [];
+  }
+  if (workspaceRoots.length === 0) {
+    workspaceRoots = [os.homedir()];
+  }
+  const providerArgs =
+    process.env.OMO_DESKTOP_PROVIDER && process.env.OMO_DESKTOP_MODEL
+      ? [
+          "--provider",
+          process.env.OMO_DESKTOP_PROVIDER,
+          "--model",
+          process.env.OMO_DESKTOP_MODEL,
+        ]
+      : ["--faux"];
+  daemonSupervisor = new DaemonSupervisor({
+    daemonScript: path.join(
+      __dirname,
+      "..",
+      "packages",
+      "daemon",
+      "bin",
+      "omo-daemon.ts"
+    ),
+    dataDir,
+    log: (line) => console.log(line),
+    providerArgs,
+    tokenStorage: createSafeStorageTokenStore(safeStorage, dataDir),
+    workspaceRoots,
+  });
+  daemonSupervisor.onStateChange((state, error) => {
+    if (win) {
+      win.webContents.send("daemon:state", {
+        error: error ? String(error.message ?? error) : null,
+        state,
+      });
+    }
+  });
+  await daemonSupervisor.start().catch((error) => {
+    console.error("daemon failed to start", error);
+  });
+};
 const getSdk = () => {
   sdkPromise ||= import("@earendil-works/pi-coding-agent");
   return sdkPromise;
@@ -323,6 +386,10 @@ function createWindow() {
     shell.openExternal(url);
     return { action: "deny" };
   });
+  // v2 daemon thin-shell config (plan §4.2): the renderer connects to the
+  // supervised local daemon over the standard omo protocol.
+  ipcMain.handle("daemon:config", () => daemonSupervisor?.config() ?? null);
+
   // pi SDK: direct AgentSession, no subprocess/protocol
   ipcMain.handle("pi:open", async (_e, { sessionId, cwd, sessionPath }) => {
     if (sessionPath) {
@@ -1004,7 +1071,10 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  await startDaemon();
+  createWindow();
+});
 let quitting = false;
 app.on("before-quit", (event) => {
   if (quitting) {
@@ -1025,6 +1095,8 @@ app.on("before-quit", (event) => {
   termProcs.clear();
   Promise.allSettled(
     [...piSessions.values()].map(async (pending) => (await pending).dispose())
-  ).finally(() => app.quit());
+  )
+    .then(() => daemonSupervisor?.stop())
+    .finally(() => app.quit());
 });
 app.on("window-all-closed", () => app.quit());

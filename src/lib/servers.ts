@@ -49,10 +49,22 @@ function notifyStatuses() {
 
 const statusMap = new Map<string, ServerStatus>();
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function hostedServerUrl(): string {
+  return normalizeBaseUrl(
+    window.__OMO_SERVER_URL__ || window.__OMO_DAEMON_URL__ || ""
+  );
+}
+
 function detectLocalServer(): OmoServer | null {
-  if (window.__OMO_SERVER_URL__) {
-    // Web client hosted by an omo Server: same-origin API is the local agent.
-    // The access token is stored as a regular entry with the reserved id.
+  const hostedUrl = hostedServerUrl();
+  if (hostedUrl) {
+    // Web client hosted by an omo Server or the daemon's v1 compatibility
+    // shell: same-origin API is the local agent. The device token is stored as
+    // a regular entry with the reserved id.
     const stored = remotes.find((remote) => remote.id === LOCAL_SERVER_ID);
     return {
       id: LOCAL_SERVER_ID,
@@ -60,7 +72,7 @@ function detectLocalServer(): OmoServer | null {
       name: "This server",
       removable: false,
       token: stored?.token ?? "",
-      url: normalizeBaseUrl(window.__OMO_SERVER_URL__),
+      url: hostedUrl,
     };
   }
   if (window.omo) {
@@ -207,7 +219,7 @@ export async function needsOnboarding(): Promise<boolean> {
     return false;
   }
   const local = detectLocalServer();
-  if (window.__OMO_SERVER_URL__ && local) {
+  if (hostedServerUrl() && local) {
     try {
       await testServerConnection(local.url, local.token);
       return false;
@@ -288,7 +300,7 @@ export async function updateRemoteServer(
 
 /** Stores the access token for the server hosting this web client. */
 export async function setLocalServerToken(token: string) {
-  const url = normalizeBaseUrl(window.__OMO_SERVER_URL__ || "");
+  const url = hostedServerUrl();
   if (!url) {
     throw new Error("No hosting server detected");
   }
@@ -355,6 +367,14 @@ export async function testServerConnection(
   });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
+  }
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("json")) {
+    throw new Error("Server did not return an omo Server JSON API response");
+  }
+  const payload: unknown = await response.json();
+  if (!isRecord(payload) || typeof payload.cwd !== "string") {
+    throw new Error("Server returned an invalid omo Server handshake");
   }
   return { latencyMs: Math.round(performance.now() - started) };
 }

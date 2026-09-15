@@ -38,6 +38,7 @@ npm run server:dev   # omo Server watch 模式
 - [docs/layout.md](docs/layout.md) — 当前页面布局结构
 - [docs/deployment-testing.md](docs/deployment-testing.md) — 构建、已实现验证、Docker 和数据卷
 - [docs/omo-v2-plan.md](docs/omo-v2-plan.md) — v2 规划：多端协作、动态插件与高并发运行时
+- [docs/daemon.md](docs/daemon.md) — v2 daemon（P1）：控制面模块、命令契约、HTTP API 与启动对账
 - [docs/adr/](docs/adr/README.md) — v2 架构决策记录（ADR-001~007）
 - [docs/v2-upstream-verification.md](docs/v2-upstream-verification.md) — v2 上游能力 P0 实测清单
 - [docs/durability-testing.md](docs/durability-testing.md) — v2 掉电持久性三平台验证流程

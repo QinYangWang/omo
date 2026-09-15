@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2024"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
@@ -12,5 +12,5 @@
     "erasableSyntaxOnly": true,
     "types": ["node"]
   },
-  "include": ["*/src/**/*.ts", "*/test/**/*.ts"]
+  "include": ["*/src/**/*.ts", "*/test/**/*.ts", "*/bin/**/*.ts"]
 }

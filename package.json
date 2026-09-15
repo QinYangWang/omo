@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "check": "ultracite check",
+    "daemon": "node --no-warnings packages/daemon/bin/omo-daemon.ts",
     "dev": "concurrently -k \"vite --port 5188 --strictPort\" \"wait-on http://localhost:5188 && electron .\"",
     "fix": "ultracite fix",
     "server": "node server/index.cjs",
@@ -72,6 +73,7 @@
     "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "latest",
     "concurrently": "latest",
     "electron": "latest",

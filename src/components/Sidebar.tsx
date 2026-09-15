@@ -1,6 +1,7 @@
 import {
   Add01Icon,
   AddCircleIcon,
+  AiChat01Icon,
   Folder03Icon,
   ImportIcon,
   PinIcon,
@@ -157,6 +158,8 @@ export function Sidebar({
   onSelectSession,
   onImport,
   onOpenSettings,
+  onOpenDaemon,
+  daemonAvailable,
   onPrefetchSettings,
   onSessionsChanged,
 }: {
@@ -169,6 +172,9 @@ export function Sidebar({
   onSelectSession: (project: Project, session: PiSession) => void;
   onImport: (project: Project, path: string) => Promise<void>;
   onOpenSettings: () => void;
+  /** v2 thin shell: open the daemon-driven session surface (plan §4.2). */
+  onOpenDaemon?: () => void;
+  daemonAvailable?: boolean;
   onPrefetchSettings: () => void;
   onSessionsChanged: (
     project: Project,
@@ -381,6 +387,17 @@ export function Sidebar({
         </div>
       </ScrollArea>
       <div className="p-2">
+        {daemonAvailable && onOpenDaemon ? (
+          <Button
+            aria-label={t("view_daemon")}
+            className="mb-1 h-8 w-full justify-start gap-1.5 px-2 font-normal text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            onClick={onOpenDaemon}
+            variant="ghost"
+          >
+            <HugeiconsIcon className="size-4" icon={AiChat01Icon} />
+            {t("view_daemon")}
+          </Button>
+        ) : null}
         <Button
           aria-label={t("settings")}
           className="h-8 w-full justify-start gap-1.5 px-2 font-normal text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"

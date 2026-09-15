@@ -53,6 +53,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { type I18nKey, type Lang, useI18n } from "@/lib/i18n";
 import {
+  type DaemonStateEvent,
+  getDaemonClient,
+  onDaemonState,
+} from "@/lib/omo-v2";
+import {
   addRemoteServer,
   getServerApi,
   type OmoServer,
@@ -82,6 +87,7 @@ import { cn } from "@/lib/utils";
 const sections = [
   ["section_appearance", "Appearance", PaintBoardIcon],
   ["section_archived", "Archived", Archive01Icon],
+  ["section_daemon", "Daemon", ServerStack01Icon],
   ["section_servers", "Servers", ServerStack01Icon],
   ["section_providers", "Providers", KeyRoundIcon],
   ["section_models", "Models", CpuIcon],
@@ -158,6 +164,7 @@ export function SettingsView({
           <ScrollArea className="h-full">
             <div className="mx-auto w-full max-w-3xl px-6 py-8">
               {section === "Servers" && <ServersSection />}
+              {section === "Daemon" && <DaemonSection />}
               {section === "Providers" && <ProvidersSection />}
               {section === "Models" && <ModelsSection />}
               {section === "Skills" && <SkillsSection />}
@@ -169,6 +176,122 @@ export function SettingsView({
           </ScrollArea>
         </main>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Daemon status (v2 thin shell, plan §4.2): proves the renderer → supervised
+ * daemon path end-to-end. Off the desktop bridge it reports unavailability
+ * instead of pretending to be online (§4.3 离线语义).
+ */
+function DaemonSection() {
+  const { t } = useI18n();
+  const [daemonState, setDaemonState] = useState<DaemonStateEvent | null>(null);
+  const [hello, setHello] = useState<{
+    durability?: { journalMode?: string; synchronous?: number };
+    identity?: { serverId?: string; protocolVersion?: number };
+  } | null>(null);
+  const [counts, setCounts] = useState<{
+    sessions: number;
+    workspaces: number;
+  } | null>(null);
+  const [webUnavailable, setWebUnavailable] = useState(false);
+
+  useEffect(() => onDaemonState(setDaemonState), []);
+  useEffect(() => {
+    let cancelled = false;
+    if (daemonState?.state === "failed") {
+      setHello(null);
+      setCounts(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    getDaemonClient().then(async (handle) => {
+      if (cancelled) {
+        return;
+      }
+      if (!handle) {
+        setWebUnavailable(true);
+        return;
+      }
+      const [helloBody, workspacesBody, sessionsBody] = await Promise.all([
+        handle.client.hello() as Promise<{
+          durability?: { journalMode?: string; synchronous?: number };
+          identity?: { serverId?: string; protocolVersion?: number };
+        }>,
+        handle.client.listWorkspaces() as Promise<{ workspaces: unknown[] }>,
+        handle.client.listSessions() as Promise<{ sessions: unknown[] }>,
+      ]);
+      if (cancelled) {
+        return;
+      }
+      setHello(helloBody);
+      setCounts({
+        sessions: sessionsBody.sessions.length,
+        workspaces: workspacesBody.workspaces.length,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [daemonState?.state]);
+
+  return (
+    <div className="flex max-w-2xl flex-col gap-5">
+      <div>
+        <h2 className="font-medium text-xl">{t("section_daemon")}</h2>
+        <p className="mt-1 text-muted-foreground text-sm">{t("daemon_desc")}</p>
+      </div>
+      {webUnavailable ? (
+        <p className="text-muted-foreground text-sm">
+          {t("daemon_web_unavailable")}
+        </p>
+      ) : (
+        <div className="flex flex-col divide-y divide-border">
+          <div className="flex min-h-10 items-center justify-between gap-3 py-2">
+            <span className="text-muted-foreground text-sm">
+              {t("daemon_state")}
+            </span>
+            <Badge
+              variant={daemonState?.state === "ready" ? "default" : "secondary"}
+            >
+              {daemonState?.state ?? "starting"}
+            </Badge>
+          </div>
+          <div className="flex min-h-10 items-center justify-between gap-3 py-2">
+            <span className="text-muted-foreground text-sm">
+              {t("daemon_identity")}
+            </span>
+            <span className="truncate font-mono text-xs">
+              {hello?.identity?.serverId ?? "…"}
+            </span>
+          </div>
+          <div className="flex min-h-10 items-center justify-between gap-3 py-2">
+            <span className="text-muted-foreground text-sm">
+              {t("daemon_durability")}
+            </span>
+            <span className="font-mono text-xs">
+              {hello?.durability
+                ? `${hello.durability.journalMode ?? "?"} + synchronous=${hello.durability.synchronous ?? "?"}`
+                : "…"}
+            </span>
+          </div>
+          <div className="flex min-h-10 items-center justify-between gap-3 py-2">
+            <span className="text-muted-foreground text-sm">
+              {t("daemon_workspaces")}
+            </span>
+            <span className="text-sm">{counts?.workspaces ?? "…"}</span>
+          </div>
+          <div className="flex min-h-10 items-center justify-between gap-3 py-2">
+            <span className="text-muted-foreground text-sm">
+              {t("daemon_sessions")}
+            </span>
+            <span className="text-sm">{counts?.sessions ?? "…"}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

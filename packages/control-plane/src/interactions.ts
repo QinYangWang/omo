@@ -125,15 +125,36 @@ const rowToRecord = (row: InteractionRow): InteractionRecord => ({
 
 export class InteractionStore {
   readonly #db: DatabaseSync;
+  readonly #onChange?: (record: InteractionRecord) => void;
+  readonly #owned: boolean;
 
-  private constructor(db: DatabaseSync) {
+  private constructor(
+    db: DatabaseSync,
+    owned: boolean,
+    onChange?: (record: InteractionRecord) => void
+  ) {
     this.#db = db;
+    this.#owned = owned;
+    this.#onChange = onChange;
   }
 
   static open(path: string): InteractionStore {
     const { db } = openDurableDatabase(path);
     db.exec(SCHEMA);
-    return new InteractionStore(db);
+    return new InteractionStore(db, true);
+  }
+
+  /**
+   * Attach to a shared durable connection owned by the daemon (§5.4).
+   * `onChange` fires after every committed create/answer/cancel — the sync
+   * layer's emission point for interaction facts (§7.6).
+   */
+  static attach(
+    db: DatabaseSync,
+    onChange?: (record: InteractionRecord) => void
+  ): InteractionStore {
+    db.exec(SCHEMA);
+    return new InteractionStore(db, false, onChange);
   }
 
   /** Persist the request first; projections are rebuilt from this record. */
@@ -166,6 +187,7 @@ export class InteractionStore {
         "interaction missing immediately after insert"
       );
     }
+    this.#onChange?.(record);
     return record;
   }
 
@@ -249,6 +271,7 @@ export class InteractionStore {
           "interaction answer lost after commit"
         );
       }
+      this.#onChange?.(updated);
       return { ok: true, record: updated };
     } catch (error) {
       this.#db.exec("ROLLBACK");
@@ -269,6 +292,7 @@ export class InteractionStore {
     if (!record) {
       throw new OmoCommandError("unknown_command", interactionId);
     }
+    this.#onChange?.(record);
     return record;
   }
 
@@ -277,6 +301,8 @@ export class InteractionStore {
   }
 
   close(): void {
-    this.#db.close();
+    if (this.#owned) {
+      this.#db.close();
+    }
   }
 }

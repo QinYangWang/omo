@@ -23,6 +23,7 @@ export type InteractionId = Brand<"InteractionId">;
 export type PluginId = Brand<"PluginId">;
 export type ArtifactId = Brand<"ArtifactId">;
 export type SubscriptionId = Brand<"SubscriptionId">;
+export type TerminalId = Brand<"TerminalId">;
 /** Persistent logical daemon identity. Not a URL (plan §6.3). */
 export type ServerId = Brand<"ServerId">;
 
@@ -37,6 +38,7 @@ const PREFIX = {
   server: "srv",
   session: "ses",
   subscription: "sub",
+  terminal: "trm",
   user: "usr",
   workspace: "wks",
 } as const;
@@ -63,6 +65,8 @@ export const newArtifactId = (): ArtifactId =>
   createId<ArtifactId>(PREFIX.artifact);
 export const newSubscriptionId = (): SubscriptionId =>
   createId<SubscriptionId>(PREFIX.subscription);
+export const newTerminalId = (): TerminalId =>
+  createId<TerminalId>(PREFIX.terminal);
 export const newServerId = (): ServerId => createId<ServerId>(PREFIX.server);
 
 /** A lane id is the Session-local lane name, branded for call-site clarity. */

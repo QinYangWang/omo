@@ -12,5 +12,28 @@ services:
       - omo-data:/data
       - ${HOME}/.pi/agent:/root/.pi/agent
 
+  # v2 daemon (plan §4.2). Pairing: set OMO_DAEMON_PAIRING_CODE, or read the
+  # generated bootstrap code from <data>/pairing-code inside the container.
+  # Set PROVIDER/MODEL for a real runtime; use a command override with --faux
+  # for development smoke tests.
+  omo-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile.daemon
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5190:5190"
+    environment:
+      OMO_DAEMON_PROVIDER: ${OMO_DAEMON_PROVIDER:-}
+      OMO_DAEMON_MODEL: ${OMO_DAEMON_MODEL:-}
+      OMO_DAEMON_AUTH_PATH: ${OMO_DAEMON_AUTH_PATH:-}
+      OMO_DAEMON_PAIRING_CODE: ${OMO_DAEMON_PAIRING_CODE:-}
+      OMO_WORKSPACE_ROOTS: /workspace
+    volumes:
+      - ./projects:/workspace
+      - omo-daemon-data:/data
+      - ${HOME}/.pi/agent:/root/.pi/agent
+
 volumes:
   omo-data:
+  omo-daemon-data:

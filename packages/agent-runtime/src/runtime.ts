@@ -9,9 +9,52 @@
 
 /** omo-assigned stable operation identity, fixed at command admission (§5.4). */
 export interface RuntimeOperationRequest {
+  /** Image payloads resolved by the control plane (artifacts → base64). */
+  readonly images?: readonly RuntimeImage[];
   readonly kind: "prompt";
   readonly operationId: string;
   readonly prompt: string;
+}
+
+export interface RuntimeImage {
+  readonly data: string;
+  readonly mimeType: string;
+}
+
+/** Lane model identity (§6.6: 作用于明确的下一次运行). */
+export interface RuntimeModelIdentity {
+  readonly modelId: string;
+  readonly provider: string;
+}
+
+export interface RuntimeProviderInfo {
+  readonly authType?: "api_key" | "oauth";
+  readonly connected: boolean;
+  readonly error?: string;
+  readonly hasApiKey: boolean;
+  readonly hasOAuth: boolean;
+  readonly id: string;
+  readonly name: string;
+  readonly source?: string;
+  readonly subscription: boolean;
+}
+
+/** Provider auth callbacks stay in the execution-side runtime. */
+export interface RuntimeAuthInteraction {
+  readonly notify: (event: import("@earendil-works/pi-ai").AuthEvent) => void;
+  readonly prompt: (
+    prompt: import("@earendil-works/pi-ai").AuthPrompt
+  ) => Promise<string>;
+}
+
+export interface RuntimeProviderService {
+  readonly list: () => Promise<readonly RuntimeProviderInfo[]>;
+  readonly login: (
+    providerId: string,
+    type: import("@earendil-works/pi-ai").AuthType,
+    interaction: RuntimeAuthInteraction
+  ) => Promise<void>;
+  readonly logout: (providerId: string) => Promise<void>;
 }
 
 export interface RuntimeAdmission {
@@ -77,6 +120,8 @@ export type RuntimeDriveResult =
 export interface RuntimeLaneSnapshot {
   readonly faulted: boolean;
   readonly lane: string;
+  /** Lane's configured model at snapshot time (§6.6 改模型 surface). */
+  readonly model?: RuntimeModelIdentity;
   readonly operation: {
     readonly operationId: string;
     readonly kind: string;
@@ -90,9 +135,38 @@ export interface RuntimeLaneSnapshot {
 }
 
 export interface RuntimeLaneEvent {
+  /** Optional upstream event details retained for legacy HTTP projections. */
+  readonly details?: unknown;
   readonly lane?: string;
   readonly recovery?: boolean;
   readonly type: string;
+}
+
+/**
+ * One transcript entry in the history projection (plan §5.7, §6.4). `seq` is
+ * the session-local storage sequence; cursors carry it as a DECIMAL STRING
+ * (§6.3 cross-language integer rule).
+ */
+export interface RuntimeHistoryEntry {
+  readonly body: unknown;
+  readonly customType?: string;
+  readonly id: string;
+  readonly parentId: string | null;
+  readonly seq: number;
+  readonly timestamp: number;
+  readonly type: string;
+}
+
+export interface RuntimeHistoryPage {
+  readonly entries: readonly RuntimeHistoryEntry[];
+  /** Cursor for the next page; null when this page is the tail. */
+  readonly nextCursor: string | null;
+}
+
+export interface RuntimeHistoryQuery {
+  /** Decimal-string seq cursor; entries strictly after it are returned. */
+  readonly cursor?: string;
+  readonly limit?: number;
 }
 
 export interface RuntimeWatchHandle {
@@ -127,19 +201,46 @@ export interface AgentRuntimeSession {
     operationId: string
   ) => Promise<RuntimeOperationResult | undefined>;
   readonly inspect: (lane?: string) => Promise<RuntimeExecutionInfo>;
+  /** Legacy v1 branch navigation, when the runtime supports it. */
+  readonly navigateTree?: (
+    targetId: string
+  ) => Promise<{ readonly cancelled: boolean }>;
   /** Operations recovered as unfinished when the harness attached. */
   readonly openOperations: () => readonly RuntimeOpenOperation[];
+  /**
+   * Paginated transcript read (§5.7/§6.4 历史分页投影). Read-only; never
+   * mutates the session and never loads more than `limit` entries.
+   */
+  readonly readHistory: (
+    options?: RuntimeHistoryQuery
+  ) => Promise<RuntimeHistoryPage>;
   readonly requestAbort: (operationId: string) => Promise<boolean>;
   readonly sessionId: string;
+  /** Change the lane's model for the NEXT run boundary (§6.6). */
+  readonly setModel: (model: RuntimeModelIdentity) => Promise<void>;
+  /** Change the lane's thinking level for the NEXT run boundary. */
+  readonly setThinkingLevel: (level: string) => Promise<void>;
   readonly watchLane: (
     listener: RuntimeLaneListener,
     lane?: string
   ) => Promise<RuntimeWatchHandle>;
 }
 
+export interface RuntimeModelDescriptor {
+  readonly modelId: string;
+  readonly name?: string;
+  readonly provider: string;
+}
+
 export interface AgentRuntime {
   readonly close: () => Promise<void>;
   readonly createSession: (name?: string) => Promise<AgentRuntimeSession>;
+  /** Fork one durable session and return the new execution id. */
+  readonly forkSession?: (sourceSessionId: string) => Promise<string>;
+  /** Provider catalog available to this runtime (§6.6 改模型 choices). */
+  readonly listModels: () => readonly RuntimeModelDescriptor[];
   readonly listSessions: () => Promise<readonly RuntimeSessionSummary[]>;
   readonly openSession: (sessionId: string) => Promise<AgentRuntimeSession>;
+  /** Provider/auth operations are intentionally execution-side and optional for fakes. */
+  readonly providers?: RuntimeProviderService;
 }

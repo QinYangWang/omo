@@ -54,8 +54,9 @@ function DirectoryPicker({
       try {
         const target = path || root;
         const entries = await api.fs.list(target);
+        const directoryEntries = Array.isArray(entries) ? entries : [];
         setNodes(
-          entries
+          directoryEntries
             .filter((item) => item.dir)
             .map((entry) => ({ ...entry, path: `${target}/${entry.name}` }))
         );
@@ -74,8 +75,9 @@ function DirectoryPicker({
       .then(async (path) => {
         setRoot(path);
         const entries = await api.fs.list(path);
+        const directoryEntries = Array.isArray(entries) ? entries : [];
         setNodes(
-          entries
+          directoryEntries
             .filter((item) => item.dir)
             .map((entry) => ({ ...entry, path: `${path}/${entry.name}` }))
         );

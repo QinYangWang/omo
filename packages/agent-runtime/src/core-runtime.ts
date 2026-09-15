@@ -4,13 +4,20 @@ import {
   BACKGROUND_CONTEXT,
   type Context,
   type AgentHarness as CoreAgentHarness,
+  type Entry,
   type HarnessEvent,
   type LaneSnapshot,
   type OpenOperation,
   type OperationResultRecord,
   type Session,
 } from "@earendil-works/pi-agent-core";
-import type { Api, Model, Models } from "@earendil-works/pi-ai";
+import type {
+  Api,
+  AuthCheck,
+  Model,
+  Models,
+  ThinkingLevel,
+} from "@earendil-works/pi-ai";
 import { SqliteSessionRepo } from "@earendil-works/pi-session-backend-sqlite-node";
 import { createDurableSqliteFactory } from "@omo/storage/session-backend";
 import type {
@@ -19,12 +26,19 @@ import type {
   RuntimeAdmissionResult,
   RuntimeDriveResult,
   RuntimeExecutionInfo,
+  RuntimeHistoryEntry,
+  RuntimeHistoryPage,
+  RuntimeHistoryQuery,
   RuntimeLaneEvent,
   RuntimeLaneListener,
   RuntimeLaneSnapshot,
+  RuntimeModelDescriptor,
+  RuntimeModelIdentity,
   RuntimeOpenOperation,
   RuntimeOperationRequest,
   RuntimeOperationResult,
+  RuntimeProviderInfo,
+  RuntimeProviderService,
   RuntimeSessionSummary,
   RuntimeWatchHandle,
 } from "./runtime.ts";
@@ -106,9 +120,47 @@ const toOpenOperation = (operation: OpenOperation): RuntimeOpenOperation => ({
   startedAt: operation.startedAt,
 });
 
+/** Project a storage Entry into the target-neutral history DTO (§6.3). */
+const toHistoryEntry = (entry: Entry): RuntimeHistoryEntry => {
+  const base = {
+    customType: entry.customType,
+    id: entry.id,
+    parentId: entry.parentId,
+    seq: entry.seq,
+    timestamp: entry.timestamp,
+    type: entry.type,
+  };
+  switch (entry.type) {
+    case "message":
+      return { ...base, body: entry.message };
+    case "compaction":
+      return {
+        ...base,
+        body: {
+          retainedTailLength: entry.retainedTail.length,
+          summary: entry.summary,
+          tokensBefore: entry.tokensBefore,
+        },
+      };
+    case "branch_summary":
+      return {
+        ...base,
+        body: { fromId: entry.fromId, summary: entry.summary },
+      };
+    default:
+      return { ...base, body: entry.data };
+  }
+};
+
 const toLaneSnapshot = (snapshot: LaneSnapshot): RuntimeLaneSnapshot => ({
   faulted: snapshot.faulted,
   lane: snapshot.lane,
+  model: snapshot.configuration?.model
+    ? {
+        modelId: snapshot.configuration.model.modelId,
+        provider: snapshot.configuration.model.provider,
+      }
+    : undefined,
   operation: snapshot.operation
     ? {
         kind: snapshot.operation.kind,
@@ -128,6 +180,7 @@ const toLaneSnapshot = (snapshot: LaneSnapshot): RuntimeLaneSnapshot => ({
 class CoreRuntimeSession implements AgentRuntimeSession {
   readonly sessionId: string;
   readonly #context: Context;
+  readonly #session: Session;
   #harness: CoreAgentHarness | undefined;
   readonly #open: readonly RuntimeOpenOperation[];
 
@@ -135,16 +188,45 @@ class CoreRuntimeSession implements AgentRuntimeSession {
     sessionId: string,
     harness: CoreAgentHarness,
     open: readonly OpenOperation[],
-    context: Context
+    context: Context,
+    session: Session
   ) {
     this.sessionId = sessionId;
     this.#harness = harness;
     this.#open = open.map(toOpenOperation);
     this.#context = context;
+    this.#session = session;
   }
 
   openOperations(): readonly RuntimeOpenOperation[] {
     return this.#open;
+  }
+
+  async readHistory(
+    options?: RuntimeHistoryQuery
+  ): Promise<RuntimeHistoryPage> {
+    if (!this.#harness) {
+      throw new Error("session is closed");
+    }
+    const limit = Math.min(Math.max(options?.limit ?? 200, 1), 1000);
+    const afterSeq =
+      options?.cursor === undefined ? undefined : Number(options.cursor);
+    if (afterSeq !== undefined && !Number.isSafeInteger(afterSeq)) {
+      throw new Error(`invalid history cursor: ${options?.cursor}`);
+    }
+    const entries = await this.#session.findEntries(
+      {
+        cursor: afterSeq === undefined ? undefined : { seq: afterSeq },
+        limit,
+        order: "asc",
+      },
+      this.#context
+    );
+    return {
+      entries: entries.map(toHistoryEntry),
+      nextCursor:
+        entries.length === limit ? String(entries.at(-1)?.seq ?? 0) : null,
+    };
   }
 
   #lane(name: string): Promise<AgentLane> {
@@ -164,6 +246,15 @@ class CoreRuntimeSession implements AgentRuntimeSession {
           kind: "prompt",
           operationId: request.operationId,
           prompt: request.prompt,
+          ...(request.images && request.images.length > 0
+            ? {
+                images: request.images.map((image) => ({
+                  data: image.data,
+                  mimeType: image.mimeType,
+                  type: "image" as const,
+                })),
+              }
+            : {}),
         },
         this.#context
       );
@@ -290,6 +381,34 @@ class CoreRuntimeSession implements AgentRuntimeSession {
     return result.ok;
   }
 
+  async navigateTree(
+    targetId: string
+  ): Promise<{ readonly cancelled: boolean }> {
+    const lane = await this.#lane(DEFAULT_LANE);
+    const result = await lane.navigateTree(
+      targetId,
+      { summarize: false },
+      this.#context
+    );
+    if (!result.ok) {
+      throw new Error(`unable to navigate session tree: ${result.error._tag}`);
+    }
+    return { cancelled: result.value.navigation.status === "aborted" };
+  }
+
+  async setModel(model: RuntimeModelIdentity): Promise<void> {
+    const lane = await this.#lane(DEFAULT_LANE);
+    await lane.setModel(
+      { modelId: model.modelId, provider: model.provider },
+      this.#context
+    );
+  }
+
+  async setThinkingLevel(level: string): Promise<void> {
+    const lane = await this.#lane(DEFAULT_LANE);
+    await lane.setThinkingLevel(level as ThinkingLevel, this.#context);
+  }
+
   async watchLane(
     listener: RuntimeLaneListener,
     lane = DEFAULT_LANE
@@ -298,6 +417,7 @@ class CoreRuntimeSession implements AgentRuntimeSession {
     const watch = await handle.watch(this.#context);
     const emit = (event: HarnessEvent): void => {
       const runtimeEvent: RuntimeLaneEvent = {
+        details: event,
         lane: "lane" in event ? event.lane : undefined,
         recovery: "recovery" in event ? event.recovery === true : undefined,
         type: event.type,
@@ -328,6 +448,7 @@ export class CoreHarnessRuntime implements AgentRuntime {
   readonly #model: Model<Api>;
   readonly #systemPrompt: string | undefined;
   readonly #context: Context;
+  readonly providers: RuntimeProviderService;
 
   private constructor(options: CoreRuntimeOptions) {
     this.#repo = new SqliteSessionRepo({
@@ -338,6 +459,44 @@ export class CoreHarnessRuntime implements AgentRuntime {
     this.#model = options.model;
     this.#systemPrompt = options.systemPrompt;
     this.#context = options.context ?? BACKGROUND_CONTEXT;
+    this.providers = {
+      list: () => this.#listProviders(),
+      login: (providerId, type, interaction) =>
+        this.#models
+          .login(providerId, type, {
+            notify: interaction.notify,
+            prompt: interaction.prompt,
+          })
+          .then(() => undefined),
+      logout: (providerId) => this.#models.logout(providerId),
+    };
+  }
+
+  #listProviders(): Promise<readonly RuntimeProviderInfo[]> {
+    return Promise.all(
+      this.#models.getProviders().map(async (provider) => {
+        let auth: AuthCheck | undefined;
+        let error: string | undefined;
+        try {
+          auth = await this.#models.checkAuth(provider.id, {
+            signal: AbortSignal.timeout(5000),
+          });
+        } catch (cause) {
+          error = cause instanceof Error ? cause.message : String(cause);
+        }
+        return {
+          authType: auth?.type,
+          connected: auth !== undefined,
+          error,
+          hasApiKey: provider.auth.apiKey?.login !== undefined,
+          hasOAuth: provider.auth.oauth !== undefined,
+          id: provider.id,
+          name: provider.name,
+          source: auth?.source,
+          subscription: provider.auth.oauth?.isSubscription === true,
+        };
+      })
+    );
   }
 
   static create(options: CoreRuntimeOptions): CoreHarnessRuntime {
@@ -358,7 +517,8 @@ export class CoreHarnessRuntime implements AgentRuntime {
       session.metadata.id,
       harness,
       open,
-      this.#context
+      this.#context,
+      session
     );
   }
 
@@ -383,12 +543,38 @@ export class CoreHarnessRuntime implements AgentRuntime {
     return this.#attach(session);
   }
 
+  async forkSession(sourceSessionId: string): Promise<string> {
+    const listed = await this.#repo.list(undefined, this.#context);
+    const source = listed.find(
+      (candidate: SqliteSessionMetadata) => candidate.id === sourceSessionId
+    );
+    if (!source) {
+      throw new Error(`unknown session: ${sourceSessionId}`);
+    }
+    const forked = await this.#repo.fork(
+      source,
+      { branch: DEFAULT_LANE, scope: "branch" },
+      this.#context
+    );
+    const sessionId = forked.metadata.id;
+    await forked.close(this.#context);
+    return sessionId;
+  }
+
   async listSessions(): Promise<readonly RuntimeSessionSummary[]> {
     const listed = await this.#repo.list(undefined, this.#context);
     return listed.map((metadata: SqliteSessionMetadata) => ({
       createdAt: metadata.createdAt,
       id: metadata.id,
       storageVersion: metadata.storageVersion,
+    }));
+  }
+
+  listModels(): readonly RuntimeModelDescriptor[] {
+    return this.#models.getModels().map((model) => ({
+      modelId: model.id,
+      name: model.name,
+      provider: model.provider,
     }));
   }
 

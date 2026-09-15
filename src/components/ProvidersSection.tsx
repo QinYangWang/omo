@@ -79,15 +79,14 @@ export function useQuotas(serverId?: string) {
   const refresh = useCallback(
     async (force = false, attempt = 0): Promise<void> => {
       const result = await getServerApi(serverId).providers.quotas(force);
-      quotaCache.set(key, {
-        installed: result.installed,
-        items: result.items,
-      });
-      setInstalled(result.installed);
-      setQuotas(result.items);
+      const items = Array.isArray(result?.items) ? result.items : [];
+      const isInstalled = result?.installed === true;
+      quotaCache.set(key, { installed: isInstalled, items });
+      setInstalled(isInstalled);
+      setQuotas(items);
       // The server answered from its aggregate cache and is refreshing in the
       // background; poll once more to pick up the fresh values.
-      if (result.stale && attempt < STALE_REFETCH_MAX_ATTEMPTS) {
+      if (result?.stale && attempt < STALE_REFETCH_MAX_ATTEMPTS) {
         await new Promise((resolve) =>
           setTimeout(resolve, STALE_REFETCH_DELAY_MS)
         );
@@ -232,12 +231,20 @@ function ServerProviders({ serverId }: { serverId: string }) {
   const [answer, setAnswer] = useState("");
   const [responding, setResponding] = useState(false);
 
-  const refresh = useCallback(
-    () => api.providers.list().then(setProviders),
-    [api]
-  );
+  const refresh = useCallback(async () => {
+    try {
+      const result = await api.providers.list();
+      setProviders(Array.isArray(result) ? result : []);
+    } catch (error) {
+      setProviders([]);
+      setMessage({
+        error: true,
+        text: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [api]);
   useEffect(() => {
-    refresh();
+    refresh().catch(() => undefined);
     return api.providers.onAuthEvent((event) => {
       if (event.kind === "prompt") {
         setAnswer("");

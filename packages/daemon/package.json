@@ -1,0 +1,14 @@
+{
+  "name": "@omo/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./daemon": "./src/daemon.ts",
+    "./http": "./src/http.ts",
+    "./identity": "./src/identity.ts",
+    "./service": "./src/service.ts",
+    "./supervisor": "./src/supervisor.ts"
+  },
+  "main": "./src/daemon.ts"
+}

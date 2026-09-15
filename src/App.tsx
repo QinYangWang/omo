@@ -4,7 +4,9 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  type ComponentProps,
   lazy,
+  type ReactNode,
   Suspense,
   useCallback,
   useEffect,
@@ -38,6 +40,67 @@ const SettingsView = lazy(loadSettingsView);
 const preloadSettingsView = (): void => {
   loadSettingsView().catch(() => undefined);
 };
+const DaemonSessionsView = lazy(() =>
+  import("@/components/DaemonSessionsView").then(
+    ({ DaemonSessionsView: Component }) => ({ default: Component })
+  )
+);
+
+/** TopBar wrapper (kept out of App's body to bound App's complexity). */
+function AppTopBar(props: ComponentProps<typeof TopBar>) {
+  return <TopBar {...props} />;
+}
+
+/** v2 daemon session surface branch (kept out of App's body for clarity). */
+function DaemonViewBranch({
+  onBack,
+  topBar,
+}: {
+  readonly onBack: () => void;
+  readonly topBar: ReactNode;
+}) {
+  return (
+    <div className="flex h-screen flex-col overflow-hidden bg-sidebar text-foreground">
+      {topBar}
+      <main className="min-h-0 flex-1 overflow-hidden">
+        <Suspense fallback={null}>
+          <DaemonSessionsView onBack={onBack} />
+        </Suspense>
+      </main>
+    </div>
+  );
+}
+
+/** Settings branch (extracted for the same reason). */
+function SettingsViewBranch({
+  collapsed,
+  onBack,
+  onResizeSidebar,
+  sidebarW,
+  topBar,
+}: {
+  readonly collapsed: boolean;
+  readonly onBack: () => void;
+  readonly onResizeSidebar: (dx: number) => void;
+  readonly sidebarW: number;
+  readonly topBar: ReactNode;
+}) {
+  return (
+    <div className="flex h-screen flex-col overflow-hidden bg-sidebar text-foreground">
+      {topBar}
+      <main className="min-h-0 flex-1 overflow-hidden">
+        <Suspense fallback={null}>
+          <SettingsView
+            onBack={onBack}
+            onResizeSidebar={onResizeSidebar}
+            sidebarOpen={!collapsed}
+            sidebarWidth={sidebarW}
+          />
+        </Suspense>
+      </main>
+    </div>
+  );
+}
 const Workspace = lazy(() =>
   import("@/components/Workspace").then(({ Workspace: Component }) => ({
     default: Component,
@@ -174,9 +237,13 @@ function loadWidth(key: string, fallback: number) {
   return value > 0 ? value : fallback;
 }
 
+// The v1 shell body stays intact during the §12.2 dual-track migration;
+// new surfaces are extracted components (DaemonViewBranch/SettingsViewBranch/
+// AppTopBar). The remaining complexity is pre-existing v1 wiring.
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: v1 shell pending §12.2 migration
 export default function App() {
   const { theme } = useTheme();
-  const [view, setView] = useState<"chat" | "settings">("chat");
+  const [view, setView] = useState<"chat" | "daemon" | "settings">("chat");
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<Record<string, PiSession[]>>({});
   const [addOpen, setAddOpen] = useState(false);
@@ -532,7 +599,7 @@ export default function App() {
     historyPosition >= 0 && historyPosition < validHistory.length - 1;
 
   const topBar = (
-    <TopBar
+    <AppTopBar
       activeTabId={activeTabId}
       canGoBack={canGoBack}
       canGoForward={canGoForward}
@@ -563,22 +630,20 @@ export default function App() {
 
   if (view === "settings") {
     return (
-      <div className="flex h-screen flex-col overflow-hidden bg-sidebar text-foreground">
-        {topBar}
-        <main className="min-h-0 flex-1 overflow-hidden">
-          <Suspense fallback={null}>
-            <SettingsView
-              onBack={() => setView("chat")}
-              onResizeSidebar={(dx) =>
-                setSidebarW((width) => clamp(width + dx, 240, 400))
-              }
-              sidebarOpen={!collapsed}
-              sidebarWidth={sidebarW}
-            />
-          </Suspense>
-        </main>
-      </div>
+      <SettingsViewBranch
+        collapsed={collapsed}
+        onBack={() => setView("chat")}
+        onResizeSidebar={(dx) =>
+          setSidebarW((width) => clamp(width + dx, 240, 400))
+        }
+        sidebarW={sidebarW}
+        topBar={topBar}
+      />
     );
+  }
+
+  if (view === "daemon") {
+    return <DaemonViewBranch onBack={() => setView("chat")} topBar={topBar} />;
   }
 
   return (
@@ -595,6 +660,9 @@ export default function App() {
               <Sidebar
                 activeSession={
                   activeSession?.path ?? activeSession?.key ?? null
+                }
+                daemonAvailable={
+                  typeof window !== "undefined" && !!window.omoDaemon
                 }
                 onImport={async (project, sourcePath) => {
                   await getServerApi(project.serverId).sessions.import(
@@ -613,6 +681,7 @@ export default function App() {
                     await startNewSession(project);
                   }
                 }}
+                onOpenDaemon={() => setView("daemon")}
                 onOpenSettings={() => setView("settings")}
                 onPrefetchSettings={preloadSettingsView}
                 onRequestAddProject={() => setAddOpen(true)}

@@ -22,6 +22,64 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+const arrayResponseKeys = [
+  "items",
+  "entries",
+  "providers",
+  "models",
+  "projects",
+  "sessions",
+  "skills",
+  "commands",
+  "files",
+  "branches",
+  "packages",
+] as const;
+
+function expectArray<T>(value: unknown, route: string): T[] {
+  if (Array.isArray(value)) {
+    return value as T[];
+  }
+  if (isRecord(value)) {
+    for (const key of arrayResponseKeys) {
+      const nested = value[key];
+      if (Array.isArray(nested)) {
+        return nested as T[];
+      }
+    }
+  }
+  throw new Error(`Unexpected response from ${route}: expected an array`);
+}
+
+function parseRemoteJson(
+  text: string,
+  response: Response,
+  route: string
+): unknown {
+  if (!text.trim()) {
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch (cause) {
+    const message = response.ok
+      ? `Server returned invalid JSON for ${route}`
+      : `Server request failed (${response.status})`;
+    throw new Error(message, { cause });
+  }
+}
+
+function remoteErrorMessage(result: unknown, status: number): string {
+  const errorValue = isRecord(result) ? result.error : undefined;
+  if (typeof errorValue === "string") {
+    return errorValue;
+  }
+  if (isRecord(errorValue) && typeof errorValue.message === "string") {
+    return errorValue.message;
+  }
+  return `Server request failed (${status})`;
+}
+
 function handleRemoteTerminalMessage(
   terminal: RemoteTerminal,
   payload: unknown
@@ -160,13 +218,9 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
       ...init,
       headers: { ...headers(), ...init?.headers },
     });
-    const result: unknown = await response.json().catch(() => ({}));
+    const result = parseRemoteJson(await response.text(), response, route);
     if (!response.ok) {
-      const error =
-        isRecord(result) && typeof result.error === "string"
-          ? result.error
-          : `Server request failed (${response.status})`;
-      throw new Error(error);
+      throw new Error(remoteErrorMessage(result, response.status));
     }
     return result as T;
   };
@@ -326,12 +380,20 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     },
     cwd: async () => (await request<{ cwd: string }>("/cwd")).cwd,
     fs: {
-      list: (dir) => request(`/files?${query({ path: dir })}`),
+      list: async (dir) =>
+        expectArray(
+          await request<unknown>(`/files?${query({ path: dir })}`),
+          "/files"
+        ),
       read: (path, binary = false) =>
         request(`/files/content?${query({ binary: String(binary), path })}`),
     },
     git: {
-      branches: (cwd) => request(`/git/branches?${query({ cwd })}`),
+      branches: async (cwd) =>
+        expectArray(
+          await request<unknown>(`/git/branches?${query({ cwd })}`),
+          "/git/branches"
+        ),
       createBranch: (cwd, name) =>
         request<{ ok: boolean; output: string }>("/git/branch", {
           body: JSON.stringify({ cwd, name }),
@@ -345,13 +407,24 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
           .output,
     },
     models: {
-      list: () => request("/models"),
-      setEnabled: (enabled) => post("/models", { enabled }),
+      list: async () =>
+        expectArray(await request<unknown>("/models"), "/models"),
+      setEnabled: async (enabled) =>
+        expectArray(await post<unknown>("/models", { enabled }), "/models"),
     },
     packages: {
-      install: (source) => post("/packages/install", { source }),
-      list: () => request("/packages"),
-      remove: (source) => post("/packages/remove", { source }),
+      install: async (source) =>
+        expectArray(
+          await post<unknown>("/packages/install", { source }),
+          "/packages/install"
+        ),
+      list: async () =>
+        expectArray(await request<unknown>("/packages"), "/packages"),
+      remove: async (source) =>
+        expectArray(
+          await post<unknown>("/packages/remove", { source }),
+          "/packages/remove"
+        ),
     },
     pi: {
       abort: async (sessionId) => {
@@ -359,15 +432,23 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
       },
       branch: (sessionId, entryId) =>
         post("/pi/branch", { entryId, sessionId }),
-      commands: (sessionId, cwd, sessionPath) =>
-        post("/pi/commands", { cwd, sessionId, sessionPath }),
+      commands: async (sessionId, cwd, sessionPath) =>
+        expectArray(
+          await post<unknown>("/pi/commands", {
+            cwd,
+            sessionId,
+            sessionPath,
+          }),
+          "/pi/commands"
+        ),
       contextDetails: (sessionId, cwd, sessionPath) =>
         post("/pi/context-details", { cwd, sessionId, sessionPath }),
       contextUsage: (sessionId, cwd, sessionPath) =>
         post("/pi/context-usage", { cwd, sessionId, sessionPath }),
       history: (sessionId, before) =>
         post("/pi/history", { before, sessionId }),
-      models: () => request("/pi/models"),
+      models: async () =>
+        expectArray(await request<unknown>("/pi/models"), "/pi/models"),
       onEvent: (callback) => {
         piListeners.add(callback);
         return () => piListeners.delete(callback);
@@ -437,12 +518,14 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     projects: {
       add: (path?: string) =>
         path ? post("/projects", { cwd: path }) : Promise.resolve(null),
-      list: () => request("/projects"),
+      list: async () =>
+        expectArray(await request<unknown>("/projects"), "/projects"),
       pickDirectory: async () => null,
     },
     providers: {
       cancel: (requestId) => post("/providers/cancel", { requestId }),
-      list: () => request("/providers"),
+      list: async () =>
+        expectArray(await request<unknown>("/providers"), "/providers"),
       login: (providerId, type) =>
         post("/providers/login", { providerId, type }),
       logout: (providerId) => post("/providers/logout", { providerId }),
@@ -456,7 +539,8 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
         post("/providers/respond", { requestId, value }),
     },
     sessions: {
-      all: () => request("/sessions/all"),
+      all: async () =>
+        expectArray(await request<unknown>("/sessions/all"), "/sessions/all"),
       clone: async (sessionPath) =>
         (await post<{ path: string }>("/sessions/clone", { path: sessionPath }))
           .path,
@@ -471,13 +555,20 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
       import: async (sourcePath, cwd) =>
         (await post<{ path: string }>("/sessions/import", { cwd, sourcePath }))
           .path,
-      list: (cwd) => request(`/sessions?${query({ cwd })}`),
+      list: async (cwd) =>
+        expectArray(
+          await request<unknown>(`/sessions?${query({ cwd })}`),
+          "/sessions"
+        ),
       rename: async (sessionPath, name) => {
         await post("/sessions/rename", { name, path: sessionPath });
         return true;
       },
     },
-    skills: { list: () => request("/skills") },
+    skills: {
+      list: async () =>
+        expectArray(await request<unknown>("/skills"), "/skills"),
+    },
     term: {
       close: async (key = "default") => {
         const terminal = terminals.get(key);

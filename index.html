@@ -12,7 +12,7 @@
     <meta charset="UTF-8">
 
     <meta
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:* https:; worker-src 'self' blob:; frame-src http: https:;"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:* ws: wss: https:; worker-src 'self' blob:; frame-src http: https:;"
       http-equiv="Content-Security-Policy"
     >
     <title>omo</title>
@@ -220,16 +220,26 @@
       };
       requestAnimationFrame(frame);
 
+      let dismissed = false;
+      const dismiss = () => {
+        if (dismissed) {
+          return;
+        }
+        dismissed = true;
+        splash.classList.add("done");
+        setTimeout(() => {
+          dead = true;
+          splash.remove();
+        }, 400);
+      };
+
       window.omoSplashDone = () => {
         const wait = Math.max(0, total + 150 - (performance.now() - start));
-        setTimeout(() => {
-          splash.classList.add("done");
-          setTimeout(() => {
-            dead = true;
-            splash.remove();
-          }, 400);
-        }, wait);
+        setTimeout(dismiss, wait);
       };
+      // A failed or stalled bootstrap must not leave an invisible click
+      // shield over the page forever.
+      setTimeout(dismiss, 5000);
     })();
     </script>
     <script src="/src/main.tsx" type="module"></script>

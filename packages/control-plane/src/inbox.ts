@@ -95,7 +95,9 @@ const TRANSITIONS: Readonly<Record<CommandState, readonly CommandState[]>> = {
   cancelled: [],
   completed: [],
   failed: [],
-  queued: ["admitted", "cancelled"],
+  // queued → failed: admission-time rejection (e.g. unknown session) must be
+  // recordable; the command simply never reached the execution side.
+  queued: ["admitted", "cancelled", "failed"],
   received: ["cancelled", "queued"],
   running: ["cancelled", "completed", "failed", "waiting"],
   waiting: ["cancelled", "failed", "running"],
@@ -161,15 +163,41 @@ const toReceipt = (record: CommandRecord): CommandReceipt => ({
 
 export class CommandInbox {
   readonly #db: DatabaseSync;
+  readonly #onChange?: (record: CommandRecord) => void;
+  readonly #owned: boolean;
 
-  private constructor(db: DatabaseSync) {
+  private constructor(
+    db: DatabaseSync,
+    owned: boolean,
+    onChange?: (record: CommandRecord) => void
+  ) {
     this.#db = db;
+    this.#owned = owned;
+    this.#onChange = onChange;
   }
 
   static open(path: string): CommandInbox {
     const { db } = openDurableDatabase(path);
     db.exec(SCHEMA);
-    return new CommandInbox(db);
+    return new CommandInbox(db, true);
+  }
+
+  /**
+   * Attach to an already-open durable connection. The daemon hosts the
+   * inbox, interaction store and ownership table on ONE control-plane
+   * connection so a crash can never leave them in different commit domains
+   * (plan §5.4 same-database receipt boundary). Attached instances do not
+   * own the connection; `close()` is left to the owner.
+   *
+   * `onChange` fires AFTER every committed insert/transition — it is the
+   * sync layer's single emission point for command facts (§6.5).
+   */
+  static attach(
+    db: DatabaseSync,
+    onChange?: (record: CommandRecord) => void
+  ): CommandInbox {
+    db.exec(SCHEMA);
+    return new CommandInbox(db, false, onChange);
   }
 
   /**
@@ -227,6 +255,10 @@ export class CommandInbox {
           now
         );
       this.#db.exec("COMMIT");
+      const inserted = this.getByCommandId(input.commandId);
+      if (inserted) {
+        this.#emit(inserted);
+      }
     } catch (error) {
       this.#db.exec("ROLLBACK");
       throw error;
@@ -240,6 +272,27 @@ export class CommandInbox {
     }
     // The receipt is issued strictly after the FULL-synchronous commit above.
     return toReceipt(record);
+  }
+
+  /** Commands in a non-terminal state, in inbox order (startup reconcile). */
+  listActive(): readonly CommandRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM commands
+          WHERE state IN ('received', 'queued', 'admitted', 'running', 'waiting')
+          ORDER BY seq ASC`
+      )
+      .all() as unknown as CommandRow[];
+    return rows.map(rowToRecord);
+  }
+
+  /** Emit to the sync layer; listener failures never affect storage. */
+  #emit(record: CommandRecord): void {
+    try {
+      this.#onChange?.(record);
+    } catch {
+      // Sync listeners are diagnostics for clients, not a business dependency.
+    }
   }
 
   getByCommandId(commandId: string): CommandRecord | undefined {
@@ -309,6 +362,7 @@ export class CommandInbox {
     if (!updated) {
       throw new OmoCommandError("internal", "command lost during transition");
     }
+    this.#emit(updated);
     return updated;
   }
 
@@ -333,8 +387,10 @@ export class CommandInbox {
     return this.#transition(commandId, "failed", { error });
   }
 
-  cancel(commandId: string): CommandRecord {
-    return this.#transition(commandId, "cancelled");
+  cancel(commandId: string, result?: unknown): CommandRecord {
+    return this.#transition(commandId, "cancelled", {
+      result: result ?? null,
+    });
   }
 
   /** Effective durability configuration, reported at startup (§5.8.6). */
@@ -343,6 +399,8 @@ export class CommandInbox {
   }
 
   close(): void {
-    this.#db.close();
+    if (this.#owned) {
+      this.#db.close();
+    }
   }
 }

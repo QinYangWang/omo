@@ -7,6 +7,9 @@ export const OMO_ERROR_CODES = [
   "permission_denied",
   "daemon_offline",
   "unknown_command",
+  "unknown_interaction",
+  "unknown_workspace",
+  "already_answered",
   "unknown_schema",
   "payload_schema_unsupported",
   "duplicate_payload_mismatch",
@@ -38,8 +41,13 @@ export class OmoCommandError extends Error {
   readonly code: OmoErrorCode;
   readonly retryable: boolean;
 
-  constructor(code: OmoErrorCode, message: string, retryable = false) {
-    super(message);
+  constructor(
+    code: OmoErrorCode,
+    message: string,
+    retryable = false,
+    options?: { readonly cause?: unknown }
+  ) {
+    super(message, options);
     this.name = "OmoCommandError";
     this.code = code;
     this.retryable = retryable;

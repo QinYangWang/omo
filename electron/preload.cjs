@@ -8,6 +8,17 @@ contextBridge.exposeInMainWorld("omoSecure", {
     ipcRenderer.invoke("remote-config:save", { servers }),
 });
 
+// v2 daemon thin shell (plan §4.2): config comes from the main process,
+// which owns the daemon lifecycle and the safeStorage-protected token.
+contextBridge.exposeInMainWorld("omoDaemon", {
+  config: () => ipcRenderer.invoke("daemon:config"),
+  onState: (cb) => {
+    const handler = (_event, data) => cb(data);
+    ipcRenderer.on("daemon:state", handler);
+    return () => ipcRenderer.removeListener("daemon:state", handler);
+  },
+});
+
 contextBridge.exposeInMainWorld("omo", {
   browser: {
     close: () => Promise.resolve(),

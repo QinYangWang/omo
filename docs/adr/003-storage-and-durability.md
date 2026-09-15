@@ -18,6 +18,9 @@
 - 上游 backend 默认**不**设置 `synchronous=FULL`；omo 以可注入 factory 强制并读回（`packages/storage`）。
 - 上游 `SqliteSessionRepo` 通过其 SessionRepo conformance（经 durable factory）。
 - `CommandInbox`（`packages/control-plane`）实现幂等重放、payload 不匹配拒绝、状态机与崩溃窗口恢复。
+- `packages/daemon`（P1）：控制库单提交域（命令 + Interaction + 设备 + 所有权 + workspace + catalog + artifact 元数据同一连接）；启动对账覆盖 admitted-not-driven / settled-unrecorded / queued-never-admitted 三个窗口（含真实 Harness 的 e2e）；`202 queued` 回执严格在 FULL 提交之后发出。
+- artifact 发布协议（§5.8.3）：对象 temp→fsync→原子 rename→目录 fsync 之后才提交元数据行；按内容幂等；读时校验 hash；启动孤儿 GC（`packages/daemon/src/artifacts.ts`）。
+- 文件保存协议（§5.8.4）：baseHash CAS + 同一落盘协议 + 回执后可对账；崩溃恢复按文件实际内容判定已应用 / 重放 / 冲突，不假装文件替换与数据库 receipt 是同一事务（`packages/daemon/src/files.ts`）。
 
 ## 后果
 
