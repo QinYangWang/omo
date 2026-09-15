@@ -1,6 +1,7 @@
 import {
   AgentHarness,
   type AgentLane,
+  type AgentMessage,
   BACKGROUND_CONTEXT,
   type Context,
   type AgentHarness as CoreAgentHarness,
@@ -39,6 +40,7 @@ import type {
   RuntimeOperationResult,
   RuntimeProviderInfo,
   RuntimeProviderService,
+  RuntimeSessionImport,
   RuntimeSessionSummary,
   RuntimeWatchHandle,
 } from "./runtime.ts";
@@ -62,6 +64,23 @@ export interface CoreRuntimeOptions {
 }
 
 const DEFAULT_LANE = "main";
+const IMPORTABLE_MESSAGE_ROLES = new Set([
+  "assistant",
+  "bashExecution",
+  "branchSummary",
+  "compactionSummary",
+  "custom",
+  "toolResult",
+  "user",
+]);
+
+const isImportableAgentMessage = (value: unknown): value is AgentMessage => {
+  if (typeof value !== "object" || value === null || !("role" in value)) {
+    return false;
+  }
+  const { role } = value;
+  return typeof role === "string" && IMPORTABLE_MESSAGE_ROLES.has(role);
+};
 
 /** The backend does not re-export its metadata type; derive it from the repo. */
 type SqliteSessionMetadata = Awaited<
@@ -538,6 +557,39 @@ export class CoreHarnessRuntime implements AgentRuntime {
     return attached;
   }
 
+  async importSession(input: RuntimeSessionImport): Promise<string> {
+    const listed = await this.#repo.list(undefined, this.#context);
+    if (input.id && listed.some((metadata) => metadata.id === input.id)) {
+      return input.id;
+    }
+    const session = await this.#repo.create(
+      input.id === undefined ? undefined : { id: input.id },
+      this.#context
+    );
+    try {
+      const branch = await session.createBranch(
+        DEFAULT_LANE,
+        null,
+        this.#context
+      );
+      for (const message of input.messages) {
+        if (isImportableAgentMessage(message)) {
+          // The source is parsed by the execution-side SessionManager. The
+          // small role guard above keeps extension metadata out of the core
+          // transcript while retaining every built-in agent message.
+          // biome-ignore lint/performance/noAwaitInLoops: appending in source order preserves the imported conversation tree.
+          await branch.appendMessage(message, this.#context);
+        }
+      }
+      if (input.name !== undefined) {
+        await session.setName(input.name, this.#context);
+      }
+      return session.metadata.id;
+    } finally {
+      await session.close(this.#context);
+    }
+  }
+
   async openSession(sessionId: string): Promise<AgentRuntimeSession> {
     const listed = await this.#repo.list(undefined, this.#context);
     const metadata = listed.find(
@@ -602,6 +654,17 @@ export class CoreHarnessRuntime implements AgentRuntime {
       name: model.name,
       provider: model.provider,
     }));
+  }
+
+  async listAvailableModels(): Promise<readonly RuntimeModelDescriptor[]> {
+    const connectedProviders = new Set(
+      (await this.#listProviders())
+        .filter((provider) => provider.connected)
+        .map((provider) => provider.id)
+    );
+    return this.listModels().filter((model) =>
+      connectedProviders.has(model.provider)
+    );
   }
 
   async close(): Promise<void> {

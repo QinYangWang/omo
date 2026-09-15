@@ -358,6 +358,7 @@ export class SessionCatalog {
   }
 
   record(entry: {
+    createdAt?: string;
     name?: string;
     sessionId: string;
     workspaceId: string;
@@ -372,7 +373,7 @@ export class SessionCatalog {
         entry.sessionId,
         entry.workspaceId,
         entry.name ?? null,
-        new Date().toISOString()
+        entry.createdAt ?? new Date().toISOString()
       );
     const record = this.get(entry.sessionId);
     if (!record) {

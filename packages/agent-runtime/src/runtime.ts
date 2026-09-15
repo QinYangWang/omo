@@ -190,6 +190,13 @@ export interface RuntimeSessionSummary {
   readonly storageVersion: number;
 }
 
+/** A local conversation imported into the daemon's durable runtime. */
+export interface RuntimeSessionImport {
+  readonly id?: string;
+  readonly messages: readonly unknown[];
+  readonly name?: string;
+}
+
 /**
  * One open Session owned by exactly one Session Worker (§4.1, §5.5). The
  * caller is responsible for single-writer ownership; the runtime refuses a
@@ -241,7 +248,12 @@ export interface AgentRuntime {
   readonly createSession: (name?: string) => Promise<AgentRuntimeSession>;
   /** Fork one durable session and return the new execution id. */
   readonly forkSession?: (sourceSessionId: string) => Promise<string>;
+  /** Import a local conversation into this runtime, when supported. */
+  readonly importSession?: (input: RuntimeSessionImport) => Promise<string>;
   /** Provider catalog available to this runtime (§6.6 改模型 choices). */
+  readonly listAvailableModels?: () => Promise<
+    readonly RuntimeModelDescriptor[]
+  >;
   readonly listModels: () => readonly RuntimeModelDescriptor[];
   readonly listSessions: () => Promise<readonly RuntimeSessionSummary[]>;
   readonly openSession: (sessionId: string) => Promise<AgentRuntimeSession>;

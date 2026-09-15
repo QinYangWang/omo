@@ -637,7 +637,10 @@ export class DaemonHttpServer {
       return true;
     }
     if (method === "GET" && route.length === 1 && route[0] === "models") {
-      sendJson(res, 200, { models: this.#daemon.runtime.listModels() });
+      const models = this.#daemon.runtime.listAvailableModels
+        ? await this.#daemon.runtime.listAvailableModels()
+        : this.#daemon.runtime.listModels();
+      sendJson(res, 200, { models });
       return true;
     }
     if (

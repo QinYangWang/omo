@@ -8,7 +8,11 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import type { Duplex } from "node:stream";
 import { promisify } from "node:util";
-import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
+import {
+  loadSkillsFromDir,
+  type SessionInfo,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import type {
   RuntimeHistoryEntry,
   RuntimeHistoryPage,
@@ -106,6 +110,7 @@ const LEGACY_MODEL_LEVEL_SUFFIX_PATTERN =
   /:(?:off|minimal|low|medium|high|xhigh|max)$/;
 const LEGACY_AGENT_DIR =
   process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+const LEGACY_SESSION_ROOT = join(LEGACY_AGENT_DIR, "sessions");
 const LEGACY_PACKAGE_SOURCE_PATTERN = /^npm:(.+)$/;
 
 const legacyAuthPath = (): string =>
@@ -582,6 +587,7 @@ export class LegacyHttpAdapter {
   readonly #eventHistory = new Map<string, LegacyEventRecord[]>();
   readonly #eventSequences = new Map<string, number>();
   readonly #laneSessions = new Set<string>();
+  readonly #localImports = new Map<string, Promise<string | undefined>>();
   readonly #usageProviders = new Map<string, LegacyUsageProvider>();
   readonly #usageTotals: LegacyUsageTotals = {
     cacheRead: 0,
@@ -1416,7 +1422,24 @@ export class LegacyHttpAdapter {
     }
     const body = asRecord(await readJsonBody(req));
     if (route[1] === "rename") {
-      const actualId = this.#actualSessionId(asString(body?.path) ?? "");
+      const sessionPath = asString(body?.path) ?? "";
+      let actualId: string;
+      try {
+        actualId = this.#actualSessionId(sessionPath);
+      } catch (error) {
+        const local = await this.#findLocalSession(sessionPath);
+        const workspace = local
+          ? this.#workspaceForSessionCwd(local.cwd)
+          : undefined;
+        const imported =
+          local && workspace
+            ? await this.#importLocalSession(local, workspace)
+            : undefined;
+        if (!imported) {
+          throw error;
+        }
+        actualId = imported;
+      }
       const name = asString(body?.name)?.trim();
       if (!name) {
         throw new OmoCommandError("unknown_schema", "session name is required");
@@ -1469,44 +1492,224 @@ export class LegacyHttpAdapter {
           `legacy sessions/${route[1]} requires a source path`
         );
       }
-      const actualSource = this.#actualSessionId(sourcePath);
+      const actualSource =
+        this.#aliases.get(sourcePath) ??
+        (this.#daemon.catalog.get(sourcePath) ? sourcePath : undefined);
+      const source = actualSource
+        ? this.#daemon.catalog.get(actualSource)
+        : undefined;
+      const localSource = source
+        ? undefined
+        : await this.#findLocalSession(sourcePath);
       const { runtime } = this.#daemon;
-      if (!runtime.forkSession) {
-        throw new OmoCommandError(
-          "unknown_command",
-          "the configured runtime cannot fork sessions"
-        );
-      }
-      const source = this.#daemon.catalog.get(actualSource);
-      if (!source) {
+      if (!(source || localSource)) {
         throw new OmoCommandError(
           "unknown_command",
           "source session is unknown"
         );
       }
+      const sourceWorkspace = source
+        ? this.#daemon.workspaces.get(source.workspaceId)
+        : this.#workspaceForSessionCwd(localSource?.cwd ?? "");
       const destination =
         route[1] === "import"
           ? this.#workspaceForPath(asString(body?.cwd) ?? "")
-          : this.#daemon.workspaces.get(source.workspaceId);
+          : sourceWorkspace;
       if (!destination) {
         throw new OmoCommandError(
           "unknown_workspace",
           "session workspace is missing"
         );
       }
-      const sessionId = await runtime.forkSession(actualSource);
-      const catalog = this.#daemon.catalog.record({
-        sessionId,
-        workspaceId: destination.workspaceId,
-      });
-      this.#aliases.set(catalog.sessionId, catalog.sessionId);
-      sendJson(response, 200, { path: catalog.sessionId });
+      let sessionId: string;
+      if (localSource) {
+        const imported = await this.#importLocalSession(
+          localSource,
+          destination,
+          true
+        );
+        if (!imported) {
+          throw new OmoCommandError(
+            "unknown_command",
+            "the configured runtime cannot import local sessions"
+          );
+        }
+        sessionId = imported;
+      } else {
+        if (!(runtime.forkSession && actualSource)) {
+          throw new OmoCommandError(
+            "unknown_command",
+            "the configured runtime cannot fork sessions"
+          );
+        }
+        sessionId = await runtime.forkSession(actualSource);
+        this.#daemon.catalog.record({
+          sessionId,
+          workspaceId: destination.workspaceId,
+        });
+      }
+      this.#aliases.set(sessionId, sessionId);
+      sendJson(response, 200, { path: sessionId });
       return true;
     }
     return false;
   }
 
+  #workspaceForSessionCwd(cwd: string): WorkspaceRecord | undefined {
+    if (!cwd) {
+      return undefined;
+    }
+    let canonical: string;
+    try {
+      canonical = realpathSync(resolve(cwd));
+    } catch {
+      return undefined;
+    }
+    return [...this.#daemon.workspaces.list()]
+      .sort((left, right) => right.path.length - left.path.length)
+      .find((workspace) => isInside(workspace.path, canonical));
+  }
+
+  async #localSessionInfos(cwd?: string): Promise<readonly SessionInfo[]> {
+    try {
+      const sessions = cwd
+        ? await SessionManager.list(cwd)
+        : await SessionManager.listAll();
+      return sessions.filter(
+        (session) => this.#workspaceForSessionCwd(session.cwd) !== undefined
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  async #findLocalSession(value: string): Promise<SessionInfo | undefined> {
+    const sessions = await this.#localSessionInfos();
+    const byId = sessions.find((session) => session.id === value);
+    if (byId) {
+      return byId;
+    }
+    let canonical: string | undefined;
+    try {
+      canonical = realpathSync(resolve(value));
+    } catch {
+      canonical = undefined;
+    }
+    if (!canonical) {
+      return undefined;
+    }
+    let sessionRoot: string;
+    try {
+      sessionRoot = realpathSync(LEGACY_SESSION_ROOT);
+    } catch {
+      sessionRoot = resolve(LEGACY_SESSION_ROOT);
+    }
+    if (!isInside(sessionRoot, canonical)) {
+      throw new OmoCommandError(
+        "permission_denied",
+        "session path is outside the local Pi session directory"
+      );
+    }
+    return sessions.find((session) => {
+      try {
+        return realpathSync(session.path) === canonical;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  async #importLocalSession(
+    info: SessionInfo,
+    workspace: WorkspaceRecord,
+    forceNewId = false
+  ): Promise<string | undefined> {
+    const { importSession: importSessionMethod } = this.#daemon.runtime;
+    const importSession = importSessionMethod?.bind(this.#daemon.runtime);
+    if (!importSession) {
+      return undefined;
+    }
+    const existing = forceNewId ? undefined : this.#daemon.catalog.get(info.id);
+    if (existing) {
+      if (existing.workspaceId !== workspace.workspaceId) {
+        throw new OmoCommandError(
+          "permission_denied",
+          "session belongs to another workspace"
+        );
+      }
+      this.#aliases.set(info.path, existing.sessionId);
+      return existing.sessionId;
+    }
+    const key = `${info.path}\u0000${workspace.workspaceId}`;
+    if (!forceNewId) {
+      const pending = this.#localImports.get(key);
+      if (pending) {
+        return pending;
+      }
+    }
+    const operation = (async (): Promise<string> => {
+      const manager = SessionManager.open(info.path);
+      const messages = manager
+        .getBranch()
+        .filter((entry) => entry.type === "message")
+        .map((entry) => entry.message);
+      const sessionId = await importSession({
+        ...(forceNewId ? {} : { id: info.id }),
+        messages,
+        ...(info.name === undefined ? {} : { name: info.name }),
+      });
+      this.#daemon.catalog.record({
+        createdAt: forceNewId
+          ? new Date().toISOString()
+          : info.created.toISOString(),
+        name: info.name,
+        sessionId,
+        workspaceId: workspace.workspaceId,
+      });
+      if (!forceNewId) {
+        this.#aliases.set(info.id, sessionId);
+        this.#aliases.set(info.path, sessionId);
+      }
+      return sessionId;
+    })();
+    if (forceNewId) {
+      return operation;
+    }
+    this.#localImports.set(key, operation);
+    try {
+      return await operation;
+    } finally {
+      if (this.#localImports.get(key) === operation) {
+        this.#localImports.delete(key);
+      }
+    }
+  }
+
+  async #syncLocalSessions(cwd?: string): Promise<readonly SessionInfo[]> {
+    if (!this.#daemon.runtime.importSession) {
+      return [];
+    }
+    const sessions = await this.#localSessionInfos(cwd);
+    const imported: SessionInfo[] = [];
+    for (const info of sessions) {
+      const workspace = this.#workspaceForSessionCwd(info.cwd);
+      if (!workspace) {
+        continue;
+      }
+      // biome-ignore lint/performance/noAwaitInLoops: imports share one durable SQLite repository and must be serialized.
+      const sessionId = await this.#importLocalSession(info, workspace);
+      if (sessionId) {
+        imported.push(info);
+      }
+    }
+    return imported;
+  }
+
   async #listLegacySessions(cwd?: string): Promise<LegacySession[]> {
+    const localSessions = await this.#syncLocalSessions(cwd);
+    const localById = new Map(
+      localSessions.map((session) => [session.id, session])
+    );
     const workspaceId = cwd
       ? this.#workspaceForPath(cwd).workspaceId
       : undefined;
@@ -1527,10 +1730,15 @@ export class LegacyHttpAdapter {
         continue;
       }
       const summary = summaries.get(entry.sessionId);
-      const created = dateNumber(summary?.createdAt ?? entry.createdAt);
-      let firstMessage = entry.name ?? "";
-      let messageCount = 0;
-      let modified = created;
+      const local = localById.get(entry.sessionId);
+      const created = dateNumber(
+        local?.created.getTime() ?? summary?.createdAt ?? entry.createdAt
+      );
+      let firstMessage = entry.name ?? local?.name ?? local?.firstMessage ?? "";
+      let messageCount = local?.messageCount ?? 0;
+      let modified = dateNumber(
+        local?.modified.getTime() ?? summary?.createdAt ?? entry.createdAt
+      );
       try {
         // biome-ignore lint/performance/noAwaitInLoops: session history is read in catalog order for stable sidebar results.
         const slot = await this.#daemon.supervisor.acquire(entry.sessionId);
@@ -1541,7 +1749,7 @@ export class LegacyHttpAdapter {
         });
         messageCount = snapshot.items.length;
         const first = snapshot.items.find((item) => item.role === "user");
-        if (!entry.name && first) {
+        if (!(entry.name || local?.name) && first) {
           firstMessage = String(first.text ?? "").slice(0, 300);
         }
         modified = snapshot.items.reduce(
@@ -1576,7 +1784,7 @@ export class LegacyHttpAdapter {
     principal: Principal
   ): Promise<boolean> {
     if (route.length === 2 && route[1] === "models" && method === "GET") {
-      sendJson(response, 200, this.#piModels());
+      sendJson(response, 200, await this.#piModels());
       return true;
     }
     if (route.length === 2 && route[1] === "open" && method === "POST") {
@@ -1833,9 +2041,12 @@ export class LegacyHttpAdapter {
     return ids;
   }
 
-  #piModels(): JsonRecord[] {
+  async #piModels(): Promise<JsonRecord[]> {
     const settings = readLegacySettings();
-    return this.#daemon.runtime.listModels().map((model) => ({
+    const models = this.#daemon.runtime.listAvailableModels
+      ? await this.#daemon.runtime.listAvailableModels()
+      : this.#daemon.runtime.listModels();
+    return models.map((model) => ({
       contextWindow: 0,
       enabled: legacyModelEnabled(settings, model.provider, model.modelId),
       id: model.modelId,
@@ -2166,13 +2377,15 @@ export class LegacyHttpAdapter {
     response: ServerResponse
   ): Promise<boolean> {
     if (method === "GET") {
-      sendJson(response, 200, this.#piModels());
+      sendJson(response, 200, await this.#piModels());
       return true;
     }
     if (method === "POST") {
       const body = asRecord(await readJsonBody(req));
       if (Array.isArray(body?.enabled)) {
-        const available = this.#daemon.runtime.listModels();
+        const available = this.#daemon.runtime.listAvailableModels
+          ? await this.#daemon.runtime.listAvailableModels()
+          : this.#daemon.runtime.listModels();
         const enabled = new Set(
           body.enabled.filter(
             (value): value is string => typeof value === "string"
@@ -2194,7 +2407,7 @@ export class LegacyHttpAdapter {
         }
         writeLegacySettings(settings);
       }
-      sendJson(response, 200, this.#piModels());
+      sendJson(response, 200, await this.#piModels());
       return true;
     }
     return false;
@@ -2248,6 +2461,34 @@ export class LegacyHttpAdapter {
         (this.#daemon.catalog.get(candidate) ? candidate : undefined);
       if (actualId) {
         break;
+      }
+    }
+    if (!actualId) {
+      const localSessions = await Promise.all(
+        candidates.map((candidate) => this.#findLocalSession(candidate))
+      );
+      const local = localSessions.find((candidate) => candidate !== undefined);
+      const localWorkspace = local
+        ? this.#workspaceForSessionCwd(local.cwd)
+        : undefined;
+      if (local && localWorkspace) {
+        const requestedCwd = asString(body?.cwd);
+        const workspace = requestedCwd
+          ? this.#workspaceForPath(requestedCwd)
+          : localWorkspace;
+        if (workspace.workspaceId !== localWorkspace.workspaceId) {
+          throw new OmoCommandError(
+            "permission_denied",
+            "session belongs to another workspace"
+          );
+        }
+        actualId = await this.#importLocalSession(local, workspace);
+        if (!actualId) {
+          throw new OmoCommandError(
+            "unknown_command",
+            "the configured runtime cannot import local sessions"
+          );
+        }
       }
     }
     if (actualId) {
