@@ -275,8 +275,8 @@
       font-family: var(--typeset-font-mono);
       font-size: 0.85em;
       background-color: var(
-        --color-muted,
-        color-mix(in oklab, currentColor 8%, transparent)
+        --color-code-highlight,
+        var(--color-muted, color-mix(in oklab, currentColor 8%, transparent))
       );
       border-radius: min(calc(var(--radius, 0.5em) * 0.6), 0.35em);
     }
@@ -290,10 +290,11 @@
       font-family: var(--typeset-font-mono);
       font-size: 0.875em;
       line-height: 1.5;
+      color: var(--color-code-foreground, currentColor);
       tab-size: 2;
       background-color: var(
-        --color-muted,
-        color-mix(in oklab, currentColor 8%, transparent)
+        --color-code,
+        var(--color-muted, color-mix(in oklab, currentColor 8%, transparent))
       );
       border-radius: var(--radius, 0.5em);
       direction: ltr;

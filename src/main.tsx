@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import { OnboardingGate } from "./components/OnboardingGate";
+import { ToastProvider } from "./components/ui/toast";
 import { I18nProvider } from "./lib/i18n";
 import { initializeServers, listServers, needsOnboarding } from "./lib/servers";
 import { ThemeProvider } from "./lib/theme";
@@ -69,7 +70,9 @@ async function bootstrap() {
       <ErrorBoundary>
         <ThemeProvider>
           <I18nProvider>
-            <Root gatedInitially={gated} />
+            <ToastProvider>
+              <Root gatedInitially={gated} />
+            </ToastProvider>
           </I18nProvider>
         </ThemeProvider>
       </ErrorBoundary>

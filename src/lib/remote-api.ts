@@ -174,6 +174,10 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     request<T>(route, { body: JSON.stringify(value), method: "POST" });
   const query = (values: Record<string, string>) =>
     new URLSearchParams(values).toString();
+  const browserPage = (page: BrowserPage): BrowserPage => ({
+    ...page,
+    url: page.url.startsWith("http") ? page.url : `${base}${page.url}`,
+  });
 
   const piListeners = new Set<EventCallback>();
   const authListeners = new Set<(event: ProviderAuthEvent) => void>();
@@ -306,6 +310,20 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
   };
 
   return {
+    browser: {
+      close: async (browserId) => {
+        await request(`/browser/${encodeURIComponent(browserId)}`, {
+          method: "DELETE",
+        });
+      },
+      navigate: async (browserId, url) =>
+        browserPage(
+          await post(`/browser/${encodeURIComponent(browserId)}/navigate`, {
+            url,
+          })
+        ),
+      open: async (url) => browserPage(await post("/browser", { url })),
+    },
     cwd: async () => (await request<{ cwd: string }>("/cwd")).cwd,
     fs: {
       list: (dir) => request(`/files?${query({ path: dir })}`),
@@ -343,6 +361,8 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
         post("/pi/branch", { entryId, sessionId }),
       commands: (sessionId, cwd, sessionPath) =>
         post("/pi/commands", { cwd, sessionId, sessionPath }),
+      contextDetails: (sessionId, cwd, sessionPath) =>
+        post("/pi/context-details", { cwd, sessionId, sessionPath }),
       contextUsage: (sessionId, cwd, sessionPath) =>
         post("/pi/context-usage", { cwd, sessionId, sessionPath }),
       history: (sessionId, before) =>

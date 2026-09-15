@@ -1,17 +1,19 @@
 import {
   ArrowRight01Icon,
   Folder01Icon,
-  MonitorIcon,
+  PiIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ServerStatusBadge } from "@/components/server-status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,7 +24,6 @@ import {
   useServerStatuses,
   useServers,
 } from "@/lib/servers";
-import { cn } from "@/lib/utils";
 
 interface DirectoryNode {
   name: string;
@@ -38,6 +39,7 @@ function DirectoryPicker({
   onSelect: (path: string) => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   const [root, setRoot] = useState("");
   const [nodes, setNodes] = useState<DirectoryNode[]>([]);
   const [stack, setStack] = useState<string[]>([]);
@@ -96,7 +98,7 @@ function DirectoryPicker({
           size="sm"
           variant="ghost"
         >
-          Back
+          {t("back")}
         </Button>
         <div className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 text-muted-foreground text-xs">
           {currentPath || "…"}
@@ -106,7 +108,7 @@ function DirectoryPicker({
       <ScrollArea className="h-72 rounded-md border border-border">
         <div className="p-1">
           {loading ? (
-            <p className="p-2 text-muted-foreground text-sm">Loading…</p>
+            <p className="p-2 text-muted-foreground text-sm">{t("loading")}</p>
           ) : null}
           {loading
             ? null
@@ -135,20 +137,20 @@ function DirectoryPicker({
               ))}
           {!loading && nodes.length === 0 ? (
             <p className="p-2 text-muted-foreground text-sm">
-              No subdirectories
+              {t("no_subdirectories")}
             </p>
           ) : null}
         </div>
       </ScrollArea>
       <div className="flex justify-end gap-2">
         <Button onClick={onCancel} variant="ghost">
-          Cancel
+          {t("back")}
         </Button>
         <Button
           disabled={!currentPath || loading}
           onClick={() => onSelect(currentPath)}
         >
-          Select this directory
+          {t("select_this_directory")}
         </Button>
       </div>
     </div>
@@ -173,6 +175,9 @@ export function AddProjectDialog({
   const servers = useServers();
   const statuses = useServerStatuses();
   const [serverId, setServerId] = useState(getDefaultServerId());
+  const [step, setStep] = useState<"server" | "directory">("server");
+  const [error, setError] = useState("");
+  const [isPicking, setIsPicking] = useState(false);
   const hosted = !!window.__OMO_SERVER_URL__ && !window.omoSecure;
   const selected =
     servers.find((server) => server.id === serverId) ?? servers[0];
@@ -180,7 +185,13 @@ export function AddProjectDialog({
     selected?.kind === "local" && !selected.url && !!window.omoSecure;
 
   useEffect(() => {
-    if (open && !servers.some((server) => server.id === serverId)) {
+    if (!open) {
+      return;
+    }
+    setStep("server");
+    setError("");
+    setIsPicking(false);
+    if (!servers.some((server) => server.id === serverId)) {
       setServerId(getDefaultServerId());
     }
   }, [open, servers, serverId]);
@@ -190,38 +201,41 @@ export function AddProjectDialog({
       if (!selected) {
         return;
       }
-      const project = await onAdd(selected.id, path);
-      if (project) {
-        onAdded(project);
+      setError("");
+      try {
+        const project = await onAdd(selected.id, path);
+        if (project) {
+          onAdded(project);
+          onOpenChange(false);
+        }
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
       }
-      onOpenChange(false);
     },
     [onAdd, onAdded, onOpenChange, selected]
   );
 
-  const pickNativeDirectory = async () => {
+  const continueToDirectory = async () => {
     if (!selected) {
       return;
     }
-    const path = await getServerApi(selected.id).projects.pickDirectory();
-    if (path) {
-      await addFromPath(path);
+    setError("");
+    if (!nativePicker) {
+      setStep("directory");
+      return;
+    }
+    setIsPicking(true);
+    try {
+      const path = await getServerApi(selected.id).projects.pickDirectory();
+      if (path) {
+        await addFromPath(path);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setIsPicking(false);
     }
   };
-
-  const picker = useMemo(() => {
-    if (!(open && selected) || nativePicker) {
-      return null;
-    }
-    return (
-      <DirectoryPicker
-        api={getServerApi(selected.id)}
-        key={selected.id}
-        onCancel={() => onOpenChange(false)}
-        onSelect={addFromPath}
-      />
-    );
-  }, [open, selected, nativePicker, addFromPath, onOpenChange]);
 
   const serverLabel = (id: string) => {
     const server = servers.find((item) => item.id === id);
@@ -239,39 +253,63 @@ export function AddProjectDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("add_project")}</DialogTitle>
-          <DialogDescription>{t("add_project_desc")}</DialogDescription>
+          <DialogDescription>
+            {step === "server"
+              ? t("add_project_server_desc")
+              : t("add_project_directory_desc")}
+          </DialogDescription>
         </DialogHeader>
-        {servers.length ? (
-          <div className="flex flex-wrap gap-1">
-            {servers.map((server) => (
-              <Button
-                className={cn("gap-2")}
-                key={server.id}
-                onClick={() => setServerId(server.id)}
-                size="sm"
-                variant={selected?.id === server.id ? "secondary" : "ghost"}
-              >
-                <HugeiconsIcon className="size-3.5" icon={MonitorIcon} />
-                {serverLabel(server.id)}
-                <ServerStatusBadge status={statuses[server.id]} />
-              </Button>
-            ))}
-          </div>
-        ) : null}
-        {nativePicker ? (
-          <div className="flex flex-col items-start gap-3 rounded-md border border-border p-4">
-            <p className="text-muted-foreground text-sm">
-              使用操作系统目录选择器选择本地项目目录。
-            </p>
-            <div className="flex gap-2">
-              <Button onClick={pickNativeDirectory}>Choose directory</Button>
+        {step === "server" ? (
+          <>
+            <DialogPanel className="flex flex-col gap-3">
+              <p className="font-medium text-sm">{t("select_server")}</p>
+              <div className="flex flex-col gap-2">
+                {servers.map((server) => (
+                  <Button
+                    aria-pressed={selected?.id === server.id}
+                    className="h-auto w-full justify-between px-3 py-3"
+                    key={server.id}
+                    onClick={() => setServerId(server.id)}
+                    variant={
+                      selected?.id === server.id ? "secondary" : "outline"
+                    }
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <HugeiconsIcon icon={PiIcon} />
+                      <span className="truncate">{serverLabel(server.id)}</span>
+                    </span>
+                    <ServerStatusBadge status={statuses[server.id]} />
+                  </Button>
+                ))}
+              </div>
+              {error ? (
+                <p className="text-destructive text-sm">{error}</p>
+              ) : null}
+            </DialogPanel>
+            <DialogFooter>
               <Button onClick={() => onOpenChange(false)} variant="ghost">
-                Cancel
+                {t("cancel")}
               </Button>
-            </div>
-          </div>
+              <Button
+                disabled={!selected || isPicking}
+                onClick={continueToDirectory}
+              >
+                {isPicking ? t("loading") : t("next")}
+              </Button>
+            </DialogFooter>
+          </>
         ) : (
-          picker
+          <DialogPanel className="flex flex-col gap-3">
+            {selected ? (
+              <DirectoryPicker
+                api={getServerApi(selected.id)}
+                key={selected.id}
+                onCancel={() => setStep("server")}
+                onSelect={addFromPath}
+              />
+            ) : null}
+            {error ? <p className="text-destructive text-sm">{error}</p> : null}
+          </DialogPanel>
         )}
       </DialogContent>
     </Dialog>

@@ -1,5 +1,6 @@
 import {
   AiBrain01Icon,
+  AlertCircleIcon,
   ArrowRight01Icon,
   Cancel01Icon,
   Copy01Icon,
@@ -19,7 +20,11 @@ import {
 } from "@/components/ui/collapsible";
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { Spinner } from "@/components/ui/spinner";
-import type { ChatMessage, ConversationTurn } from "@/lib/conversation-turns";
+import type {
+  ChatMessage,
+  ConversationTurn,
+  RetryNotice,
+} from "@/lib/conversation-turns";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -108,7 +113,8 @@ interface ToolItem {
 type Segment =
   | { id: string; kind: "markdown"; text: string; timestamp?: number }
   | { id: string; kind: "thinking"; running: boolean; text: string }
-  | { id: string; kind: "tools"; tools: ToolItem[] };
+  | { id: string; kind: "tools"; tools: ToolItem[] }
+  | { id: string; kind: "error"; retry?: RetryNotice; text: string };
 
 function toSegments(items: ConversationTurn["items"]): Segment[] {
   const segments: Segment[] = [];
@@ -145,11 +151,61 @@ function toSegments(items: ConversationTurn["items"]): Segment[] {
         running: item.status === "running",
         text: item.text,
       });
+    } else if (item.role === "error") {
+      segments.push({
+        id: item.id,
+        kind: "error",
+        retry: item.retry,
+        text: item.text,
+      });
     } else if (item.role === "tool") {
       pushTools(item);
     }
   }
   return segments;
+}
+
+// ---------- errors (rate limits, quota, prompt failures) ----------
+
+function ErrorSegment({
+  segment,
+}: {
+  segment: Extract<Segment, { kind: "error" }>;
+}) {
+  const { t } = useI18n();
+  if (segment.retry) {
+    const delay = Math.max(1, Math.round(segment.retry.delayMs / 1000));
+    return (
+      <div
+        className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-warning text-xs"
+        role="status"
+      >
+        <Spinner className="size-3 shrink-0" />
+        <span className="min-w-0 break-words">
+          {t("turn_retrying", {
+            attempt: String(segment.retry.attempt),
+            delay: String(delay),
+            maxAttempts: String(segment.retry.maxAttempts),
+            message: segment.text,
+          })}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div
+      className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs"
+      role="alert"
+    >
+      <div className="flex items-center gap-1.5 font-medium text-destructive">
+        <HugeiconsIcon className="size-3.5 shrink-0" icon={AlertCircleIcon} />
+        {t("turn_request_failed")}
+      </div>
+      <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">
+        {segment.text}
+      </p>
+    </div>
+  );
 }
 
 // ---------- thinking ----------
@@ -400,6 +456,9 @@ function ActivityMarker({
             if (segment.kind === "tools") {
               return <ToolsSegment key={segment.id} segment={segment} />;
             }
+            if (segment.kind === "error") {
+              return <ErrorSegment key={segment.id} segment={segment} />;
+            }
             return (
               <IntermediateTextSegment key={segment.id} segment={segment} />
             );
@@ -494,8 +553,14 @@ export function TurnCard({
   const finalMarkdown = [...segments]
     .reverse()
     .find((segment) => segment.kind === "markdown");
+  // Errors (rate limits, quota, prompt failures) stay visible in the body;
+  // only thinking, tools, and intermediate text fold into the activity list.
+  const errorSegments = segments.filter(
+    (segment): segment is Extract<Segment, { kind: "error" }> =>
+      segment.kind === "error"
+  );
   const activitySegments = segments.filter(
-    (segment) => segment !== finalMarkdown
+    (segment) => segment !== finalMarkdown && segment.kind !== "error"
   );
   const markdownSegments = finalMarkdown ? [finalMarkdown] : [];
   const branchEntryId =
@@ -566,6 +631,9 @@ export function TurnCard({
                   <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-foreground/70 align-text-bottom" />
                 ) : null}
               </div>
+            ))}
+            {errorSegments.map((segment) => (
+              <ErrorSegment key={segment.id} segment={segment} />
             ))}
           </div>
         </div>

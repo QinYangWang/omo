@@ -7,7 +7,7 @@ import {
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type MouseEvent, useState } from "react";
+import { useState } from "react";
 import {
   SessionActions,
   SessionDetailsHover,
@@ -57,21 +57,6 @@ function getVisibleSessions(
   return visibleSessions;
 }
 
-function scrollTitleOnHover(event: MouseEvent<HTMLElement>) {
-  const title = event.currentTarget.querySelector<HTMLElement>(
-    "[data-session-title]"
-  );
-  if (!title) {
-    return;
-  }
-  const shrink = Number(title.dataset.shrink ?? 0);
-  const visible = title.scrollWidth - title.clientWidth;
-  // Only compensate for the hover action buttons (shrink) when the title
-  // actually overflows, otherwise fitting titles would scroll needlessly.
-  const overflow = visible > 0 ? visible + shrink : 0;
-  title.style.setProperty("--marquee-dist", `${-Math.max(0, overflow)}px`);
-}
-
 function SessionRow({
   project,
   session,
@@ -99,65 +84,64 @@ function SessionRow({
     title: session.name || session.firstMessage || t("untitled"),
   };
   return (
-    <div className="group relative">
+    <div className="group/menu-item relative">
       <SessionDetailsHover project={project} session={session}>
         <Button
           className={cn(
-            "h-9 w-full justify-start rounded-lg pr-9 pl-8 text-left font-normal text-[13px] text-muted-foreground hover:text-foreground",
-            isActive && "bg-accent text-foreground"
+            "h-8 w-full justify-start gap-1.5 rounded-lg pl-2 text-left font-normal text-sidebar-foreground text-sm hover:bg-sidebar-accent hover:pr-14 hover:text-sidebar-accent-foreground group-focus-within/menu-item:pr-14 group-hover/menu-item:pr-14",
+            pinned || isStreaming ? "pr-14" : "pr-2",
+            isActive &&
+              "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
           )}
           onClick={onSelect}
-          onMouseEnter={scrollTitleOnHover}
           variant="ghost"
         >
           <span className="min-w-0 flex-1 overflow-hidden">
-            <span
-              className="block truncate group-hover:inline-block group-hover:w-max group-hover:animate-[omo-marquee_4s_ease-in-out_infinite_alternate] group-hover:overflow-visible group-hover:text-clip"
-              data-session-title
-              data-shrink="0"
-            >
+            <span className="block min-w-0 truncate">
               {session.name || session.firstMessage || t("untitled")}
             </span>
           </span>
         </Button>
       </SessionDetailsHover>
-      <Button
-        aria-label={pinned ? t("unpin_session") : t("pin_session")}
-        className={cn(
-          "absolute top-1 left-1 size-7 transition-opacity",
-          pinned
-            ? "opacity-80"
-            : "opacity-0 group-focus-within:opacity-70 group-hover:opacity-70"
-        )}
-        onClick={() =>
-          setSessionPref(prefKey, { ...snapshot, pinned: !pinned })
-        }
-        size="icon"
-        title={pinned ? t("unpin_session") : t("pin_session")}
-        type="button"
-        variant="ghost"
-      >
-        <HugeiconsIcon
-          className={cn(pinned && "fill-current")}
-          icon={PinIcon}
-        />
-      </Button>
-      <div className="absolute top-1 right-1 size-7">
-        {isStreaming ? (
-          <span className="absolute inset-0 flex items-center justify-center text-muted-foreground group-focus-within:hidden group-hover:hidden">
-            <Spinner className="size-3.5" />
-          </span>
-        ) : null}
-        <SessionActions
-          className="absolute inset-0 size-7 opacity-0 transition-opacity group-focus-within:opacity-70 group-hover:opacity-70"
-          onArchived={() =>
-            setSessionPref(prefKey, { ...snapshot, archived: true })
+      <div className="absolute top-1 right-1 flex h-6 items-center gap-1">
+        <Button
+          aria-label={pinned ? t("unpin_session") : t("pin_session")}
+          className={cn(
+            "size-6 transition-opacity",
+            pinned
+              ? "opacity-80"
+              : "opacity-0 group-focus-within/menu-item:opacity-70 group-hover/menu-item:opacity-70"
+          )}
+          onClick={() =>
+            setSessionPref(prefKey, { ...snapshot, pinned: !pinned })
           }
-          onChanged={onChanged}
-          onCloned={onCloned}
-          project={project}
-          session={session}
-        />
+          size="icon-xs"
+          title={pinned ? t("unpin_session") : t("pin_session")}
+          type="button"
+          variant="ghost"
+        >
+          <HugeiconsIcon
+            className={cn("size-4", pinned && "fill-current")}
+            icon={PinIcon}
+          />
+        </Button>
+        <div className="relative size-6">
+          {isStreaming ? (
+            <span className="absolute inset-0 flex items-center justify-center text-muted-foreground group-focus-within/menu-item:hidden group-hover/menu-item:hidden">
+              <Spinner className="size-3.5" />
+            </span>
+          ) : null}
+          <SessionActions
+            className="absolute inset-0 size-6 opacity-0 transition-opacity group-focus-within/menu-item:opacity-70 group-hover/menu-item:opacity-70"
+            onArchived={() =>
+              setSessionPref(prefKey, { ...snapshot, archived: true })
+            }
+            onChanged={onChanged}
+            onCloned={onCloned}
+            project={project}
+            session={session}
+          />
+        </div>
       </div>
     </div>
   );
@@ -173,6 +157,7 @@ export function Sidebar({
   onSelectSession,
   onImport,
   onOpenSettings,
+  onPrefetchSettings,
   onSessionsChanged,
 }: {
   projects: Project[];
@@ -184,6 +169,7 @@ export function Sidebar({
   onSelectSession: (project: Project, session: PiSession) => void;
   onImport: (project: Project, path: string) => Promise<void>;
   onOpenSettings: () => void;
+  onPrefetchSettings: () => void;
   onSessionsChanged: (
     project: Project,
     clonedPath?: string,
@@ -224,10 +210,10 @@ export function Sidebar({
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col">
-      <div className="flex flex-col gap-0.5 px-3 pt-2 pb-5">
+    <div className="flex h-full min-h-0 w-full flex-col text-sidebar-foreground">
+      <div className="flex flex-col gap-2 p-2">
         <Button
-          className="h-9 w-full justify-start gap-2.5 rounded-lg border border-sidebar-border/70 bg-background/40 px-2 font-normal shadow-xs"
+          className="h-8 w-full justify-start gap-1.5 rounded-lg border-sidebar-border bg-background px-2 font-normal shadow-xs/5"
           disabled={projects.length === 0}
           onClick={onNewSessionAny}
           variant="ghost"
@@ -236,20 +222,20 @@ export function Sidebar({
           {t("new_session")}
         </Button>
       </div>
-      <div className="group/header flex items-center justify-between px-5 pb-2 text-muted-foreground text-xs">
+      <div className="relative flex h-8 shrink-0 items-center rounded-lg px-4 font-medium text-sidebar-foreground text-xs">
         <span>{t("projects")}</span>
         <Button
           aria-label={t("add_project")}
-          className="size-6 opacity-60 hover:opacity-100 focus-visible:opacity-100"
+          className="absolute top-1.5 right-1 size-5 p-0 opacity-60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground hover:opacity-100 focus-visible:opacity-100"
           onClick={onRequestAddProject}
-          size="icon"
+          size="icon-xs"
           variant="ghost"
         >
-          <HugeiconsIcon className="size-4" icon={Add01Icon} />
+          <HugeiconsIcon className="size-3.5" icon={Add01Icon} />
         </Button>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-1 px-3 pb-4">
+      <ScrollArea className="min-h-0 flex-1" overscrollContain scrollFade>
+        <div className="flex flex-col gap-2 p-2">
           {projects.map((project) => {
             const decorated = (sessions[project.id] ?? []).flatMap(
               (session, index) => {
@@ -288,10 +274,10 @@ export function Sidebar({
                 open={expandedProjects[project.id] ?? true}
               >
                 <section>
-                  <div className="group flex h-9 items-center gap-2 rounded-lg px-2 transition-colors hover:bg-muted dark:hover:bg-muted/50">
-                    <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                  <div className="group flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+                    <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
                       <HugeiconsIcon
-                        className="size-4 shrink-0 text-muted-foreground"
+                        className="size-4 shrink-0 text-sidebar-foreground"
                         icon={Folder03Icon}
                       />
                       <span className="min-w-0 flex-1 truncate font-medium text-sm">
@@ -328,7 +314,7 @@ export function Sidebar({
                     </Button>
                   </div>
                   <CollapsibleContent>
-                    <div>
+                    <div className="mt-1 ml-3.5 flex flex-col gap-1 border-sidebar-border border-l pl-2.5">
                       {visibleSessions.map((session) => {
                         const key = sessionKey(project.serverId, session.path);
                         const pinned = !!prefs[key]?.pinned;
@@ -339,9 +325,14 @@ export function Sidebar({
                               activeSession === session.id
                             }
                             isStreaming={
-                              streamingSessions[
+                              (streamingSessions[
                                 `${project.serverId}:${session.id}`
-                              ] ?? false
+                              ] ??
+                                false) ||
+                              (streamingSessions[
+                                `${project.serverId}:${session.path}`
+                              ] ??
+                                false)
                             }
                             key={session.path}
                             onChanged={(name) =>
@@ -365,7 +356,7 @@ export function Sidebar({
                       })}
                       {projectSessionItems.length > COLLAPSED_SESSION_LIMIT ? (
                         <Button
-                          className="h-7 w-full justify-start pr-2 pl-8 font-normal text-muted-foreground text-xs"
+                          className="h-7 w-full justify-start rounded-lg px-2 font-normal text-sidebar-foreground text-xs hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           onClick={() =>
                             setExpandedSessionLists((current) => ({
                               ...current,
@@ -389,11 +380,13 @@ export function Sidebar({
           })}
         </div>
       </ScrollArea>
-      <div className="p-3">
+      <div className="p-2">
         <Button
           aria-label={t("settings")}
-          className="h-9 w-full justify-start gap-2.5 px-2 font-normal text-muted-foreground"
+          className="h-8 w-full justify-start gap-1.5 px-2 font-normal text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           onClick={onOpenSettings}
+          onFocus={onPrefetchSettings}
+          onPointerEnter={onPrefetchSettings}
           variant="ghost"
         >
           <HugeiconsIcon className="size-4" icon={Settings01Icon} />
@@ -416,7 +409,7 @@ export function Sidebar({
             <div className="space-y-1 pr-2">
               {projectSessions.map((session) => (
                 <Button
-                  className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 text-left font-normal"
+                  className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 text-left font-normal sm:h-auto"
                   key={session.path}
                   onClick={async () => {
                     if (!importProject) {

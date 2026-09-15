@@ -96,6 +96,16 @@ function appendAssistantMessage(message, items, tools) {
     }
   }
   appendText();
+  if (message.stopReason === "error") {
+    // Failed LLM call (rate limit, quota, transport): keep it visible instead
+    // of rendering an empty turn.
+    items.push({
+      id: crypto.randomUUID(),
+      role: "error",
+      text: clip(message.errorMessage || "Unknown error", 8000),
+      timestamp: message.timestamp,
+    });
+  }
 }
 
 function appendToolResult(message, items, tools) {
@@ -167,6 +177,40 @@ function finalizeDanglingTools(items) {
   }
 }
 
+function pruneTurnErrors(items, start, end) {
+  // Error items record failed LLM attempts. Attempts followed by more output
+  // in the same turn were retried and recovered, so they are transient noise;
+  // when the turn ends in errors, keep only the last one as the outcome.
+  let lastNonError = start - 1;
+  for (let index = end - 1; index >= start; index -= 1) {
+    if (items[index].role !== "error") {
+      lastNonError = index;
+      break;
+    }
+  }
+  const kept = items
+    .slice(start, lastNonError + 1)
+    .filter((item) => item.role !== "error");
+  const trailing = items.slice(lastNonError + 1, end);
+  if (trailing.length) {
+    kept.push(trailing.at(-1));
+  }
+  return kept;
+}
+
+function pruneTransientErrors(items) {
+  const result = [];
+  let start = 0;
+  for (let index = 0; index < items.length; index += 1) {
+    if (items[index].role === "user" && index > start) {
+      result.push(...pruneTurnErrors(items, start, index));
+      start = index;
+    }
+  }
+  result.push(...pruneTurnErrors(items, start, items.length));
+  return result;
+}
+
 function displayMessages(messages) {
   const items = [];
   const tools = new Map();
@@ -180,7 +224,7 @@ function displayMessages(messages) {
     }
   }
   finishTurns(items);
-  return items;
+  return pruneTransientErrors(items);
 }
 
 function sessionHistoryMessages(manager) {

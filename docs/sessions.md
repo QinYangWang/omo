@@ -122,6 +122,7 @@ Virtuoso 设置了 `firstItemIndex={start}`，其公开 API（`scrollToIndex`、
 - assistant thinking：生成 `role: "thinking"`。
 - tool call：生成 `role: "tool"`，初始状态为 running。
 - tool result：按 tool call ID 写回 output 和状态。
+- 错误与重试：`omo_error`、assistant `message_end`（`stopReason: "error"` 时立即生成错误块）、`agent_end`（以 run 最后一条 assistant 消息为准的兜底）、`auto_retry_start` / `auto_retry_end` 生成或更新 `role: "error"` 项；assistant `message_start` 会清除重试提示与上一次失败留下的尾部错误项。
 
 Electron 本地历史还会在 Assistant turn 结束时设置：
 
@@ -159,9 +160,13 @@ ChatView 处理已实现的事件：
 - `message_end`
 - `turn_start`
 - `turn_end`
-- `omo_error`
+- `agent_end`（`willRetry: true` 表示自动重试中的中间结束，仅保持 streaming；`willRetry: false` 时若 run 最后一条 assistant 消息为 `stopReason: "error"`，兜底补出错误块）
+- `auto_retry_start` / `auto_retry_end`（429、限流等可重试失败：先把该次失败的错误块折叠为“N 秒后重试（第 n/m 次）”的 warning 提示，成功或下一次 `message_start` 时移除，最终失败保留错误块）
+- `omo_error`（Prompt 被拒绝等运行时错误：渲染错误块并立即清除 streaming 状态）
 
 text 和 thinking delta 追加到当前 Session 最后一个对应消息；tool call delta 追加输入；tool execution end 写入 output、状态和耗时。
+
+错误以 `role: "error"` 的 ChatMessage 进入 Turn items，TurnCard 在正文中直接渲染（不折叠进活动列表）：重试中的提示使用 warning 样式 + Spinner，最终失败使用 destructive 样式并附原始错误信息（如 `429 rate limit exceeded`、`insufficient_quota`）。历史侧 `server/display-messages.cjs` 把持久化的 `stopReason: "error"` assistant 消息转换为同样的错误项；同一 Turn 内已被后续成功输出覆盖的瞬时错误会被剪除，以失败收尾的 Turn 只保留最后一条错误。
 
 ## 并行会话与流式状态
 
@@ -170,7 +175,8 @@ Agent 生命周期不属于 `ChatView`。执行端以 client Session ID 缓存�
 渲染层使用 `${serverId}:${sessionId}` 作为隔离键，维护每个 Session 的 Turn window、streaming 状态和输入草稿。每个后端 API 只安装一个长期事件桥，事件先按 Session ID 写入对应缓存，再通知当前可见的 `ChatView`；不可见 Session 的 delta 不会被丢弃。重新进入会话时组件从缓存恢复，而不是继承上一个会话的输入框或 streaming 状态。文本草稿同时写入 localStorage，图片和文件附件仅保留在当前 renderer 内存中，避免把文件内容持久化到浏览器存储。
 
 - Assistant `message_start` 将对应 Session 标记为 streaming。
-- `agent_end` 只清除对应 Session 的 streaming，并标记其最后一个 Assistant block 的完成时间和耗时。
+- draft 首次 Prompt 返回持久化 `sessionId` 和 `sessionFile` 后，`session-streaming.ts` 将这两个标识绑定为 client Session key 的别名；侧栏同时按 ID 与路径读取状态，因此多个并行新会话都能显示各自的 Spinner。
+- `agent_end` 只清除对应 Session 及其别名的 streaming，并标记其最后一个 Assistant block 的完成时间和耗时；手动 Abort 或 Prompt 失败也立即清除状态，并把仍为 running 的 thinking block 标记完成。
 - streaming 期间仅该 Session 最后一个 Turn 渲染闪烁光标与运行状态；`omo_session_file` 触发的文件同步在该 Session streaming 期间跳过。
 - 当前 Session 正 streaming 时，新 Prompt 使用 `streamingBehavior: "followUp"`。
 - 非 streaming 时直接调用 Pi `session.prompt`。

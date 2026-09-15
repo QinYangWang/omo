@@ -8,15 +8,17 @@ import {
   CpuIcon,
   Delete02Icon,
   KeyRoundIcon,
+  Loading03Icon,
   PackageIcon,
   PaintBoardIcon,
   PencilEdit01Icon,
+  PiIcon,
   RotateCcwIcon,
   ServerStack01Icon,
-  SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
+import { PanelDivider } from "@/components/PanelDivider";
 import { ProvidersSection } from "@/components/ProvidersSection";
 import { ServerTabs, useSelectedServer } from "@/components/ServerTabs";
 import { ServerStatusBadge } from "@/components/server-status-badge";
@@ -29,10 +31,12 @@ import {
 } from "@/components/ui/collapsible";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -81,7 +85,7 @@ const sections = [
   ["section_servers", "Servers", ServerStack01Icon],
   ["section_providers", "Providers", KeyRoundIcon],
   ["section_models", "Models", CpuIcon],
-  ["section_skills", "Skills", SparklesIcon],
+  ["section_skills", "Skills", PiIcon],
   ["section_usage", "Usage", ChartColumnIcon],
   ["section_packages", "Packages", PackageIcon],
 ] as const;
@@ -95,23 +99,31 @@ const tokenNamePattern = /^--/;
 
 export function SettingsView({
   onBack,
+  onResizeSidebar,
   sidebarOpen = true,
+  sidebarWidth = 310,
 }: {
   onBack: () => void;
+  onResizeSidebar: (dx: number) => void;
   sidebarOpen?: boolean;
+  sidebarWidth?: number;
 }) {
   const { t } = useI18n();
   const [section, setSection] = useState<Section>("Servers");
   return (
-    <div className="flex h-full bg-background">
+    <div className="relative flex h-full min-h-0 overflow-hidden bg-sidebar">
       {sidebarOpen ? (
-        <div className="flex w-60 shrink-0 flex-col bg-sidebar">
-          <nav className="flex flex-col gap-0.5 px-3 pt-3">
+        <div
+          className="flex shrink-0 flex-col bg-sidebar text-sidebar-foreground"
+          style={{ width: sidebarWidth }}
+        >
+          <nav className="flex flex-col gap-1 p-2">
             {sections.map(([key, s, Icon]) => (
               <Button
                 className={cn(
-                  "h-auto justify-start gap-2 rounded-md px-2 py-2 font-normal text-muted-foreground text-sm hover:text-foreground",
-                  section === s && "bg-accent text-foreground"
+                  "h-8 justify-start gap-2 rounded-lg px-2 font-normal text-sidebar-foreground text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  section === s &&
+                    "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                 )}
                 key={s}
                 onClick={() => setSection(s)}
@@ -122,9 +134,9 @@ export function SettingsView({
               </Button>
             ))}
           </nav>
-          <div className="mt-auto p-3">
+          <div className="mt-auto p-2">
             <Button
-              className="h-9 w-full justify-start gap-2.5 px-2 font-normal text-muted-foreground"
+              className="h-8 w-full justify-start gap-2 px-2 font-normal text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               onClick={onBack}
               type="button"
               variant="ghost"
@@ -135,23 +147,28 @@ export function SettingsView({
           </div>
         </div>
       ) : null}
-      <ScrollArea
-        className={cn(
-          "min-w-0 flex-1 border-border border-t bg-background",
-          sidebarOpen && "rounded-tl-lg border-l"
-        )}
-      >
-        <div className="mx-auto w-full max-w-3xl px-6 py-8">
-          {section === "Servers" && <ServersSection />}
-          {section === "Providers" && <ProvidersSection />}
-          {section === "Models" && <ModelsSection />}
-          {section === "Skills" && <SkillsSection />}
-          {section === "Usage" && <UsageSection />}
-          {section === "Packages" && <PackagesSection />}
-          {section === "Appearance" && <AppearanceSection />}
-          {section === "Archived" && <ArchivedSection />}
-        </div>
-      </ScrollArea>
+      {sidebarOpen ? (
+        <PanelDivider
+          className="top-0 bg-transparent hover:bg-transparent group-hover:bg-transparent"
+          onDrag={onResizeSidebar}
+        />
+      ) : null}
+      <div className="flex min-w-0 flex-1 p-2">
+        <main className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border bg-background shadow-sm/5">
+          <ScrollArea className="h-full">
+            <div className="mx-auto w-full max-w-3xl px-6 py-8">
+              {section === "Servers" && <ServersSection />}
+              {section === "Providers" && <ProvidersSection />}
+              {section === "Models" && <ModelsSection />}
+              {section === "Skills" && <SkillsSection />}
+              {section === "Usage" && <UsageSection />}
+              {section === "Packages" && <PackagesSection />}
+              {section === "Appearance" && <AppearanceSection />}
+              {section === "Archived" && <ArchivedSection />}
+            </div>
+          </ScrollArea>
+        </main>
+      </div>
     </div>
   );
 }
@@ -267,54 +284,100 @@ function ServerFormDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {server ? t("server_edit") : t("server_add")}
-          </DialogTitle>
-          <DialogDescription>{t("servers_desc")}</DialogDescription>
+      <DialogContent className="max-w-md">
+        <DialogHeader className="pb-4">
+          <div className="flex items-start gap-3 pr-8">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+              <HugeiconsIcon className="size-5" icon={ServerStack01Icon} />
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <DialogTitle>
+                {server ? t("server_edit") : t("server_add")}
+              </DialogTitle>
+              <DialogDescription>{t("servers_desc")}</DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
-        <label className="flex flex-col gap-2 text-sm" htmlFor="server-name">
-          {t("server_name")}
-          <Input
-            disabled={server?.kind === "local"}
-            id="server-name"
-            onChange={(event) => setName(event.target.value)}
-            placeholder="omo @ example"
-            value={name}
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-sm" htmlFor="server-url">
-          {t("server_url")}
-          <Input
-            disabled={server?.kind === "local"}
-            id="server-url"
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://omo.example.com"
-            value={url}
-          />
-        </label>
-        <label className="flex flex-col gap-2 text-sm" htmlFor="server-token">
-          {t("server_token")}
-          <Input
-            id="server-token"
-            onChange={(event) => setToken(event.target.value)}
-            placeholder="Bearer token"
-            type="password"
-            value={token}
-          />
-        </label>
-        {status ? (
-          <p className="text-muted-foreground text-sm">{status}</p>
-        ) : null}
-        <DialogFooter>
-          <Button disabled={!url || busy} onClick={test} variant="outline">
-            {t("server_test")}
-          </Button>
-          <Button disabled={!url || busy} onClick={save}>
-            {t("server_save")}
-          </Button>
-        </DialogFooter>
+        <form
+          className="contents"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (url && !busy) {
+              save();
+            }
+          }}
+        >
+          <DialogPanel className="flex flex-col gap-4">
+            <label
+              className="flex flex-col gap-2 font-medium text-sm"
+              htmlFor="server-name"
+            >
+              {t("server_name")}
+              <Input
+                disabled={server?.kind === "local" || busy}
+                id="server-name"
+                onChange={(event) => setName(event.target.value)}
+                placeholder="omo @ example"
+                value={name}
+              />
+            </label>
+            <label
+              className="flex flex-col gap-2 font-medium text-sm"
+              htmlFor="server-url"
+            >
+              {t("server_url")}
+              <Input
+                disabled={server?.kind === "local" || busy}
+                id="server-url"
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="https://omo.example.com"
+                value={url}
+              />
+            </label>
+            <label
+              className="flex flex-col gap-2 font-medium text-sm"
+              htmlFor="server-token"
+            >
+              {t("server_token")}
+              <Input
+                disabled={busy}
+                id="server-token"
+                onChange={(event) => setToken(event.target.value)}
+                placeholder="Bearer token"
+                type="password"
+                value={token}
+              />
+            </label>
+            {status ? (
+              <p className="rounded-lg bg-muted px-3 py-2 text-muted-foreground text-sm">
+                {status}
+              </p>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter variant="bare">
+            <DialogClose render={<Button type="button" variant="outline" />}>
+              {t("cancel")}
+            </DialogClose>
+            <Button
+              disabled={!url || busy}
+              onClick={test}
+              type="button"
+              variant="outline"
+            >
+              {t("server_test")}
+            </Button>
+            <Button disabled={!url || busy} type="submit">
+              {busy ? (
+                <HugeiconsIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                  icon={Loading03Icon}
+                />
+              ) : null}
+              {t("server_save")}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -654,27 +717,46 @@ function AppearanceSection() {
       </div>
       <Dialog onOpenChange={setPasteOpen} open={pasteOpen}>
         <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{t("theme_import")}</DialogTitle>
-            <DialogDescription>{t("theme_paste_desc")}</DialogDescription>
+          <DialogHeader className="pb-4">
+            <div className="flex items-start gap-3 pr-8">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                <HugeiconsIcon className="size-5" icon={PaintBoardIcon} />
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <DialogTitle>{t("theme_import")}</DialogTitle>
+                <DialogDescription>{t("theme_paste_desc")}</DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <Textarea
-            autoFocus
-            className="h-56 resize-none font-mono text-xs"
-            onChange={(event) => setPasteCss(event.target.value)}
-            placeholder={
-              ":root {\n  --background: oklch(1 0 0);\n  ...\n}\n\n.dark {\n  --background: oklch(0.145 0 0);\n  ...\n}"
-            }
-            value={pasteCss}
-          />
-          <DialogFooter>
-            <Button onClick={() => setPasteOpen(false)} variant="ghost">
-              Cancel
-            </Button>
-            <Button disabled={!pasteCss.trim()} onClick={applyPasted}>
-              {t("theme_import_apply")}
-            </Button>
-          </DialogFooter>
+          <form
+            className="contents"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (pasteCss.trim()) {
+                applyPasted();
+              }
+            }}
+          >
+            <DialogPanel>
+              <Textarea
+                autoFocus
+                className="h-56 resize-none font-mono text-xs"
+                onChange={(event) => setPasteCss(event.target.value)}
+                placeholder={
+                  ":root {\n  --background: oklch(1 0 0);\n  ...\n}\n\n.dark {\n  --background: oklch(0.145 0 0);\n  ...\n}"
+                }
+                value={pasteCss}
+              />
+            </DialogPanel>
+            <DialogFooter variant="bare">
+              <DialogClose render={<Button type="button" variant="outline" />}>
+                {t("cancel")}
+              </DialogClose>
+              <Button disabled={!pasteCss.trim()} type="submit">
+                {t("theme_import_apply")}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
@@ -957,6 +1039,14 @@ function ServerPackages({ serverId }: { serverId: string }) {
     }
   };
 
+  const installPackage = () =>
+    run(async () => {
+      const next = await getServerApi(serverId).packages.install(source.trim());
+      setInstallOpen(false);
+      setSource("");
+      return next;
+    });
+
   return (
     <div className="flex max-w-2xl flex-col gap-5">
       <div className="flex items-start justify-between gap-4">
@@ -1020,46 +1110,54 @@ function ServerPackages({ serverId }: { serverId: string }) {
         ) : null}
       </div>
       <Dialog onOpenChange={setInstallOpen} open={installOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("package_install")}</DialogTitle>
-            <DialogDescription>{t("package_install_desc")}</DialogDescription>
+        <DialogContent className="max-w-md">
+          <DialogHeader className="pb-4">
+            <div className="flex items-start gap-3 pr-8">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                <HugeiconsIcon className="size-5" icon={PackageIcon} />
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <DialogTitle>{t("package_install")}</DialogTitle>
+                <DialogDescription>
+                  {t("package_install_desc")}
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <Input
-            autoFocus
-            onChange={(event) => setSource(event.target.value)}
-            onKeyDown={(event) =>
-              event.key === "Enter" &&
-              source &&
-              run(async () => {
-                const next = await getServerApi(serverId).packages.install(
-                  source.trim()
-                );
-                setInstallOpen(false);
-                setSource("");
-                return next;
-              })
-            }
-            placeholder="npm:@scope/pkg@1.0.0"
-            value={source}
-          />
-          <DialogFooter>
-            <Button
-              disabled={!source.trim() || busy}
-              onClick={() =>
-                run(async () => {
-                  const next = await getServerApi(serverId).packages.install(
-                    source.trim()
-                  );
-                  setInstallOpen(false);
-                  setSource("");
-                  return next;
-                })
+          <form
+            className="contents"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (source.trim() && !busy) {
+                installPackage();
               }
-            >
-              {t("package_install")}
-            </Button>
-          </DialogFooter>
+            }}
+          >
+            <DialogPanel>
+              <Input
+                autoFocus
+                disabled={busy}
+                onChange={(event) => setSource(event.target.value)}
+                placeholder="npm:@scope/pkg@1.0.0"
+                value={source}
+              />
+            </DialogPanel>
+            <DialogFooter variant="bare">
+              <DialogClose render={<Button type="button" variant="outline" />}>
+                {t("cancel")}
+              </DialogClose>
+              <Button disabled={!source.trim() || busy} type="submit">
+                {busy ? (
+                  <HugeiconsIcon
+                    className="animate-spin"
+                    data-icon="inline-start"
+                    icon={Loading03Icon}
+                  />
+                ) : null}
+                {t("package_install")}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

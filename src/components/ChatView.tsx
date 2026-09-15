@@ -1,7 +1,6 @@
 import {
   Add01Icon,
   AiBrain01Icon,
-  ArrowRight01Icon,
   ArrowUp02Icon,
   Cancel01Icon,
   FileAttachmentIcon,
@@ -11,13 +10,19 @@ import {
   GitBranchIcon,
   Image01Icon,
   Loading03Icon,
-  MonitorIcon,
+  PiIcon,
   Search01Icon,
-  SparklesIcon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { type ListRange, Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import {
   AiAgentInput,
@@ -35,6 +40,20 @@ import { ImagePreviews, TurnCard } from "@/components/chat/turn-card";
 import { ProviderIcon } from "@/components/provider-icon";
 import { Button } from "@/components/ui/button";
 import {
+  Combobox,
+  ComboboxCollection,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxGroupLabel,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSeparator,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox";
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -51,19 +70,13 @@ import {
 import {
   Empty,
   EmptyContent,
-  EmptyDescription,
   EmptyHeader,
   EmptyMedia,
-  EmptyTitle,
 } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
-import {
   Select,
+  SelectButton,
   SelectContent,
   SelectGroup,
   SelectItem,
@@ -92,6 +105,7 @@ import { useI18n } from "@/lib/i18n";
 import { adaptPiEvent, adaptPiMessages } from "@/lib/pi-adapter";
 import { getServerApi } from "@/lib/servers";
 import {
+  bindSessionStreamingAliases,
   isSessionStreaming,
   setSessionStreaming,
 } from "@/lib/session-streaming";
@@ -632,11 +646,12 @@ interface SessionBinding {
 async function sendPrompt(
   api: omoApi,
   key: string,
+  cacheKey: string,
   session: ActiveSession,
   prepared: { text: string; images: ImageContent[] },
   title: string,
   onSessionBound: (binding: SessionBinding) => void
-) {
+): Promise<void> {
   const promptImages = prepared.images.map(({ type, data, mimeType }) => ({
     data,
     mimeType,
@@ -649,9 +664,16 @@ async function sendPrompt(
     session.path,
     promptImages
   );
-  // A draft session gets its JSONL file on the first prompt; bind the
-  // path so the sidebar lists it and the header shows its title.
+  // A draft session gets its JSONL file on the first prompt. Its persisted
+  // id differs from the client key that owns the live agent, so bind both
+  // persisted identifiers before the sidebar row appears.
   if (!session.path && result?.sessionFile) {
+    bindSessionStreamingAliases(cacheKey, [
+      sessionCacheKey(session.serverId, result.sessionFile),
+      ...(result.sessionId
+        ? [sessionCacheKey(session.serverId, result.sessionId)]
+        : []),
+    ]);
     onSessionBound({
       key,
       path: result.sessionFile,
@@ -662,6 +684,7 @@ async function sendPrompt(
 }
 
 export function ChatView({
+  draftKey = "draft",
   session,
   projects,
   onSelectProject,
@@ -669,6 +692,7 @@ export function ChatView({
   onClearProject,
   onSessionBound,
 }: {
+  draftKey?: string;
   session: ActiveSession | null;
   projects: Project[];
   onSelectProject: (project: Project) => void;
@@ -676,10 +700,9 @@ export function ChatView({
   onClearProject: () => void;
   onSessionBound: (binding: SessionBinding) => void;
 }) {
-  const { t } = useI18n();
   const serverId = session?.serverId ?? "local";
   const api = getServerApi(serverId);
-  const key = session?.key ?? "draft";
+  const key = session?.key ?? draftKey;
   const cacheKey = sessionCacheKey(serverId, key);
   const sessionCwd = session?.cwd;
   const sessionPath = session?.path;
@@ -1074,7 +1097,7 @@ export function ChatView({
       subscribeFileSync(cacheKey, () => {
         // Session JSONL changed on disk (e.g. the same session is active in
         // the pi TUI). Debounce and re-read the tail from disk.
-        // biome-ignore lint/suspicious/noUnnecessaryConditions: the ref is mutated by the streaming subscription.
+        // biome-ignore lint/suspicious/noUnnecessaryConditions: the ref is updated by the streaming subscription.
         if (streamingRef.current) {
           return;
         }
@@ -1192,12 +1215,28 @@ export function ChatView({
     setImages([]);
     setFileAttachments([]);
     setCompletion(null);
+    setSessionStreaming(cacheKey, true);
     setStreaming(true);
     if (session) {
       try {
-        await sendPrompt(api, key, session, prepared, value, onSessionBound);
+        await sendPrompt(
+          api,
+          key,
+          cacheKey,
+          session,
+          prepared,
+          value,
+          onSessionBound
+        );
       } catch (error) {
-        setInputError(error instanceof Error ? error.message : String(error));
+        failPrompt(
+          cacheKey,
+          windows.get(cacheKey) ?? turnWindow,
+          error,
+          setWindow,
+          setStreaming,
+          setInputError
+        );
       }
     }
   };
@@ -1222,6 +1261,11 @@ export function ChatView({
         try {
           await api.pi.abort(key);
         } finally {
+          const current = windows.get(cacheKey);
+          if (current) {
+            completeLastTurn(current, setWindow);
+          }
+          setSessionStreaming(cacheKey, false);
           setStreaming(false);
         }
       }}
@@ -1308,19 +1352,13 @@ export function ChatView({
       <div className="flex h-full flex-col justify-center overflow-y-auto px-4 pb-10">
         <Empty className="flex-none gap-6 px-0 pt-8 pb-7">
           <EmptyHeader className="max-w-lg gap-3">
-            <EmptyMedia className="mb-3 size-10 rounded-lg border border-border/60 bg-muted/50">
+            <EmptyMedia className="mb-3 size-12 rounded-lg border-0 bg-background">
               <HugeiconsIcon
-                className="size-5"
-                icon={SparklesIcon}
+                className="size-7"
+                icon={PiIcon}
                 strokeWidth={1.6}
               />
             </EmptyMedia>
-            <EmptyTitle className="text-2xl tracking-tight">
-              {t("task_welcome")}
-            </EmptyTitle>
-            <EmptyDescription>
-              {t("working_in_project", { name: session.project })}
-            </EmptyDescription>
           </EmptyHeader>
         </Empty>
         <div className="mx-auto w-full max-w-3xl">{input}</div>
@@ -1402,53 +1440,49 @@ function NewTaskEmpty({
   return (
     <Empty className="h-full gap-5 overflow-y-auto rounded-none px-4 pt-8 pb-10">
       <EmptyHeader className="max-w-lg gap-3">
-        <EmptyMedia className="mb-2 size-10 rounded-lg border border-border/60 bg-muted/50">
-          <HugeiconsIcon
-            className="size-5"
-            icon={SparklesIcon}
-            strokeWidth={1.6}
-          />
+        <EmptyMedia className="mb-2 size-12 rounded-lg border-0 bg-background">
+          <HugeiconsIcon className="size-7" icon={PiIcon} />
         </EmptyMedia>
-        <EmptyTitle className="text-2xl tracking-tight">
-          {t("task_welcome")}
-        </EmptyTitle>
-        <EmptyDescription>{t("choose_project_desc")}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent className="w-full gap-1.5">
-        <p className="w-full px-1 pb-1 text-left text-muted-foreground text-xs">
-          {t("choose_project_start")}
-        </p>
-        {visibleProjects.map((project) => (
-          <Button
-            className="group h-auto w-full justify-start rounded-md px-3 py-2 text-left hover:bg-accent"
-            key={project.id}
-            onClick={() => onSelectProject(project)}
-            variant="ghost"
-          >
-            <span className="flex min-w-0 items-center gap-2.5">
-              <HugeiconsIcon data-icon="inline-start" icon={Folder01Icon} />
-              <span className="min-w-0">
-                <span className="block truncate font-medium text-sm">
-                  {project.name}
+        <div className="w-full px-1">
+          <p className="w-full pb-1 text-left text-muted-foreground text-xs">
+            {t("choose_project_start")}
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {visibleProjects.map((project) => (
+              <Button
+                className="group h-auto w-full justify-start rounded-md px-3 py-1.5 text-left hover:bg-accent sm:h-auto"
+                key={project.id}
+                onClick={() => onSelectProject(project)}
+                variant="ghost"
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <HugeiconsIcon data-icon="inline-start" icon={Folder01Icon} />
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-sm leading-5">
+                      {project.name}
+                    </span>
+                    <span className="block truncate text-muted-foreground text-xs leading-4">
+                      {project.cwd}
+                    </span>
+                  </span>
                 </span>
-                <span className="block truncate text-muted-foreground text-xs">
-                  {project.cwd}
-                </span>
-              </span>
-            </span>
-          </Button>
-        ))}
-        <Button
-          className={cn(
-            "mt-1 h-9 w-full rounded-md",
-            projects.length > 0 && "text-muted-foreground"
-          )}
-          onClick={onAddProject}
-          variant={projects.length ? "ghost" : "default"}
-        >
-          <HugeiconsIcon data-icon="inline-start" icon={FolderAddIcon} />
-          {t("add_project")}
-        </Button>
+              </Button>
+            ))}
+            <Button
+              className={cn(
+                "mt-1 h-9 w-full rounded-md",
+                projects.length > 0 && "text-muted-foreground"
+              )}
+              onClick={onAddProject}
+              variant={projects.length ? "ghost" : "default"}
+            >
+              <HugeiconsIcon data-icon="inline-start" icon={FolderAddIcon} />
+              {t("add_project")}
+            </Button>
+          </div>
+        </div>
       </EmptyContent>
     </Empty>
   );
@@ -1568,6 +1602,7 @@ function PromptInput({
   const canSubmit = Boolean(
     streaming || text.trim() || images.length || fileAttachments.length
   );
+  const sessionCreated = Boolean(session?.path);
   const openWorkspaceFile = () => {
     const cursor = inputRef.current?.selectionStart ?? text.length;
     const before = text.slice(0, cursor);
@@ -1583,46 +1618,50 @@ function PromptInput({
   };
   return (
     <div>
-      <div className="mb-2 flex h-7 items-center gap-1 px-1 text-muted-foreground text-xs">
-        <ProjectSelect
-          onAdd={onAddProject}
-          onClear={onClearProject}
-          onSelect={onSelectProject}
-          projects={projects}
-          value={session?.projectId ?? ""}
-        />
-        <CompactSelect
-          icon={<HugeiconsIcon className="size-3.5" icon={MonitorIcon} />}
-          items={[
-            {
-              icon: <HugeiconsIcon className="size-3.5" icon={MonitorIcon} />,
-              label: t("local"),
-              value: "local",
-            },
-            {
+      {sessionCreated ? null : (
+        <div className="mb-2 flex min-h-7 flex-wrap items-center gap-1.5 px-1 text-muted-foreground text-xs">
+          <ProjectSelect
+            onAdd={onAddProject}
+            onClear={onClearProject}
+            onSelect={onSelectProject}
+            projects={projects}
+            value={session?.projectId ?? ""}
+          />
+          <CompactSelect
+            icon={<HugeiconsIcon className="size-3.5" icon={PiIcon} />}
+            items={[
+              {
+                icon: <HugeiconsIcon className="size-3.5" icon={PiIcon} />,
+                label: t("local"),
+                value: "local",
+              },
+              {
+                icon: (
+                  <HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />
+                ),
+                label: t("worktree"),
+                value: "worktree",
+              },
+            ]}
+            onChange={onChangeMode}
+            value={mode}
+          />
+          <CompactSelect
+            addLabel={t("new_branch")}
+            disabled={!branches.length}
+            icon={<HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />}
+            items={branches.map((branch) => ({
               icon: <HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />,
-              label: t("worktree"),
-              value: "worktree",
-            },
-          ]}
-          onChange={onChangeMode}
-          value={mode}
-        />
-        <CompactSelect
-          addLabel={t("new_branch")}
-          disabled={!branches.length}
-          icon={<HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />}
-          items={branches.map((branch) => ({
-            icon: <HugeiconsIcon className="size-3.5" icon={GitBranchIcon} />,
-            label: branch.name,
-            value: branch.name,
-          }))}
-          onAdd={() => setBranchDialog(true)}
-          onChange={noop}
-          placeholder={t("no_branch")}
-          value={branches.find((branch) => branch.current)?.name ?? ""}
-        />
-      </div>
+              label: branch.name,
+              value: branch.name,
+            }))}
+            onAdd={() => setBranchDialog(true)}
+            onChange={noop}
+            placeholder={t("no_branch")}
+            value={branches.find((branch) => branch.current)?.name ?? ""}
+          />
+        </div>
+      )}
       <div className="relative">
         {completion ? (
           <CompletionMenu
@@ -1733,7 +1772,7 @@ function PromptInput({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="start"
-                  className="w-44 rounded-[10px] p-[3px] text-xs"
+                  className="w-44 p-1 text-xs"
                   side="top"
                 >
                   <DropdownMenuGroup>
@@ -1836,10 +1875,31 @@ function cloneTurnWindow(current: TurnWindow): TurnWindow {
   };
 }
 
-function completeLastAssistant(
+function failPrompt(
+  cacheKey: string,
+  current: TurnWindow,
+  error: unknown,
+  setWindow: (next: TurnWindow) => void,
+  setStreaming: (value: boolean) => void,
+  setInputError: (message: string) => void
+) {
+  const message = error instanceof Error ? error.message : String(error);
+  setSessionStreaming(cacheKey, false);
+  setStreaming(false);
+  setInputError(message);
+  // Mirror the failure into the conversation so it stays visible after the
+  // composer error is cleared.
+  setWindow(
+    appendMessages(current, [
+      { id: randomUUID(), role: "error", text: message },
+    ])
+  );
+}
+
+function completeLastTurn(
   current: TurnWindow,
   setWindow: (next: TurnWindow) => void
-) {
+): void {
   const next = cloneTurnWindow(current);
   const last = next.turns.at(-1);
   if (!last) {
@@ -1852,11 +1912,11 @@ function completeLastAssistant(
       break;
     }
   }
-  if (lastAssistantIndex < 0) {
-    return;
-  }
   const completedAt = Date.now();
   last.items = last.items.map((item, index) => {
+    if (item.role === "thinking" && item.status === "running") {
+      return { ...item, status: "done" };
+    }
     if (index !== lastAssistantIndex || item.role !== "assistant") {
       return item;
     }
@@ -1939,7 +1999,7 @@ async function loadSession(
     const failed: ChatMessage[] = [
       {
         id: randomUUID(),
-        role: "assistant",
+        role: "error",
         text: `Failed to open session: ${error instanceof Error ? error.message : String(error)}`,
       },
     ];
@@ -2051,20 +2111,49 @@ function useFileCompletion(
   return { fileEntries, fileLoading, fileQuery };
 }
 
+function applyEventToWindow(
+  current: TurnWindow,
+  event: OmoPiEvent
+): TurnWindow {
+  const next = cloneTurnWindow(current);
+  const last = next.turns.at(-1);
+  if (last) {
+    last.items = adaptPiEventItems(last.items, event);
+    return next;
+  }
+  // No turn yet (e.g. the prompt failed before the user message was
+  // mirrored): surface terminal errors as an orphan turn.
+  const items = adaptPiEventItems([], event);
+  return items.length ? appendMessages(current, items) : current;
+}
+
 function handlePiEvent(
   event: OmoPiEvent,
   sessionId: string,
   setStreaming: (value: boolean) => void,
   setWindow: (next: TurnWindow) => void
 ) {
-  if (event.type === "message_start" && event.message?.role === "assistant") {
+  const messageRole =
+    typeof event.message === "object" ? event.message?.role : undefined;
+  if (event.type === "message_start" && messageRole === "assistant") {
     setStreaming(true);
   }
+  if (event.type === "omo_error") {
+    // A rejected prompt has no matching agent_end; clear the running state
+    // here so the session does not spin forever.
+    setStreaming(false);
+  }
   if (event.type === "agent_end") {
+    if (event.willRetry) {
+      // agent_end also fires between auto-retry attempts (e.g. after a 429);
+      // the turn continues, so keep the running state.
+      setStreaming(true);
+      return;
+    }
     setStreaming(false);
     const current = windows.get(sessionId);
     if (current) {
-      completeLastAssistant(current, setWindow);
+      completeLastTurn(applyEventToWindow(current, event), setWindow);
     }
     return;
   }
@@ -2072,20 +2161,14 @@ function handlePiEvent(
   if (!current) {
     return;
   }
-  const next = cloneTurnWindow(current);
-  const last = next.turns.at(-1);
-  if (!last) {
-    return;
-  }
-  last.items = adaptPiEventBlocks(last, event);
-  setWindow(next);
+  setWindow(applyEventToWindow(current, event));
 }
 
-function adaptPiEventBlocks(
-  turn: ConversationTurn,
+function adaptPiEventItems(
+  items: ConversationTurn["items"],
   event: OmoPiEvent
 ): ConversationTurn["items"] {
-  const blocks = adaptPiEvent(adaptPiMessages(turn.items), event);
+  const blocks = adaptPiEvent(adaptPiMessages(items), event);
   const byId = new Map<string, ConversationTurn["items"][number]>();
   for (const block of blocks) {
     if (block.type === "markdown") {
@@ -2110,6 +2193,13 @@ function adaptPiEventBlocks(
         role: "tool",
         status: block.status,
         toolName: block.toolName,
+      });
+    } else {
+      byId.set(block.id, {
+        id: block.id,
+        retry: block.retry,
+        role: "error",
+        text: block.content,
       });
     }
   }
@@ -2160,10 +2250,7 @@ function ProjectSelect({
       }}
       value={items.find((item) => item.value === value) ?? null}
     >
-      <SelectTrigger
-        className="h-6 min-h-0 w-fit min-w-0 max-w-none justify-start gap-1 rounded-[7px] border-0 bg-transparent px-2 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
-        hideIcon
-      >
+      <SelectTrigger className="w-fit min-w-0 max-w-xs" hideIcon size="sm">
         <HugeiconsIcon className="size-3.5" icon={Folder01Icon} />
         <SelectValue placeholder={t("choose_project")}>
           {projects.find((project) => project.id === value)?.name}
@@ -2176,11 +2263,7 @@ function ProjectSelect({
         sideOffset={6}
       >
         {projectItems.map((item) => (
-          <SelectItem
-            className="min-h-8 rounded-md text-sm"
-            key={item.value}
-            value={item}
-          >
+          <SelectItem key={item.value} value={item}>
             <span className="flex min-w-0 items-center gap-2">
               <HugeiconsIcon
                 className="size-4 shrink-0 text-muted-foreground"
@@ -2193,19 +2276,13 @@ function ProjectSelect({
         {!!projectItems.length && (
           <SelectSeparator className="my-1 bg-accent" />
         )}
-        <SelectItem
-          className="min-h-8 rounded-md text-foreground/80 text-sm"
-          value={actions[0]}
-        >
+        <SelectItem className="text-foreground/80" value={actions[0]}>
           <span className="flex items-center gap-2">
             <HugeiconsIcon className="size-4" icon={FolderAddIcon} />{" "}
             {t("new_project")}
           </span>
         </SelectItem>
-        <SelectItem
-          className="min-h-8 rounded-md text-foreground/80 text-sm"
-          value={actions[1]}
-        >
+        <SelectItem className="text-foreground/80" value={actions[1]}>
           <span className="flex items-center gap-2">
             <HugeiconsIcon className="size-4" icon={Cancel01Icon} />{" "}
             {t("no_project")}
@@ -2309,6 +2386,21 @@ function ContextUsageRing({
   );
 }
 
+interface ModelOption {
+  id: string;
+  label: string;
+  name: string;
+  provider: string;
+  value: string;
+}
+
+interface ModelGroup {
+  items: ModelOption[];
+  label: string;
+  provider: string;
+  value: string;
+}
+
 function ModelSelect({
   models,
   value,
@@ -2321,157 +2413,133 @@ function ModelSelect({
   onChange: (value: string) => void;
 }) {
   const { t } = useI18n();
-  const modelItems = models.map((item) => ({
-    ...item,
-    label: item.name,
-    value: `${item.provider}/${item.id}`,
-  }));
+  const modelItems = useMemo<ModelOption[]>(
+    () =>
+      models.map((item) => ({
+        ...item,
+        label: item.name,
+        value: `${item.provider}/${item.id}`,
+      })),
+    [models]
+  );
   // The session's active model (from pi) may not be in the enabled list;
   // synthesize an entry so the trigger shows the real model instead of the
   // placeholder.
-  const selected =
-    modelItems.find((item) => item.value === value) ??
-    (value
-      ? (() => {
-          const slash = value.indexOf("/");
-          const provider = slash > 0 ? value.slice(0, slash) : value;
-          const id = slash > 0 ? value.slice(slash + 1) : value;
-          return {
-            id,
-            label: id,
-            name: id,
-            provider,
-            value,
-          };
-        })()
-      : undefined);
-  const groups = [...new Set(modelItems.map((item) => item.provider))];
-  const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(selected ? [selected.provider] : groups)
-  );
-  const [query, setQuery] = useState("");
-  const selectedProvider = selected?.provider;
-  useEffect(() => {
-    if (!selectedProvider) {
-      return;
+  const selected = useMemo<ModelOption | undefined>(() => {
+    const match = modelItems.find((item) => item.value === value);
+    if (match || !value) {
+      return match;
     }
-    setExpanded((current) => {
-      if (current.has(selectedProvider)) {
-        return current;
+    const slash = value.indexOf("/");
+    const provider = slash > 0 ? value.slice(0, slash) : value;
+    const id = slash > 0 ? value.slice(slash + 1) : value;
+    return { id, label: id, name: id, provider, value };
+  }, [modelItems, value]);
+  const groups = useMemo<ModelGroup[]>(() => {
+    const available =
+      selected && !modelItems.some((item) => item.value === selected.value)
+        ? [selected, ...modelItems]
+        : modelItems;
+    const byProvider = new Map<string, ModelOption[]>();
+    for (const item of available) {
+      const group = byProvider.get(item.provider);
+      if (group) {
+        group.push(item);
+      } else {
+        byProvider.set(item.provider, [item]);
       }
-      const next = new Set(current);
-      next.add(selectedProvider);
-      return next;
-    });
-  }, [selectedProvider]);
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    const matched = normalized
-      ? modelItems.filter((item) =>
-          `${item.provider} ${item.label}`.toLowerCase().includes(normalized)
-        )
-      : modelItems;
-    return selected && !matched.some((item) => item.value === selected.value)
-      ? [selected, ...matched]
-      : matched;
-  }, [modelItems, query, selected]);
-  const filteredGroups = [...new Set(filtered.map((item) => item.provider))];
+    }
+    return [...byProvider].map(([provider, items]) => ({
+      items,
+      label: provider,
+      provider,
+      value: provider,
+    }));
+  }, [modelItems, selected]);
+
   return (
-    <Select
-      items={filtered}
-      itemToStringValue={(item) => item.label}
-      onOpenChange={(open) => {
-        if (!open) {
-          setQuery("");
-        }
-      }}
+    <Combobox
+      aria-label={placeholder}
+      items={groups}
       onValueChange={(item) => {
         if (item) {
           onChange(item.value);
-          setQuery("");
         }
       }}
-      value={selected}
+      value={selected ?? null}
     >
-      <AiAgentInputSelectTrigger title={selected?.label}>
-        <ProviderIcon className="shrink-0" provider={selected?.provider} />
-        <SelectValue placeholder={placeholder}>{selected?.label}</SelectValue>
-      </AiAgentInputSelectTrigger>
-      <SelectContent
-        alignItemWithTrigger={false}
-        className="max-h-[min(17.5rem,47vh)] w-[min(14.375rem,calc(100vw-2rem))] overflow-hidden rounded-[10px] bg-popover p-0"
+      <ComboboxTrigger
+        render={<SelectButton className="w-fit max-w-56" hideIcon size="sm" />}
+        title={selected?.label ?? placeholder}
+      >
+        <ComboboxValue placeholder={placeholder}>
+          {(item: ModelOption | null) =>
+            item ? (
+              <span className="flex min-w-0 items-center gap-1.5">
+                <ProviderIcon
+                  className="shrink-0 [&>svg]:mx-0! [&>svg]:size-3!"
+                  provider={item.provider}
+                />
+                <span className="truncate">{item.label}</span>
+              </span>
+            ) : (
+              <span className="text-muted-foreground">{placeholder}</span>
+            )
+          }
+        </ComboboxValue>
+      </ComboboxTrigger>
+      <ComboboxPopup
+        aria-label={placeholder}
+        className="w-[min(18rem,calc(100vw-2rem))]"
         side="top"
         sideOffset={6}
       >
-        <div className="flex max-h-[min(17.5rem,47vh)] flex-col">
-          <div className="shrink-0 p-[3px] pb-0">
-            <InputGroup className="h-8 rounded-[7px] border-0 bg-transparent shadow-none has-[[data-slot=input-group-control]:focus-visible]:border-0 has-[[data-slot=input-group-control]:focus-visible]:ring-0">
-              <InputGroupAddon>
-                <HugeiconsIcon icon={Search01Icon} />
-              </InputGroupAddon>
-              <InputGroupInput
-                className="text-xs"
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => event.stopPropagation()}
-                placeholder={t("search_models")}
-                value={query}
-              />
-            </InputGroup>
-          </div>
-          <div className="min-h-0 overflow-y-auto px-[3px] pb-[3px]">
-            {filteredGroups.map((provider, index) => (
-              <SelectGroup className="scroll-my-0 p-0" key={provider}>
-                {index > 0 && <SelectSeparator className="mx-1 my-0.5" />}
-                <SelectLabel
-                  className="flex min-h-7 w-full cursor-pointer items-center justify-start gap-1.5 rounded-md px-2 py-1 text-left font-medium text-muted-foreground text-xs hover:bg-accent hover:text-foreground"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(provider)) {
-                        next.delete(provider);
-                      } else {
-                        next.add(provider);
-                      }
-                      return next;
-                    });
-                  }}
-                  render={<button type="button" />}
-                >
-                  <HugeiconsIcon
-                    className={`size-3 shrink-0 transition-transform ${expanded.has(provider) || query ? "rotate-90" : ""}`}
-                    icon={ArrowRight01Icon}
-                  />
+        <div className="border-b p-2">
+          <ComboboxInput
+            aria-label={t("search_models")}
+            placeholder={t("search_models")}
+            showTrigger={false}
+            size="sm"
+            startAddon={<HugeiconsIcon icon={Search01Icon} />}
+          />
+        </div>
+        <ComboboxEmpty>{t("models_no_results")}</ComboboxEmpty>
+        <ComboboxList>
+          {(group: ModelGroup, index) => (
+            <Fragment key={group.value}>
+              {index > 0 ? <ComboboxSeparator /> : null}
+              <ComboboxGroup items={group.items}>
+                <ComboboxGroupLabel className="flex items-center gap-1.5">
                   <ProviderIcon
                     className="size-3.5 shrink-0"
-                    provider={provider}
+                    provider={group.provider}
                   />
-                  {provider}
-                </SelectLabel>
-                {(expanded.has(provider) || !!query) &&
-                  filtered
-                    .filter((item) => item.provider === provider)
-                    .map((item) => (
-                      <SelectItem
-                        className="min-h-7 max-w-full overflow-hidden rounded-md pr-7 pl-7 text-xs [&>span:first-child]:min-w-0 [&>span:first-child]:shrink [&>span:first-child]:overflow-hidden"
-                        key={`${item.provider}/${item.id}`}
-                        title={item.name}
-                        value={item}
-                      >
-                        <span className="min-w-0 truncate">{item.name}</span>
-                      </SelectItem>
-                    ))}
-              </SelectGroup>
-            ))}
-            {filtered.length === 0 && (
-              <div className="px-3 py-2 text-muted-foreground text-sm">
-                {t("models_no_results")}
-              </div>
-            )}
-          </div>
-        </div>
-      </SelectContent>
-    </Select>
+                  {group.label}
+                </ComboboxGroupLabel>
+                <ComboboxCollection>
+                  {(item: ModelOption) => (
+                    <ComboboxItem
+                      className="min-h-7 max-w-full overflow-hidden rounded-md text-xs"
+                      key={item.value}
+                      title={item.name}
+                      value={item}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <ProviderIcon
+                          className="size-3.5 shrink-0"
+                          provider={item.provider}
+                        />
+                        <span className="truncate">{item.name}</span>
+                      </span>
+                    </ComboboxItem>
+                  )}
+                </ComboboxCollection>
+              </ComboboxGroup>
+            </Fragment>
+          )}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
   );
 }
 
@@ -2520,6 +2588,7 @@ function CompactSelect({
               ? `${contentLabel}: ${selectedLabel}`
               : contentLabel
           }
+          hideIcon
           title={
             contentLabel && selectedLabel
               ? `${contentLabel}: ${selectedLabel}`
@@ -2529,19 +2598,14 @@ function CompactSelect({
           {triggerContent}
         </AiAgentInputSelectTrigger>
       ) : (
-        <SelectTrigger
-          className="h-6 min-h-0 w-fit min-w-0 max-w-none items-center justify-start gap-1.5 rounded-[7px] border-0 bg-transparent px-1.5 text-[11px] text-muted-foreground shadow-none transition-none before:shadow-none hover:bg-accent hover:text-foreground focus-visible:border-transparent focus-visible:ring-0 sm:min-h-0"
-          hideIcon
-        >
+        <SelectTrigger className="w-fit min-w-0 max-w-xs" hideIcon size="sm">
           {triggerContent}
         </SelectTrigger>
       )}
       <SelectContent
         alignItemWithTrigger={false}
         className={cn(
-          appearance === "composer"
-            ? "min-w-40 rounded-[10px] p-[3px]"
-            : "min-w-44 p-1"
+          appearance === "composer" ? "min-w-40 p-1" : "min-w-44 p-1"
         )}
         side="top"
         sideOffset={6}

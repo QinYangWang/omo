@@ -30,9 +30,26 @@ export interface AssistantMessage {
   turnEnd?: boolean;
 }
 
+export interface RetryNotice {
+  attempt: number;
+  delayMs: number;
+  maxAttempts: number;
+}
+
+/** A failed LLM call surfaced inline (e.g. 429 rate limit, quota exhausted). */
+export interface ErrorMessage {
+  id: string;
+  /** Present while the runtime backs off before the next attempt. */
+  retry?: RetryNotice;
+  role: "error";
+  text: string;
+  timestamp?: number;
+}
+
 export type ChatMessage =
   | UserMessage
   | AssistantMessage
+  | ErrorMessage
   | {
       id: string;
       role: "tool";

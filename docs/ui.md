@@ -45,10 +45,10 @@ omo 的默认视觉语言参考 Vercel design system，并遵守本项目已有�
 `src/App.tsx` 使用三列布局：
 
 1. Sidebar：新会话入口、Project、Session、置顶/归档和设置。
-2. Main：标题栏、会话流、模型选择器和 Prompt Input。
-3. Right Panel：Browser、Terminal、Files 和 Review。
+2. Main：顶部多会话标签、会话流、模型选择器和 Prompt Input。
+3. Right Panel：Files、Review、Context，以及动态添加的 Browser 和 Terminal。
 
-左右边界 Divider 支持鼠标拖拽。Sidebar 宽度范围为 180–400px，Right Panel 宽度范围为 280–640px。
+顶部标签栏提供新建、切换和关闭会话标签；侧栏选择已有会话时会激活已有标签或打开新标签。左右边界 Divider 支持鼠标拖拽，侧栏与主区之间的拖拽区不绘制分割线。Sidebar 宽度范围为 240–400px，Right Panel 宽度范围为 280–640px。
 
 ## 启动开屏
 
@@ -56,15 +56,13 @@ omo 的默认视觉语言参考 Vercel design system，并遵守本项目已有�
 
 ## 标题栏导航
 
-侧栏顶部为 h-10 标题栏（40px，与 Windows 窗口控制按钮同高）：收缩/展开侧栏按钮 + “omo” 产品名，按钮图标与下方 Sidebar 内容左对齐。
+顶栏为 h-10 标题栏（40px，与 Windows 窗口控制按钮同高）：左侧为 omo 标识、侧栏收缩按钮和前进/后退标签导航，右侧为多会话标签列表。新增会话按钮默认紧跟最后一个标签；标签总宽度溢出可用区域时通过横向 sticky 固定在顶栏最右侧，顶栏的平台留白确保它不会与原生窗口键重叠。会话标题在标签中显示并省略超长文本。
 
-会话标题栏左侧显示当前项目名（有会话标题时以“项目 · 标题”追加），横贯右侧 Right Panel 顶部；右侧面板开关悬浮在会话区右上角。
+标签切换通过每个标签独立的 draft/session key 保留输入草稿、消息缓存和 Workspace 状态；关闭最后一个标签时会自动留下一个新的空白标签。侧栏收起后仅保留紧凑的展开按钮，顶栏标签仍可继续使用。
 
-侧栏收起时，侧栏和分隔线完全消失，收缩按钮移动到会话标题栏左侧。
+Electron macOS 通过 `titlebar-area-x`（无环境变量时回退 68px）在左侧预留交通灯区域；Windows 与 Linux 使用 `titlebar-area-x` / `titlebar-area-width` 在右侧动态避开窗口控制键。静态 Web 不应用 macOS 桌面回退留白。Windows/Linux 原生按钮区域的背景和图标颜色分别解析自 `--sidebar` 与 `--window-control`；解析经过真实 CSS `color` 属性，确保嵌套 `var()`、`color-mix()` 和自定义主题与页面顶栏完全一致。交互按钮使用 `WebkitAppRegion: no-drag`。
 
-macOS 通过 `titlebar-area-x` 预留交通灯按钮区域。其他平台使用 `titlebar-area-width` 动态避开右侧窗口控制键。交互按钮使用 `WebkitAppRegion: no-drag`。
-
-设置页复用同一组侧栏导航按钮，并支持完全收起设置侧栏。
+设置页直接复用 Main 的 40px 顶栏 + 左侧栏 + 单一圆角内容面板布局，不渲染右侧 Workspace；顶栏只保留产品标识、侧栏收缩按钮和原生窗口键空间，不显示会话标签、前进/后退或新建标签。设置侧栏用不同的设置分区选项替代 Project/Session 列表，并复用相同的宽度和拖拽调整行为。
 
 ## 会话区
 
@@ -72,8 +70,8 @@ ChatView 使用 `src/components/chat` 中的 TurnCard 和 RenderBlocks。消息�
 
 新任务分为两个明确状态：
 
-- 未选择项目时使用 shadcn `Empty` 作为启动态：图标方块 + 大号欢迎标题（`task_welcome`），下方是最多 5 个现有项目的卡片式快捷入口与“添加项目”操作。此时不渲染 Prompt Composer，避免产生可以输入但无法执行的假可用状态。
-- 已选择项目但尚未发送消息时，空态显示欢迎标题与当前项目，欢迎区和 Prompt Composer 集中在同一视觉区域（`max-w-2xl` 居中）；标题为空字符串时，标题栏回退为“新任务”。
+- 未选择项目时使用 shadcn `Empty` 作为启动态：显示 Pi 图标，下方是最多 5 个现有项目的快捷入口与“添加项目”操作。此时不渲染 Prompt Composer，避免产生可以输入但无法执行的假可用状态。
+- 已选择项目但尚未发送消息时，空态保留无边框图标与 Prompt Composer；所有未命名的草稿、顶部标签和会话标题统一回退为“新会话”。
 
 Prompt Composer 使用 AICSS `AI Agent Input` registry 的比例，但业务状态仍由 ChatView 控制：正文约 14px / 22px，输入区自然增高且最大高度为 160px；外壳使用 20px 圆角、轻量 hairline 和低对比阴影，底部操作使用 28px 控件。项目、运行模式和分支属于输入前上下文；模型、Thinking、附件和提交操作位于输入区内。未选择项目时不渲染 Composer。
 
@@ -113,10 +111,15 @@ Prompt 输入框整体宽度与消息正文一致（`mx-auto max-w-3xl`），不
 
 - Files：固定标签；左侧项目目录树，右侧在当前页面预览文件
 - Review：固定标签；左侧仅显示 Git 变更文件树，右侧在当前页面显示 diff
+- Context：固定标签；展示当前会话的上下文窗口、累计 Token/cost、生效系统提示、启用及未启用工具的定义与参数、上下文文件、附加提示、技能、扩展和扩展注入的隐藏消息。仅在标签可见时每 2.5 秒刷新 `/pi/context-details`
 - Terminal：通过“+”添加，可同时打开多个 xterm.js 标签
-- Browser：通过“+”添加，可同时打开多个 Electron `<webview>` 标签
+- Browser：通过“+”添加，可同时打开多个浏览器标签；Electron 本机使用 `<webview>`，远程 Web/Server 模式由 omo Server 代理页面和资源
 
-右侧面板的关闭/打开由会话标题栏右侧的 PanelRight 按钮控制。终端和浏览器标签带关闭按钮；关闭会销毁对应 PTY 或 webview。
+右侧面板的关闭/打开由会话区域右上角的 PanelRight 按钮控制。右侧面板是独立的圆角会话区域，并按当前会话保存开启状态；终端和浏览器标签带关闭按钮，关闭会销毁对应 PTY 或浏览器代理会话。Context 数据来自执行端的实时 `AgentSession`，本地 Electron 通过 IPC、远程客户端通过认证 HTTP 获取。
+
+## 设置弹窗
+
+设置页的服务器配置、Provider 认证、主题 CSS 导入和扩展包安装弹窗使用一致的图标标题区、`DialogPanel` 内容留白和右对齐 `DialogFooter`。表单节点使用 `display: contents`，使 Panel 与 Footer 继续作为弹窗 Flex 布局项，避免可滚动 Panel 将按钮挤出弹窗，同时保留 Enter 提交和加载中禁用状态。
 
 ## 样式与主题
 

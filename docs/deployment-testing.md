@@ -19,8 +19,10 @@ node --check server/index.cjs
 node --check server/pi-service.cjs
 node --check server/event-store.cjs
 node --check server/display-messages.cjs
+node --check server/pi-context.cjs
 node --check server/usage.cjs
 node --check server/terminal-service.cjs
+node --check server/browser-service.cjs
 node --check server/quotas.cjs
 node --check server/workspace.cjs
 node --check electron/main.cjs
@@ -40,6 +42,8 @@ node --check electron/preload.cjs
 - Prompt request ID 幂等记录和图片附件校验。
 - Provider 配额接口返回各 Provider 的订阅窗口。
 - 远程 PTY 输入输出。
+- 服务器端 Browser 代理页面、重定向和 HTML/CSS 资源。
+- Context 详情接口返回实时窗口用量、累计 cost、有效系统提示、工具和扩展资源；本地 IPC 与远程 HTTP 结构一致。
 - WebSocket 断开后通过 offset 补发终端输出。
 
 ## Electron 性能与内存

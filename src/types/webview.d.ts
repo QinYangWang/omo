@@ -27,13 +27,26 @@ interface OmoPiResultPart {
   text?: string;
   type: string;
 }
+interface OmoPiEventMessage {
+  errorMessage?: string;
+  role?: string;
+  stopReason?: string;
+}
 interface OmoPiEvent {
   assistantMessageEvent?: OmoPiAssistantEvent;
+  attempt?: number;
+  delayMs?: number;
+  errorMessage?: string;
+  finalError?: string;
   isError?: boolean;
-  message?: { role?: string };
+  maxAttempts?: number;
+  message?: string | OmoPiEventMessage;
+  messages?: OmoPiEventMessage[];
   result?: { content?: OmoPiResultPart[] | string };
+  success?: boolean;
   toolCallId?: string;
   type: string;
+  willRetry?: boolean;
 }
 interface OmoPiEventEnvelope {
   event: OmoPiEvent;
@@ -59,6 +72,51 @@ interface PiContextUsage {
   tokens: number | null;
 }
 
+interface PiContextDetails {
+  contextUsage: PiContextUsage | null;
+  extensions: Array<{
+    commands: string[];
+    events: string[];
+    hidden: boolean;
+    path: string;
+    source: unknown;
+    tools: string[];
+  }>;
+  injectedMessages: Array<{
+    content: unknown;
+    customType: string;
+    details: unknown;
+    id: string;
+  }>;
+  resources: {
+    appendSystemPrompt: Array<{ content: string; path?: string }>;
+    contextFiles: Array<{ content: string; path: string }>;
+    skills: Array<{ description: string; filePath: string; name: string }>;
+    systemPromptSource?: string;
+  };
+  stats: {
+    cost: number;
+    tokens: {
+      cacheRead: number;
+      cacheWrite: number;
+      input: number;
+      output: number;
+      total: number;
+    };
+    totalMessages: number;
+    toolCalls: number;
+  };
+  systemPrompt: string;
+  tools: Array<{
+    active: boolean;
+    description: string;
+    name: string;
+    parameters: unknown;
+    promptGuidelines?: string[];
+    source: unknown;
+  }>;
+}
+
 interface AgentSkillInfo {
   description: string;
   filePath: string;
@@ -79,6 +137,10 @@ interface AgentPackageInfo {
   name: string;
   source: string;
   version?: string;
+}
+interface BrowserPage {
+  browserId: string;
+  url: string;
 }
 
 interface QuotaWindow {
@@ -150,6 +212,11 @@ interface ProviderInfo {
 }
 
 interface omoApi {
+  browser: {
+    close: (browserId: string) => Promise<void>;
+    navigate: (browserId: string, url: string) => Promise<BrowserPage>;
+    open: (url: string) => Promise<BrowserPage>;
+  };
   cwd: () => Promise<string>;
   fs: {
     list: (dir: string) => Promise<{ name: string; dir: boolean }[]>;
@@ -221,6 +288,11 @@ interface omoApi {
       cwd: string,
       sessionPath?: string
     ) => Promise<PiContextUsage | null>;
+    contextDetails: (
+      sessionId: string,
+      cwd: string,
+      sessionPath?: string
+    ) => Promise<PiContextDetails>;
     history: (
       sessionId: string,
       before: number

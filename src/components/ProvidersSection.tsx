@@ -7,19 +7,27 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import {
   Progress,
   ProgressIndicator,
   ProgressTrack,
 } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toastManager } from "@/components/ui/toast";
 import { type Lang, useI18n } from "@/lib/i18n";
 import { getServerApi } from "@/lib/servers";
 import { cn } from "@/lib/utils";
@@ -222,6 +230,7 @@ function ServerProviders({ serverId }: { serverId: string }) {
   const [authPrompt, setAuthPrompt] =
     useState<Extract<ProviderAuthEvent, { kind: "prompt" }>>();
   const [answer, setAnswer] = useState("");
+  const [responding, setResponding] = useState(false);
 
   const refresh = useCallback(
     () => api.providers.list().then(setProviders),
@@ -260,14 +269,22 @@ function ServerProviders({ serverId }: { serverId: string }) {
     });
     try {
       await api.providers.login(provider.id, type);
-      setMessage({
-        text: t("providers_connected_msg", { name: provider.name }),
+      setMessage(undefined);
+      toastManager.add({
+        id: `provider-login:${serverId}:${provider.id}`,
+        title: t("providers_connected_msg", { name: provider.name }),
+        type: "success",
       });
       await refresh();
     } catch (error) {
-      setMessage({
-        error: true,
-        text: error instanceof Error ? error.message : String(error),
+      const description =
+        error instanceof Error ? error.message : String(error);
+      setMessage(undefined);
+      toastManager.add({
+        description,
+        id: `provider-login:${serverId}:${provider.id}`,
+        title: t("providers_connection_failed", { name: provider.name }),
+        type: "error",
       });
     } finally {
       setBusy(undefined);
@@ -275,11 +292,16 @@ function ServerProviders({ serverId }: { serverId: string }) {
   };
 
   const respond = async (value: string) => {
-    if (!authPrompt) {
+    if (!authPrompt || responding) {
       return;
     }
-    await api.providers.respond(authPrompt.requestId, value);
-    setAuthPrompt(undefined);
+    setResponding(true);
+    try {
+      await api.providers.respond(authPrompt.requestId, value);
+      setAuthPrompt(undefined);
+    } finally {
+      setResponding(false);
+    }
   };
 
   const visible = providers
@@ -293,6 +315,11 @@ function ServerProviders({ serverId }: { serverId: string }) {
         Number(b.connected) - Number(a.connected) ||
         a.name.localeCompare(b.name)
     );
+  const authenticatingProvider = providers.find(
+    (provider) => provider.id === authPrompt?.providerId
+  );
+  const authenticatingProviderName =
+    authenticatingProvider?.name ?? authPrompt?.providerId ?? "";
 
   return (
     <div className="flex flex-col gap-5">
@@ -384,54 +411,104 @@ function ServerProviders({ serverId }: { serverId: string }) {
           if (!open && authPrompt) {
             api.providers.cancel(authPrompt.requestId);
             setAuthPrompt(undefined);
+            setAnswer("");
           }
         }}
         open={!!authPrompt}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("providers_auth_dialog")}</DialogTitle>
-            <DialogDescription>{authPrompt?.prompt.message}</DialogDescription>
-          </DialogHeader>
-          {authPrompt?.prompt.type === "select" ? (
-            <div className="flex flex-col gap-1">
-              {authPrompt.prompt.options?.map((option) => (
-                <Button
-                  className="h-auto justify-start py-2 text-left"
-                  key={option.id}
-                  onClick={() => respond(option.id)}
-                  variant="ghost"
-                >
-                  <span>
-                    <span className="block">{option.label}</span>
-                    {option.description ? (
-                      <span className="block text-muted-foreground text-xs">
-                        {option.description}
-                      </span>
-                    ) : null}
-                  </span>
-                </Button>
-              ))}
+        <DialogContent className="max-w-md">
+          <DialogHeader className="pb-4">
+            <div className="flex items-start gap-3 pr-8">
+              <ProviderAvatar
+                className="mt-0.5 rounded-xl bg-accent"
+                provider={authPrompt?.providerId}
+                size={40}
+              />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <DialogTitle className="truncate">
+                  {authenticatingProviderName}
+                </DialogTitle>
+                <DialogDescription>
+                  {authPrompt?.prompt.message}
+                </DialogDescription>
+              </div>
             </div>
-          ) : (
-            <Input
-              autoFocus
-              onChange={(event) => setAnswer(event.target.value)}
-              onKeyDown={(event) =>
-                event.key === "Enter" && answer && respond(answer)
+          </DialogHeader>
+          <form
+            className="contents"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (answer) {
+                respond(answer);
               }
-              placeholder={authPrompt?.prompt.placeholder}
-              type={authPrompt?.prompt.type === "secret" ? "password" : "text"}
-              value={answer}
-            />
-          )}
-          {authPrompt && authPrompt.prompt.type !== "select" ? (
-            <DialogFooter>
-              <Button disabled={!answer} onClick={() => respond(answer)}>
-                {t("providers_continue")}
-              </Button>
+            }}
+          >
+            <DialogPanel className="flex flex-col gap-3">
+              {authPrompt?.prompt.type === "select" ? (
+                <div className="flex flex-col gap-2">
+                  {authPrompt.prompt.options?.map((option) => (
+                    <Button
+                      className="h-auto min-h-12 justify-start px-3 py-2.5 text-left"
+                      disabled={responding}
+                      key={option.id}
+                      onClick={() => respond(option.id)}
+                      type="button"
+                      variant="outline"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">
+                          {option.label}
+                        </span>
+                        {option.description ? (
+                          <span className="block truncate text-muted-foreground text-xs">
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <InputGroup className="h-11">
+                  <InputGroupAddon>
+                    <HugeiconsIcon icon={KeyRoundIcon} />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    aria-label={authPrompt?.prompt.message}
+                    autoComplete="off"
+                    autoFocus
+                    disabled={responding}
+                    onChange={(event) => setAnswer(event.target.value)}
+                    placeholder={authPrompt?.prompt.placeholder}
+                    type={
+                      authPrompt?.prompt.type === "secret" ? "password" : "text"
+                    }
+                    value={answer}
+                  />
+                </InputGroup>
+              )}
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                {t("providers_auth_note")}
+              </p>
+            </DialogPanel>
+            <DialogFooter variant="bare">
+              <DialogClose render={<Button type="button" variant="outline" />}>
+                {t("cancel")}
+              </DialogClose>
+              {authPrompt && authPrompt.prompt.type !== "select" ? (
+                <Button disabled={!answer || responding} type="submit">
+                  {responding ? (
+                    <HugeiconsIcon
+                      className="animate-spin"
+                      data-icon="inline-start"
+                      icon={Loading03Icon}
+                    />
+                  ) : null}
+                  {t("providers_continue")}
+                </Button>
+              ) : null}
             </DialogFooter>
-          ) : null}
+          </form>
         </DialogContent>
       </Dialog>
     </div>

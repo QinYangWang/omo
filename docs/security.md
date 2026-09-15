@@ -7,6 +7,7 @@
 以下请求不要求 Token：
 
 - `/api/v1/health`
+- 已通过 Token 创建的 Browser 代理能力 URL（`/api/v1/browser/:id/proxy`）
 - 静态 Web 文件
 
 Server 托管的 Web 也需要 Token：首次打开进入引导页登录，Token 存于浏览器 localStorage 后免登。不依赖 `Sec-Fetch-Site` 等浏览器头（Safari 不发送 Fetch Metadata 头，不可靠）。
@@ -62,6 +63,11 @@ Ticket 属性：
 - Git 输出缓冲最大 8MB。
 - 终端输出环形缓冲默认 2MB。
 - 无连接终端空闲 30 分钟后回收。
+- Browser 单次请求体上限 16MB、响应上限 32MB；代理会话空闲 30 分钟后回收，页面资源使用随机会话 ID 能力 URL。
+
+Browser 代理只接受 HTTP/HTTPS URL，不接受 URL 中的用户名和密码。创建、导航和关闭代理会话需要 Bearer Token；资源请求使用随机会话 URL，以便浏览器 iframe 加载时不必暴露长期 Token，代理也不会把 omo 请求的 `Authorization` header 转发给目标网站。Server 部署在公网时应配合 HTTPS、强 Token 和网络访问控制，因为代理请求由 Server 主动发起。
+
+`POST /pi/context-details` 返回当前有效系统提示、工具定义、上下文文件内容和扩展注入的隐藏消息，可能包含项目内部指令或其他敏感上下文。该接口不使用 Browser 能力 URL 例外，始终要求 Server Bearer Token；前端不会将快照写入 localStorage。
 
 ## Electron 凭据
 
