@@ -1397,13 +1397,17 @@ let aggregateRefresh = null;
  * @param piService  object with async runtime() resolving to pi's ModelRuntime
  * @param agentDir   pi agent dir (contains auth.json)
  * @param force      bypass the per-provider TTL cache
+ * @param authPath   optional auth-store path when it is not agentDir/auth.json
  */
-async function fetchQuotas(piService, agentDir, force = false) {
+async function fetchQuotas(
+  piService,
+  agentDir,
+  force = false,
+  authPath = path.join(agentDir, "auth.json")
+) {
   let stored = {};
   try {
-    stored = JSON.parse(
-      fs.readFileSync(path.join(agentDir, "auth.json"), "utf8")
-    );
+    stored = JSON.parse(fs.readFileSync(authPath, "utf8"));
   } catch {
     stored = {};
   }

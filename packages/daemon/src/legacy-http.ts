@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import type { Duplex } from "node:stream";
@@ -10,6 +11,8 @@ import { promisify } from "node:util";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import type {
   RuntimeHistoryEntry,
+  RuntimeHistoryPage,
+  RuntimeHistoryQuery,
   RuntimeLaneSnapshot,
 } from "@omo/agent-runtime/runtime";
 import type { Principal } from "@omo/control-plane/inbox";
@@ -99,9 +102,14 @@ const LEGACY_COMMAND_TIMEOUT_MS = 30_000;
 const LEGACY_PACKAGE_TIMEOUT_MS = 120_000;
 const LEGACY_TERMINAL_TICKET = "legacy-terminal";
 const LEGACY_NPM_NAME_PATTERN = /^(?:@[a-z\d._~-]+\/)?[a-z\d._~-]+$/i;
+const LEGACY_MODEL_LEVEL_SUFFIX_PATTERN =
+  /:(?:off|minimal|low|medium|high|xhigh|max)$/;
 const LEGACY_AGENT_DIR =
   process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
 const LEGACY_PACKAGE_SOURCE_PATTERN = /^npm:(.+)$/;
+
+const legacyAuthPath = (): string =>
+  process.env.OMO_DAEMON_AUTH_PATH ?? join(LEGACY_AGENT_DIR, "auth.json");
 const LEGACY_USAGE_OVERRIDE = {
   cacheRead: 0.3,
   cacheWrite: 0,
@@ -141,6 +149,72 @@ interface LegacyUsageTotals {
   output: number;
   savings: number;
 }
+
+interface LegacyQuotaWindow {
+  readonly isCurrency?: boolean;
+  readonly label: string;
+  readonly limitValue: number;
+  readonly provider: string;
+  readonly resetsAt: string;
+  readonly usedPercent: number;
+  readonly usedValue: number;
+  readonly windowSeconds?: number;
+}
+
+interface LegacyQuotaItem {
+  readonly error?: { readonly kind: string; readonly message: string };
+  readonly label: string;
+  readonly provider: string;
+  readonly success: boolean;
+  readonly windows: LegacyQuotaWindow[];
+}
+
+interface LegacyQuotaSnapshot {
+  readonly installed: boolean;
+  readonly items: LegacyQuotaItem[];
+  readonly stale?: boolean;
+}
+
+interface LegacyQuotaRuntime {
+  readonly getAuth: (providerId: string) => Promise<unknown>;
+}
+
+type LegacyQuotaFetcher = (
+  piService: { readonly runtime: () => Promise<LegacyQuotaRuntime> },
+  agentDir: string,
+  force?: boolean,
+  authPath?: string
+) => Promise<LegacyQuotaSnapshot>;
+
+const require = createRequire(import.meta.url);
+let legacyQuotaFetcher: LegacyQuotaFetcher | null | undefined;
+
+const getLegacyQuotaFetcher = (): LegacyQuotaFetcher | undefined => {
+  if (legacyQuotaFetcher !== undefined) {
+    return legacyQuotaFetcher ?? undefined;
+  }
+  try {
+    const module = require("../../../server/quotas.cjs") as {
+      fetchQuotas?: unknown;
+    };
+    legacyQuotaFetcher =
+      typeof module.fetchQuotas === "function"
+        ? (module.fetchQuotas as LegacyQuotaFetcher)
+        : null;
+  } catch {
+    legacyQuotaFetcher = null;
+  }
+  return legacyQuotaFetcher ?? undefined;
+};
+
+const newLegacyUsageTotals = (): LegacyUsageTotals => ({
+  cacheRead: 0,
+  cacheWrite: 0,
+  cost: 0,
+  input: 0,
+  output: 0,
+  savings: 0,
+});
 
 const readLegacySettings = (): JsonRecord => {
   try {
@@ -237,7 +311,7 @@ const legacyModelEnabled = (
   }
   const key = legacyModelKey(provider, modelId);
   return patterns.some((pattern) => {
-    const [source] = pattern.split(":", 1);
+    const source = pattern.replace(LEGACY_MODEL_LEVEL_SUFFIX_PATTERN, "");
     const escaped = source.replace(/[.+^${}()|[\]\\]/g, "\\$&");
     const regex = new RegExp(
       `^${escaped.replaceAll("*", ".*").replaceAll("?", ".")}$`
@@ -431,6 +505,67 @@ const legacyPage = (
   };
 };
 
+const recordLegacyUsage = (
+  payload: unknown,
+  providers: Map<string, LegacyUsageProvider>,
+  totals: LegacyUsageTotals
+): void => {
+  const message = asRecord(payload);
+  const usage = asRecord(message?.usage);
+  if (message?.role !== "assistant" || !usage) {
+    return;
+  }
+  const amount = (value: unknown): number => {
+    const number = Number(value ?? 0);
+    return Number.isFinite(number) ? number : 0;
+  };
+  const input = amount(usage.input);
+  const output = amount(usage.output);
+  const cacheRead = amount(usage.cacheRead);
+  const cacheWrite = amount(usage.cacheWrite);
+  const model = String(message.model ?? "unknown");
+  const provider = String(message.provider ?? "unknown");
+  const key = `${provider}/${model}`;
+  const cost = asRecord(usage.cost);
+  const recordedCost = amount(cost?.total);
+  const useOverride = key === "kimi-coding/k3-256k" && recordedCost === 0;
+  const costTotal = useOverride
+    ? (input * LEGACY_USAGE_OVERRIDE.input +
+        output * LEGACY_USAGE_OVERRIDE.output +
+        cacheRead * LEGACY_USAGE_OVERRIDE.cacheRead +
+        cacheWrite * LEGACY_USAGE_OVERRIDE.cacheWrite) /
+      1_000_000
+    : recordedCost;
+  totals.input += input;
+  totals.output += output;
+  totals.cacheRead += cacheRead;
+  totals.cacheWrite += cacheWrite;
+  totals.cost += costTotal;
+  let inputPrice = 0;
+  if (useOverride) {
+    inputPrice = LEGACY_USAGE_OVERRIDE.input / 1_000_000;
+  } else if (input > 0) {
+    inputPrice = amount(cost?.input) / input;
+  }
+  const cacheReadCost = useOverride
+    ? (cacheRead * LEGACY_USAGE_OVERRIDE.cacheRead) / 1_000_000
+    : amount(cost?.cacheRead);
+  totals.savings += Math.max(0, cacheRead * inputPrice - cacheReadCost);
+  const row =
+    providers.get(key) ??
+    ({
+      cost: 0,
+      messages: 0,
+      model,
+      provider,
+      tokens: 0,
+    } satisfies LegacyUsageProvider);
+  row.messages += 1;
+  row.tokens += input + output + cacheWrite;
+  row.cost += costTotal;
+  providers.set(key, row);
+};
+
 /**
  * Small compatibility surface for the original v1 React page.
  *
@@ -520,7 +655,6 @@ export class LegacyHttpAdapter {
     this.#authPrompts.clear();
   }
 
-  // biome-ignore lint/suspicious/useAwait: dispatcher forwards async route handlers
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy route dispatch keeps compatibility paths together
   async handle(
     method: string,
@@ -586,22 +720,13 @@ export class LegacyHttpAdapter {
       return this.#packages(method, route, req, response);
     }
     if (route[0] === "quotas") {
-      if (method !== "GET") {
-        return false;
-      }
-      sendJson(response, 200, { installed: false, items: [] });
-      return true;
+      return this.#quotas(method, url, response);
     }
     if (route[0] === "usage") {
       if (method !== "GET") {
         return false;
       }
-      sendJson(response, 200, {
-        providers: [...this.#usageProviders.values()].sort(
-          (left, right) => right.cost - left.cost
-        ),
-        totals: this.#usageTotals,
-      });
+      sendJson(response, 200, await this.#usageSnapshot());
       return true;
     }
     if (route[0] === "health") {
@@ -684,63 +809,76 @@ export class LegacyHttpAdapter {
   }
 
   #recordUsage(payload: unknown): void {
-    const message = asRecord(payload);
-    const usage = asRecord(message?.usage);
-    if (message?.role !== "assistant" || !usage) {
-      return;
-    }
-    const amount = (value: unknown): number => {
-      const number = Number(value ?? 0);
-      return Number.isFinite(number) ? number : 0;
-    };
-    const input = amount(usage.input);
-    const output = amount(usage.output);
-    const cacheRead = amount(usage.cacheRead);
-    const cacheWrite = amount(usage.cacheWrite);
-    const model = String(message.model ?? "unknown");
-    const provider = String(message.provider ?? "unknown");
-    const key = `${provider}/${model}`;
-    const cost = asRecord(usage.cost);
-    const recordedCost = amount(cost?.total);
-    const useOverride = key === "kimi-coding/k3-256k" && recordedCost === 0;
-    const costTotal = useOverride
-      ? (input * LEGACY_USAGE_OVERRIDE.input +
-          output * LEGACY_USAGE_OVERRIDE.output +
-          cacheRead * LEGACY_USAGE_OVERRIDE.cacheRead +
-          cacheWrite * LEGACY_USAGE_OVERRIDE.cacheWrite) /
-        1_000_000
-      : recordedCost;
-    this.#usageTotals.input += input;
-    this.#usageTotals.output += output;
-    this.#usageTotals.cacheRead += cacheRead;
-    this.#usageTotals.cacheWrite += cacheWrite;
-    this.#usageTotals.cost += costTotal;
-    let inputPrice = 0;
-    if (useOverride) {
-      inputPrice = LEGACY_USAGE_OVERRIDE.input / 1_000_000;
-    } else if (input > 0) {
-      inputPrice = amount(cost?.input) / input;
-    }
-    const cacheReadCost = useOverride
-      ? (cacheRead * LEGACY_USAGE_OVERRIDE.cacheRead) / 1_000_000
-      : amount(cost?.cacheRead);
-    this.#usageTotals.savings += Math.max(
-      0,
-      cacheRead * inputPrice - cacheReadCost
+    recordLegacyUsage(payload, this.#usageProviders, this.#usageTotals);
+  }
+
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: durable usage aggregation handles paginated session failures independently
+  async #usageSnapshot(): Promise<{
+    readonly providers: LegacyUsageProvider[];
+    readonly totals: LegacyUsageTotals;
+  }> {
+    const runtimeReadHistory = this.#daemon.runtime.readSessionHistory?.bind(
+      this.#daemon.runtime
     );
-    const row =
-      this.#usageProviders.get(key) ??
-      ({
-        cost: 0,
-        messages: 0,
-        model,
-        provider,
-        tokens: 0,
-      } satisfies LegacyUsageProvider);
-    row.messages += 1;
-    row.tokens += input + output + cacheWrite;
-    row.cost += costTotal;
-    this.#usageProviders.set(key, row);
+    if (!runtimeReadHistory && this.#daemon.supervisor.workerCount() === 0) {
+      return {
+        providers: [...this.#usageProviders.values()].sort(
+          (left, right) => right.cost - left.cost
+        ),
+        totals: this.#usageTotals,
+      };
+    }
+    const providers = new Map<string, LegacyUsageProvider>();
+    const totals = newLegacyUsageTotals();
+    let summaries: readonly { id: string }[];
+    try {
+      summaries = await this.#daemon.runtime.listSessions();
+    } catch {
+      return { providers: [], totals };
+    }
+    for (const summary of summaries) {
+      const activeSession = this.#daemon.supervisor.get(summary.id)?.session;
+      let readHistory:
+        | ((options?: RuntimeHistoryQuery) => Promise<RuntimeHistoryPage>)
+        | undefined;
+      if (activeSession) {
+        readHistory = (options) => activeSession.readHistory(options);
+      } else if (runtimeReadHistory) {
+        readHistory = (options) => runtimeReadHistory(summary.id, options);
+      }
+      if (!readHistory) {
+        continue;
+      }
+      let cursor: string | undefined;
+      try {
+        for (;;) {
+          // biome-ignore lint/performance/noAwaitInLoops: history pages must be read sequentially by cursor.
+          const page = await readHistory({
+            cursor,
+            limit: LEGACY_HISTORY_LIMIT,
+          });
+          for (const entry of page.entries) {
+            if (entry.type === "message") {
+              recordLegacyUsage(entry.body, providers, totals);
+            }
+          }
+          if (!page.nextCursor || page.nextCursor === cursor) {
+            break;
+          }
+          cursor = page.nextCursor;
+        }
+      } catch {
+        // A session may be in the middle of a close/recovery transition. Keep
+        // the other durable sessions in the aggregate instead of failing the
+        // settings page completely.
+      }
+    }
+    return {
+      providers: [...providers.values()].sort(
+        (left, right) => right.cost - left.cost
+      ),
+      totals,
+    };
   }
 
   #broadcastLaneEvent(
@@ -1880,6 +2018,34 @@ export class LegacyHttpAdapter {
       const error = asRecord(cause);
       return String(error?.stderr ?? error?.message ?? cause);
     }
+  }
+
+  async #quotas(
+    method: string,
+    url: URL,
+    response: ServerResponse
+  ): Promise<boolean> {
+    if (method !== "GET") {
+      return false;
+    }
+    const { providers } = this.#daemon.runtime;
+    const fetchQuotas = getLegacyQuotaFetcher();
+    if (!(providers && fetchQuotas)) {
+      sendJson(response, 200, { installed: false, items: [] });
+      return true;
+    }
+    const result = await fetchQuotas(
+      {
+        runtime: async () => ({
+          getAuth: providers.getAuth.bind(providers),
+        }),
+      },
+      LEGACY_AGENT_DIR,
+      url.searchParams.get("force") === "true",
+      legacyAuthPath()
+    );
+    sendJson(response, 200, result);
+    return true;
   }
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy provider route compatibility

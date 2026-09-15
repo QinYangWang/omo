@@ -189,6 +189,9 @@ export function Sidebar({
   const streamingSessions = useStreamingSessions();
   const [importProject, setImportProject] = useState<Project | null>(null);
   const [projectSessions, setProjectSessions] = useState<PiSession[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importingPath, setImportingPath] = useState("");
   const [expandedProjects, setExpandedProjects] = useState<
     Record<string, boolean>
   >({});
@@ -210,9 +213,18 @@ export function Sidebar({
 
   const openImport = async (project: Project) => {
     setImportProject(project);
-    setProjectSessions(
-      await getServerApi(project.serverId).sessions.list(project.cwd)
-    );
+    setProjectSessions([]);
+    setImportError("");
+    setImportLoading(true);
+    try {
+      // Import sources are not limited to the destination project. The
+      // backend creates a fork under the selected project's workspace.
+      setProjectSessions(await getServerApi(project.serverId).sessions.all());
+    } catch (cause) {
+      setImportError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setImportLoading(false);
+    }
   };
 
   return (
@@ -412,7 +424,14 @@ export function Sidebar({
       </div>
 
       <Dialog
-        onOpenChange={(open) => !open && setImportProject(null)}
+        onOpenChange={(open) => {
+          if (open) {
+            return;
+          }
+          setImportProject(null);
+          setImportError("");
+          setImportingPath("");
+        }}
         open={!!importProject}
       >
         <DialogContent className="min-w-0 max-w-xl">
@@ -422,18 +441,37 @@ export function Sidebar({
             </DialogTitle>
             <DialogDescription>{t("import_desc")}</DialogDescription>
           </DialogHeader>
+          {importError ? (
+            <p className="text-destructive text-sm">{importError}</p>
+          ) : null}
           <ScrollArea className="max-h-96 min-w-0">
-            <div className="space-y-1 pr-2">
+            <div className="flex flex-col gap-1 pr-2">
+              {importLoading ? (
+                <p className="p-2 text-muted-foreground text-sm">
+                  {t("loading")}
+                </p>
+              ) : null}
               {projectSessions.map((session) => (
                 <Button
                   className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 text-left font-normal sm:h-auto"
+                  disabled={!!importingPath}
                   key={session.path}
                   onClick={async () => {
-                    if (!importProject) {
+                    if (!importProject || importingPath) {
                       return;
                     }
-                    await onImport(importProject, session.path);
-                    setImportProject(null);
+                    setImportingPath(session.path);
+                    setImportError("");
+                    try {
+                      await onImport(importProject, session.path);
+                      setImportProject(null);
+                    } catch (cause) {
+                      setImportError(
+                        cause instanceof Error ? cause.message : String(cause)
+                      );
+                    } finally {
+                      setImportingPath("");
+                    }
                   }}
                   variant="ghost"
                 >
@@ -445,11 +483,11 @@ export function Sidebar({
                   </div>
                 </Button>
               ))}
-              {projectSessions.length === 0 && (
+              {!importLoading && projectSessions.length === 0 ? (
                 <p className="p-2 text-muted-foreground text-sm">
-                  No sessions in this directory
+                  No sessions available to import
                 </p>
-              )}
+              ) : null}
             </div>
           </ScrollArea>
         </DialogContent>

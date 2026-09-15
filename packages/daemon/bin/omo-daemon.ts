@@ -120,6 +120,11 @@ const main = async (): Promise<void> => {
   const provider = args.provider ?? process.env.OMO_DAEMON_PROVIDER;
   const modelId = args.model ?? process.env.OMO_DAEMON_MODEL;
   const authPath = args.authPath ?? process.env.OMO_DAEMON_AUTH_PATH;
+  if (authPath) {
+    // The legacy v1 quota adapter reads this at request time as well, so an
+    // explicit CLI path keeps provider auth and quota views on the same store.
+    process.env.OMO_DAEMON_AUTH_PATH = authPath;
+  }
 
   let model: Model<Api>;
   let models: Models;

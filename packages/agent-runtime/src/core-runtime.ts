@@ -152,6 +152,32 @@ const toHistoryEntry = (entry: Entry): RuntimeHistoryEntry => {
   }
 };
 
+const readHistoryPage = async (
+  session: Pick<Session, "findEntries">,
+  context: Context,
+  options?: RuntimeHistoryQuery
+): Promise<RuntimeHistoryPage> => {
+  const limit = Math.min(Math.max(options?.limit ?? 200, 1), 1000);
+  const afterSeq =
+    options?.cursor === undefined ? undefined : Number(options.cursor);
+  if (afterSeq !== undefined && !Number.isSafeInteger(afterSeq)) {
+    throw new Error(`invalid history cursor: ${options?.cursor}`);
+  }
+  const entries = await session.findEntries(
+    {
+      cursor: afterSeq === undefined ? undefined : { seq: afterSeq },
+      limit,
+      order: "asc",
+    },
+    context
+  );
+  return {
+    entries: entries.map(toHistoryEntry),
+    nextCursor:
+      entries.length === limit ? String(entries.at(-1)?.seq ?? 0) : null,
+  };
+};
+
 const toLaneSnapshot = (snapshot: LaneSnapshot): RuntimeLaneSnapshot => ({
   faulted: snapshot.faulted,
   lane: snapshot.lane,
@@ -202,31 +228,11 @@ class CoreRuntimeSession implements AgentRuntimeSession {
     return this.#open;
   }
 
-  async readHistory(
-    options?: RuntimeHistoryQuery
-  ): Promise<RuntimeHistoryPage> {
+  readHistory(options?: RuntimeHistoryQuery): Promise<RuntimeHistoryPage> {
     if (!this.#harness) {
       throw new Error("session is closed");
     }
-    const limit = Math.min(Math.max(options?.limit ?? 200, 1), 1000);
-    const afterSeq =
-      options?.cursor === undefined ? undefined : Number(options.cursor);
-    if (afterSeq !== undefined && !Number.isSafeInteger(afterSeq)) {
-      throw new Error(`invalid history cursor: ${options?.cursor}`);
-    }
-    const entries = await this.#session.findEntries(
-      {
-        cursor: afterSeq === undefined ? undefined : { seq: afterSeq },
-        limit,
-        order: "asc",
-      },
-      this.#context
-    );
-    return {
-      entries: entries.map(toHistoryEntry),
-      nextCursor:
-        entries.length === limit ? String(entries.at(-1)?.seq ?? 0) : null,
-    };
+    return readHistoryPage(this.#session, this.#context, options);
   }
 
   #lane(name: string): Promise<AgentLane> {
@@ -460,6 +466,7 @@ export class CoreHarnessRuntime implements AgentRuntime {
     this.#systemPrompt = options.systemPrompt;
     this.#context = options.context ?? BACKGROUND_CONTEXT;
     this.providers = {
+      getAuth: (providerId) => this.#models.getAuth(providerId),
       list: () => this.#listProviders(),
       login: (providerId, type, interaction) =>
         this.#models
@@ -568,6 +575,25 @@ export class CoreHarnessRuntime implements AgentRuntime {
       id: metadata.id,
       storageVersion: metadata.storageVersion,
     }));
+  }
+
+  async readSessionHistory(
+    sessionId: string,
+    options?: RuntimeHistoryQuery
+  ): Promise<RuntimeHistoryPage> {
+    const listed = await this.#repo.list(undefined, this.#context);
+    const metadata = listed.find(
+      (candidate: SqliteSessionMetadata) => candidate.id === sessionId
+    );
+    if (!metadata) {
+      throw new Error(`unknown session: ${sessionId}`);
+    }
+    const session = await this.#repo.open(metadata, this.#context);
+    try {
+      return await readHistoryPage(session, this.#context, options);
+    } finally {
+      await session.close(this.#context);
+    }
   }
 
   listModels(): readonly RuntimeModelDescriptor[] {

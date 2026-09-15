@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force && apt-get purge -y --auto-remove python3 make g++
 COPY packages ./packages
+# The v1 compatibility adapter reuses the provider quota fetchers.
+COPY server/quotas.cjs ./server/quotas.cjs
 RUN mkdir -p /data /workspace
 EXPOSE 5190
 CMD ["node", "--no-warnings", "packages/daemon/bin/omo-daemon.ts"]

@@ -665,11 +665,16 @@ export default function App() {
                   typeof window !== "undefined" && !!window.omoDaemon
                 }
                 onImport={async (project, sourcePath) => {
-                  await getServerApi(project.serverId).sessions.import(
-                    sourcePath,
-                    project.cwd
+                  const importedPath = await getServerApi(
+                    project.serverId
+                  ).sessions.import(sourcePath, project.cwd);
+                  const list = await refreshSessions(project);
+                  const imported = list.find(
+                    (session) => session.path === importedPath
                   );
-                  await refreshSessions(project);
+                  if (imported) {
+                    openSession(project, imported);
+                  }
                 }}
                 onNewSession={startNewSession}
                 onNewSessionAny={async () => {

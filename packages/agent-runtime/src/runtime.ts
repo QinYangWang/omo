@@ -1,3 +1,5 @@
+import type { AuthResult } from "@earendil-works/pi-ai";
+
 /**
  * omo-owned agent runtime boundary (plan §3.5, §12.2 step 1).
  *
@@ -48,6 +50,8 @@ export interface RuntimeAuthInteraction {
 }
 
 export interface RuntimeProviderService {
+  /** Resolve request auth inside the execution-side runtime. */
+  readonly getAuth: (providerId: string) => Promise<AuthResult | undefined>;
   readonly list: () => Promise<readonly RuntimeProviderInfo[]>;
   readonly login: (
     providerId: string,
@@ -243,4 +247,9 @@ export interface AgentRuntime {
   readonly openSession: (sessionId: string) => Promise<AgentRuntimeSession>;
   /** Provider/auth operations are intentionally execution-side and optional for fakes. */
   readonly providers?: RuntimeProviderService;
+  /** Read a closed or active session without attaching a second harness. */
+  readonly readSessionHistory?: (
+    sessionId: string,
+    options?: RuntimeHistoryQuery
+  ) => Promise<RuntimeHistoryPage>;
 }
