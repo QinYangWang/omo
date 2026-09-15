@@ -7,7 +7,7 @@
 新增 UI 组件：
 
 ```bash
-npx shadcn@latest add <component>
+pnpm dlx shadcn@latest add <component>
 ```
 
 Base UI 约定：

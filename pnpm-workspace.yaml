@@ -1,0 +1,10 @@
+packages:
+  - "."
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  "@google/genai": true
+  esbuild: true
+  node-pty: true
+  protobufjs: true

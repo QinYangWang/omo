@@ -7,8 +7,11 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "check": "ultracite check",
-    "dev": "concurrently -k \"vite --port 5188 --strictPort\" \"wait-on http://localhost:5188 && electron .\"",
+    "dev": "vite",
+    "dev:desktop": "concurrently -k \"vite\" \"wait-on http://localhost:5188 && electron .\"",
+    "dev:web": "vite",
     "fix": "ultracite fix",
+    "restart:web": "bash scripts/restart-web-server.sh",
     "server": "node server/index.cjs",
     "server:dev": "node --watch server/index.cjs",
     "start": "electron ."
@@ -68,5 +71,6 @@
     "vite": "^8.0.0",
     "wait-on": "latest"
   },
+  "packageManager": "pnpm@12.4.1",
   "productName": "omo"
 }

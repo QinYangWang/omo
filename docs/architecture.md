@@ -1,5 +1,7 @@
 # 架构
 
+> 本文描述当前已实现架构。pnpm、多 Host、统一本地 daemon 与移动端的目标架构见 [architecture-v2.md](architecture-v2.md)。
+
 ## 运行形态
 
 omo 使用同一套 React 渲染层支持三种已实现的运行形态：

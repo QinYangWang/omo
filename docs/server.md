@@ -5,19 +5,33 @@ omo Server 在服务器进程中运行 Pi SDK，并通过 HTTP、SSE 和 WebSock
 ## 启动
 
 ```bash
-npm install
-npm run build
+pnpm install
+pnpm build
 OMO_TOKEN='replace-with-a-long-random-token' \
 OMO_WORKSPACE_ROOTS='/workspace,/srv/projects' \
 OMO_HOST=127.0.0.1 \
-npm run server
+pnpm server
 ```
 
 开发 watch 模式：
 
 ```bash
-npm run server:dev
+pnpm server:dev
 ```
+
+## 手机访问本地 Web
+
+Desktop 不可用时，优先让 omo Server 直接托管构建后的 Web。这样 Web 与 API 同源，不需要额外配置 CORS：
+
+```bash
+cp .env.example .env
+# 设置强 OMO_TOKEN；远程网络建议同时配置 OMO_TLS_CERT/OMO_TLS_KEY
+pnpm restart:web
+```
+
+`restart:web` 参考 `/root/restart-omo-server.sh`：先构建 Web，再使用 `setsid` 在后台启动 Server，强制监听 `0.0.0.0:5189`，PID 和日志默认写入 `/tmp/omo-server.pid` 与 `/tmp/omo-server.log`。为了避免把无认证 Agent 暴露到网络，未设置 `OMO_TOKEN` 时脚本会拒绝启动。
+
+仅开发前端时可运行 `pnpm dev`，Vite 监听 `0.0.0.0:5188`。它不等同于安全的远程部署；手机长期访问应使用带 Token 和 HTTPS 的 Server 托管页面。
 
 ## 配置
 
@@ -40,7 +54,7 @@ npm run server:dev
 默认监听 HTTP。同时设置 `OMO_TLS_CERT` 与 `OMO_TLS_KEY` 后，HTTP API、SSE 与终端 WebSocket（WSS）全部走同一个 TLS 端口：
 
 ```bash
-OMO_TLS_CERT=/path/to/cert.pem OMO_TLS_KEY=/path/to/key.pem npm run server
+OMO_TLS_CERT=/path/to/cert.pem OMO_TLS_KEY=/path/to/key.pem pnpm server
 ```
 
 只设置其中一个或文件不可读时 Server 拒绝启动并提示。可用 mkcert 为局域网地址签发受信任证书；自签名证书需要各客户端手动信任，否则浏览器与 Electron 远程模式会拒绝连接。启用 HTTPS 后客户端的 Server URL 相应改为 `https://`。
