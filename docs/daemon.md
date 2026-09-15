@@ -122,6 +122,7 @@ Bearer device token，只在 HTTP 边界做 DTO/事件转换，不会启动第�
 ## Electron 薄壳（P1 收尾 / §4.2）
 
 - `electron/daemon.cjs` `DaemonSupervisor`：以 `ELECTRON_RUN_AS_NODE` 子进程启动 daemon；`/v1/hello` 健康门；配对码一次性换取设备令牌并以 safeStorage 落盘；崩溃重启（有界退避，默认 3 次）；退出时 SIGTERM→SIGKILL。
+- Electron 默认读取 Pi 的 `settings.json`（`defaultProvider` / `defaultModel`）和本地 auth store，并将同一 auth path 传给 daemon；未配置默认模型时自动选择第一个已认证的真实 provider/model。只有显式设置 `OMO_DESKTOP_FAUX=1`（或 `OMO_DAEMON_FAUX=1`）才使用 faux。
 - `electron/preload.cjs` 暴露 `omoDaemon.config()/onState()`；renderer 经 `src/lib/omo-v2.ts` 获得 `OmoClient` / `OmoSyncClient`（令牌不落 localStorage）。
 - Settings → Daemon 面板展示 serverId / 状态 / WAL+FULL 持久性与 workspace/session 计数，验证 renderer→daemon 链路。
 - **v2 会话面已起步**：`DaemonSessionsView`（Sidebar「v2 会话」入口；无桌面桥时提供远程 daemon 配对表单——URL + bootstrap code，§4.3 不用缓存伪装在线）完全走 daemon 协议——workspace 注册/选择、session 创建（durable command + 回执轮询）、历史分页（text / thinking 折叠块 / toolCall 卡片 / toolResult / 图片块）、prompt 带图片附件（artifactIds → 完整性校验后的 base64 → lane.accept images）、`session.configure` 改模型/思考级别（串行链上在途运行之后生效 = §6.6 下一运行边界）、草稿 400ms 防抖在线保存（§6.1）、abort（operation.abort + expectedOperationId CAS）。

@@ -87,9 +87,8 @@ let daemonSupervisor;
 /**
  * v2 thin shell (plan §4.2, §12.2): the desktop owns the daemon lifecycle;
  * the renderer talks to it over the same omo protocol as any remote client.
- * Provider defaults to the pi auth store when OMO_DESKTOP_PROVIDER +
- * OMO_DESKTOP_MODEL are set, otherwise --faux for now (real default model
- * selection lands with the P1 provider slice polish).
+ * Provider/model defaults come from Pi's local settings and auth store. Faux is
+ * available only as an explicit development opt-in via OMO_DESKTOP_FAUX=1.
  */
 const startDaemon = async () => {
   const userData = app.getPath("userData");
@@ -106,14 +105,9 @@ const startDaemon = async () => {
     workspaceRoots = [os.homedir()];
   }
   const providerArgs =
-    process.env.OMO_DESKTOP_PROVIDER && process.env.OMO_DESKTOP_MODEL
-      ? [
-          "--provider",
-          process.env.OMO_DESKTOP_PROVIDER,
-          "--model",
-          process.env.OMO_DESKTOP_MODEL,
-        ]
-      : ["--faux"];
+    process.env.OMO_DESKTOP_FAUX === "1" || process.env.OMO_DAEMON_FAUX === "1"
+      ? ["--faux"]
+      : await resolveDesktopProviderArgs();
   daemonSupervisor = new DaemonSupervisor({
     daemonScript: path.join(
       __dirname,
@@ -173,28 +167,127 @@ const MAX_IMAGE_FILE_BYTES = 5_900_000;
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 const hexColor = /^#[\da-f]{6}(?:[\da-f]{2})?$/i;
 
+const getPiAgentDir = () =>
+  process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent");
+const getPiAuthPath = () =>
+  process.env.OMO_DAEMON_AUTH_PATH || path.join(getPiAgentDir(), "auth.json");
+
+const readPiSettings = () => {
+  try {
+    const settings = JSON.parse(
+      fsSync.readFileSync(path.join(getPiAgentDir(), "settings.json"), "utf8")
+    );
+    return settings && typeof settings === "object" ? settings : {};
+  } catch {
+    return {};
+  }
+};
+
 async function getModelRuntime() {
   const { ModelRuntime } = await getSdk();
-  modelRuntimePromise ||= ModelRuntime.create();
+  modelRuntimePromise ||= ModelRuntime.create({ authPath: getPiAuthPath() });
   return modelRuntimePromise;
 }
+
+const resolveDesktopProviderArgs = async () => {
+  const settings = readPiSettings();
+  const provider =
+    process.env.OMO_DESKTOP_PROVIDER?.trim() ||
+    (typeof settings.defaultProvider === "string"
+      ? settings.defaultProvider.trim()
+      : "");
+  const modelId =
+    process.env.OMO_DESKTOP_MODEL?.trim() ||
+    (typeof settings.defaultModel === "string"
+      ? settings.defaultModel.trim()
+      : "");
+  const runtime = await getModelRuntime();
+  const authPath = getPiAuthPath();
+
+  const authenticatedModel = async (providerId, preferredModelId) => {
+    const model = runtime.getModel(providerId, preferredModelId);
+    if (!model) {
+      return;
+    }
+    try {
+      if (
+        !(await runtime.checkAuth(providerId, {
+          signal: AbortSignal.timeout(5000),
+        }))
+      ) {
+        return;
+      }
+    } catch {
+      return;
+    }
+    return model;
+  };
+
+  if (provider || modelId) {
+    if (!(provider && modelId)) {
+      throw new Error(
+        "Pi defaultProvider and defaultModel must be configured together"
+      );
+    }
+    const model = await authenticatedModel(provider, modelId);
+    if (!model) {
+      throw new Error(
+        `Pi default model is unavailable or unauthenticated: ${provider}/${modelId}`
+      );
+    }
+    return [
+      "--provider",
+      provider,
+      "--model",
+      model.id,
+      "--auth-path",
+      authPath,
+    ];
+  }
+
+  const candidates = await Promise.all(
+    runtime.getProviders().map(async (candidate) => {
+      const [model] = runtime.getModels(candidate.id);
+      return model
+        ? {
+            model: await authenticatedModel(candidate.id, model.id),
+            provider: candidate.id,
+          }
+        : undefined;
+    })
+  );
+  const fallback = candidates.find(
+    (candidate) => candidate?.model !== undefined
+  );
+  if (!fallback?.model) {
+    throw new Error(
+      "No authenticated Pi provider/model found; authenticate with pi /login"
+    );
+  }
+  return [
+    "--provider",
+    fallback.provider,
+    "--model",
+    fallback.model.id,
+    "--auth-path",
+    authPath,
+  ];
+};
 
 // ---------- provider quotas (in-process implementation) ----------
 function fetchQuotas(force) {
   return fetchProviderQuotas(
     { runtime: getModelRuntime },
-    path.join(os.homedir(), ".pi/agent"),
-    force
+    getPiAgentDir(),
+    force,
+    getPiAuthPath()
   );
 }
 
 // Keep the UI independent of Pi's TUI extensions: read the same persisted JSONL
 // records used by @tmustier/pi-usage-extension.
 function usageSnapshot() {
-  const root =
-    process.env.PI_CODING_AGENT_DIR ||
-    path.join(require("node:os").homedir(), ".pi", "agent");
-  return readUsageSnapshot(path.join(root, "sessions"));
+  return readUsageSnapshot(path.join(getPiAgentDir(), "sessions"));
 }
 
 // ---------- pi SDK ----------
