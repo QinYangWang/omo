@@ -8,7 +8,7 @@
     "omo": "cli/omo.mjs"
   },
   "scripts": {
-    "build": "tsc -b && pnpm --filter @omo/web build",
+    "build": "pnpm --filter @omo/contracts build && tsc -b && pnpm --filter @omo/web build",
     "check": "ultracite check",
     "dev": "pnpm --filter @omo/web dev",
     "dev:desktop": "concurrently -k \"pnpm --filter @omo/web dev\" \"wait-on http://localhost:5188 && pnpm --filter @omo/desktop start\"",
@@ -19,7 +19,7 @@
     "server": "pnpm --filter @omo/host start",
     "server:dev": "pnpm --filter @omo/host dev",
     "start": "pnpm --filter @omo/desktop start",
-    "test": "node --test test/*.test.mjs"
+    "test": "pnpm --filter @omo/contracts build && pnpm --filter @omo/contracts test && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
