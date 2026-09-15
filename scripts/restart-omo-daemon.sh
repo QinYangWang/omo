@@ -21,9 +21,6 @@ if [ -z "$WEB_ROOT" ] && [ -f "dist/index.html" ]; then
   WEB_ROOT="$(pwd)/dist"
 fi
 
-pkill -f "packages/daemon/bin/omo-daemon.ts" || true
-sleep 0.5
-
 args=(
   packages/daemon/bin/omo-daemon.ts
   --host "$HOST"
@@ -31,14 +28,32 @@ args=(
   --data-dir "$DATA_DIR"
 )
 
-if [ -n "${OMO_DAEMON_PROVIDER:-}" ] && [ -n "${OMO_DAEMON_MODEL:-}" ]; then
+if [ "${OMO_DAEMON_FAUX:-0}" = "1" ]; then
+  args+=(--faux)
+  PROVIDER_DESC="faux (explicit dev smoke)"
+elif {
+  [ -n "${OMO_DAEMON_PROVIDER:-}" ] && [ -z "${OMO_DAEMON_MODEL:-}" ];
+} || {
+  [ -z "${OMO_DAEMON_PROVIDER:-}" ] && [ -n "${OMO_DAEMON_MODEL:-}" ];
+}; then
+  echo "error: set both OMO_DAEMON_PROVIDER and OMO_DAEMON_MODEL" >&2
+  exit 1
+elif [ -n "${OMO_DAEMON_PROVIDER:-}" ] && [ -n "${OMO_DAEMON_MODEL:-}" ]; then
   args+=(--provider "$OMO_DAEMON_PROVIDER" --model "$OMO_DAEMON_MODEL")
   PROVIDER_DESC="${OMO_DAEMON_PROVIDER}/${OMO_DAEMON_MODEL}"
 else
-  echo "warning: OMO_DAEMON_PROVIDER/OMO_DAEMON_MODEL unset — running --faux (dev smoke only)" >&2
-  args+=(--faux)
-  PROVIDER_DESC="faux (dev smoke)"
+  PROVIDER_DESC="auto (Pi settings/auth store)"
 fi
+
+if [ -n "${OMO_DAEMON_AUTH_PATH:-}" ]; then
+  args+=(--auth-path "$OMO_DAEMON_AUTH_PATH")
+fi
+
+# Resolve the provider mode before stopping the current daemon. With no
+# explicit provider/model, the daemon itself selects Pi's local default or
+# the first authenticated real provider/model.
+pkill -f "packages/daemon/bin/omo-daemon.ts" || true
+sleep 0.5
 
 if [ -n "${OMO_DAEMON_PAIRING_CODE:-}" ]; then
   args+=(--pairing-code "$OMO_DAEMON_PAIRING_CODE")

@@ -15,12 +15,15 @@ P1 开门项 + 数据面切片已落地，P2 同步协议核心 + 终端已落�
 - **终端 PTY + 输入权**：`terminal.create/kill/control` 命令、WS `terminal:<id>` 频道、单设备输入控制 + 断连移交 + force 接管（§6.6）。
 - `@omo/client` TS 客户端（HTTP）+ `@omo/client/sync-client`（WSS，自动重连 + 重取快照）。
 - pi-telemetry 兼容的有界 NDJSON sink（§10.3）。
-- 真实 Provider 接线：`--provider <id> --model <id>`（pi `ModelRuntime` 凭据库，§10.1）。
+- 真实 Provider 接线：默认读取 Pi `settings.json` / auth store 自动选择模型，也可显式使用 `--provider <id> --model <id>`（pi `ModelRuntime` 凭据库，§10.1）。
 - **Electron 薄壳已接线**：主进程用 `DaemonSupervisor`（`electron/daemon.cjs`）托管 daemon 生命周期（启动 / 健康门 / safeStorage 令牌 / 崩溃重启 / 退出清理），renderer 经 `src/lib/omo-v2.ts` 拿到标准协议客户端；Settings 新增 Daemon 面板验证该链路。
 
 ```bash
+# 默认使用 Pi settings/auth store 中的真实 provider/model：
+npm run daemon -- --data-dir .omo-daemon --port 5190
+# 开发冒烟才显式使用 faux：
 npm run daemon -- --data-dir .omo-daemon --port 5190 --faux
-# 或真实 Provider（凭据读自 pi auth store，可用 --auth-path 覆盖）：
+# 或显式指定真实 Provider（凭据读自 pi auth store，可用 --auth-path 覆盖）：
 npm run daemon -- --provider anthropic --model claude-sonnet-4-5 --workspace-root ~/code
 # 配对码：--pairing-code，或环境变量 OMO_DAEMON_PAIRING_CODE，
 # 或自动写入 <dataDir>/pairing-code（0600）
@@ -130,7 +133,7 @@ Bearer device token，只在 HTTP 边界做 DTO/事件转换，不会启动第�
 
 ## 部署（server 形态）
 
-- `scripts/restart-omo-daemon.sh`：与 `restart-omo-server.sh` 同约定——pkill 旧进程、`setsid` 完全脱离调用方、环境变量驱动、日志追加、立即返回。真实 provider 用 `OMO_DAEMON_PROVIDER`/`OMO_DAEMON_MODEL`，凭据默认从 `~/.pi/agent/auth.json` 或 provider 环境变量读取；可用 `OMO_DAEMON_AUTH_PATH` 指定 auth 文件。未配置 provider/model 则以 `--faux` 运行并打印警告（仅开发冒烟）。
+- `scripts/restart-omo-daemon.sh`：与 `restart-omo-server.sh` 同约定——pkill 旧进程、`setsid` 完全脱离调用方、环境变量驱动、日志追加、立即返回。默认读取 Pi 的 `settings.json`/`auth.json` 自动选择真实 provider/model；也可用 `OMO_DAEMON_PROVIDER`/`OMO_DAEMON_MODEL` 覆盖，或用 `OMO_DAEMON_AUTH_PATH` 指定 auth 文件。只有显式设置 `OMO_DAEMON_FAUX=1` 才运行 faux。
 - `scripts/restart-omo-daemon-public.sh`：公网部署入口。默认从本地 Pi settings/auth store 自动选择已认证的真实 provider/model；也可显式设置 `OMO_DAEMON_PROVIDER`、`OMO_DAEMON_MODEL`、`OMO_DAEMON_AUTH_PATH`。只有显式设置 `OMO_DAEMON_FAUX=1` 才运行 faux。每次重启删除旧 pairing code、重新生成新的 bootstrap code；code 只在脚本 stdout 打印，不写 daemon log。公网启动会用 `acme.sh` 检查证书有效期，证书缺失或在 `OMO_ACME_RENEW_BEFORE_SECONDS`（默认 30 天）内过期时先 renew/issue，再用 `--install-cert` 写入 daemon PEM 路径。域名可通过 `OMO_ACME_DOMAIN`/`OMO_DAEMON_DOMAIN`/`OMO_DOMAIN` 指定；未指定时尝试复用 acme.sh 的第一个证书。首次签发默认使用 standalone challenge，也可设置 `OMO_ACME_ISSUE_MODE=webroot|dns` 及对应参数。
 - TLS：`--tls-cert/--tls-key` 或 `OMO_DAEMON_TLS_CERT`/`OMO_DAEMON_TLS_KEY`；非 loopback 监听无 TLS 时打印 §4.2 警告。域名证书（fullchain.pem + key.pem）直接用；客户端必须按域名访问（IP 直连会被主机名校验拒绝——已实测）。
 - **Web 托管**：`--web-root` / `OMO_WEB_ROOT`（v1 同约定）让同一进程服务 `dist/` SPA（非 /v1 的 GET 走静态 + index.html 回退，路径逃逸被守卫）；不带 web root 时 / 依旧 404。**daemon 默认不是 web server，不配置该选项时浏览器打开根路径只会得到 404 JSON**。

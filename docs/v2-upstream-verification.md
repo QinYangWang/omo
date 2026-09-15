@@ -80,7 +80,7 @@ P1 已完成切片：
 3. **Artifact 存储 + 文件可靠保存**：内容寻址 artifact（对象先落盘、元数据后提交、读时校验、启动孤儿 GC）；`file.save` 命令带 baseHash CAS + temp/fsync/rename 落盘协议 + 按内容崩溃对账。
 4. **历史分页投影**：`Session.findEntries` 经持有 Session 的 Worker 串行读取，decimal-string cursor；绕开未实现的 `watchSession()`（§3.3.1）。
 5. **Telemetry**：pi-telemetry 契约的有界 NDJSON sink（轮转、写失败静默），`omo.command.submit/execute` span。
-6. **Provider 接线**：`--provider/--model` 走 pi `ModelRuntime` 凭据库（§10.1）。
+6. **Provider 接线**：daemon 默认读取 Pi settings/auth store 自动选择真实 provider/model；`--provider/--model` 可显式覆盖，均走 pi `ModelRuntime` 凭据库（§10.1）。
 
 详见 [daemon.md](daemon.md)。
 
@@ -103,7 +103,7 @@ P1 已完成切片：
 
 ## 8. Server 部署（新形态）
 
-- `scripts/restart-omo-daemon.sh`（参考 restart-omo-server.sh）：setsid 脱离、env 驱动、`--faux` 警告、可选 TLS。已实测：启动 → 配对 → pkill 重启后设备保持。
+- `scripts/restart-omo-daemon.sh`（参考 restart-omo-server.sh）：setsid 脱离、env 驱动、默认读取 Pi settings/auth 的真实 provider、显式 `OMO_DAEMON_FAUX=1` 才使用 faux、可选 TLS。已实测：启动 → 配对 → pkill 重启后设备保持。
 - daemon TLS：`DaemonHttpServer` 接受 cert/key（https + wss 同监听）；`tls.test.ts` 用自签证书验证；域名证书 fullchain.pem + key.pem 实测可用（客户端须按域名访问）。
 - **Web 托管**：`--web-root` / `OMO_WEB_ROOT`（v1 同约定）——同一进程服务 dist/ SPA + 协议；`webroot.test.ts` 覆盖静态 / SPA 回退 / 逃逸守卫；实测 SPA + /v1/hello + WSS 票证同端口全通。
 - `Dockerfile.daemon` + compose `omo-daemon` 服务（`/data` 卷 + `~/.pi/agent` 凭据挂载）。

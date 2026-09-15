@@ -14,8 +14,8 @@ services:
 
   # v2 daemon (plan §4.2). Pairing: set OMO_DAEMON_PAIRING_CODE, or read the
   # generated bootstrap code from <data>/pairing-code inside the container.
-  # Set PROVIDER/MODEL for a real runtime; use a command override with --faux
-  # for development smoke tests.
+  # The mounted Pi settings/auth store selects the real runtime by default;
+  # use OMO_DAEMON_FAUX=1 only for development smoke tests.
   omo-daemon:
     build:
       context: .

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 /**
  * omo daemon entry (plan §13 P1).
@@ -8,10 +10,9 @@ import type { Api, Model, Models } from "@earendil-works/pi-ai";
  *     --data-dir <dir> [--host 127.0.0.1] [--port 5190] --faux
  *
  * `--faux` wires the upstream faux provider (one canned response is queued
- * for smoke testing; append more through the package API). Real provider
- * credentials are resolved by the execution-side pi auth store; the daemon
- * refuses to start without --faux or an explicit provider/model rather than
- * silently running without models.
+ * for smoke testing; append more through the package API). Without `--faux`,
+ * the daemon uses Pi's defaultProvider/defaultModel and local auth store, then
+ * falls back to the first authenticated real provider/model.
  */
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { createFauxModels } from "@omo/agent-runtime/testing";
@@ -113,13 +114,108 @@ const parseArgs = (argv: string[]): Args => {
   return args;
 };
 
+interface PiSettings {
+  readonly defaultModel?: unknown;
+  readonly defaultProvider?: unknown;
+}
+
+const readPiSettings = (agentDir: string): PiSettings => {
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(join(agentDir, "settings.json"), "utf8")
+    );
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const resolveRealSelection = async (options: {
+  readonly authPath: string;
+  readonly modelId?: string;
+  readonly provider?: string;
+}): Promise<{ readonly modelId: string; readonly provider: string }> => {
+  const agentDir =
+    process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+  const settings = readPiSettings(agentDir);
+  const provider =
+    options.provider?.trim() ||
+    process.env.OMO_DAEMON_PROVIDER?.trim() ||
+    (typeof settings.defaultProvider === "string"
+      ? settings.defaultProvider.trim()
+      : "");
+  const modelId =
+    options.modelId?.trim() ||
+    process.env.OMO_DAEMON_MODEL?.trim() ||
+    (typeof settings.defaultModel === "string"
+      ? settings.defaultModel.trim()
+      : "");
+  const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
+  const runtime = await ModelRuntime.create({
+    authPath: options.authPath,
+    refreshOnCreate: false,
+  });
+  const authenticated = async (
+    providerId: string,
+    preferredModelId: string
+  ): Promise<boolean> => {
+    if (!runtime.getModel(providerId, preferredModelId)) {
+      return false;
+    }
+    try {
+      return (
+        (await runtime.checkAuth(providerId, {
+          signal: AbortSignal.timeout(5000),
+        })) !== undefined
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  if (provider || modelId) {
+    if (!(provider && modelId)) {
+      throw new Error(
+        "Pi defaultProvider and defaultModel must be configured together"
+      );
+    }
+    if (!(await authenticated(provider, modelId))) {
+      throw new Error(
+        `Pi default model is unavailable or unauthenticated: ${provider}/${modelId}`
+      );
+    }
+    return { modelId, provider };
+  }
+
+  const candidates = await Promise.all(
+    runtime.getProviders().map(async (candidate) => {
+      const [model] = runtime.getModels(candidate.id);
+      if (!(model && (await authenticated(candidate.id, model.id)))) {
+        return;
+      }
+      return { modelId: model.id, provider: candidate.id };
+    })
+  );
+  const fallback = candidates.find((candidate) => candidate !== undefined);
+  if (!fallback) {
+    throw new Error(
+      "No authenticated Pi provider/model found; authenticate with pi /login"
+    );
+  }
+  return fallback;
+};
+
 const main = async (): Promise<void> => {
   const args = parseArgs(process.argv.slice(2));
   const dataDir =
     args.dataDir ?? process.env.OMO_DAEMON_DATA_DIR ?? ".omo-daemon";
-  const provider = args.provider ?? process.env.OMO_DAEMON_PROVIDER;
-  const modelId = args.model ?? process.env.OMO_DAEMON_MODEL;
-  const authPath = args.authPath ?? process.env.OMO_DAEMON_AUTH_PATH;
+  const authPath =
+    args.authPath ??
+    process.env.OMO_DAEMON_AUTH_PATH ??
+    join(
+      process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
+      "auth.json"
+    );
   if (authPath) {
     // The legacy v1 quota adapter reads this at request time as well, so an
     // explicit CLI path keeps provider auth and quota views on the same store.
@@ -134,17 +230,17 @@ const main = async (): Promise<void> => {
       fauxAssistantMessage("omo daemon (faux) is running"),
     ]);
     ({ model, models } = fauxKit);
-  } else if (provider && modelId) {
+  } else {
+    const selection = await resolveRealSelection({
+      authPath,
+      modelId: args.model,
+      provider: args.provider,
+    });
     ({ model, models } = await createProviderModels({
       authPath,
-      modelId,
-      providerId: provider,
+      modelId: selection.modelId,
+      providerId: selection.provider,
     }));
-  } else {
-    throw new Error(
-      "the daemon requires either --faux (smoke) or --provider <id> --model <id> " +
-        "(real providers via the pi auth store, plan §10.1)"
-    );
   }
 
   const runtime = createCoreDaemonRuntime({ dataDir, model, models });
