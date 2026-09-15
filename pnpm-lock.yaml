@@ -38,6 +38,12 @@ importers:
       '@hugeicons/react':
         specifier: ^1.1.10
         version: 1.1.10(react@19.2.8)
+      '@omo/host-core':
+        specifier: workspace:*
+        version: link:packages/host-core
+      '@omo/pi-runtime':
+        specifier: workspace:*
+        version: link:packages/pi-runtime
       '@pierre/diffs':
         specifier: ^1.4.1
         version: 1.4.1(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

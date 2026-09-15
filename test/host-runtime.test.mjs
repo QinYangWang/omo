@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
+const { EventStore } = require("../server/event-store.cjs");
 const { loadHostIdentity } = require("../server/host-identity.cjs");
 const { PiService } = require("../server/pi-service.cjs");
 
@@ -35,21 +36,19 @@ test("draft and durable Session IDs share one runtime and event stream", async (
     },
   };
   let createCount = 0;
-  const sdk = Promise.resolve({
-    createAgentSession() {
+  const runtimeAdapter = {
+    openSession() {
       createCount += 1;
       return { session };
     },
-    ModelRuntime: { create: () => ({}) },
-    SessionManager: { create: (cwd) => ({ cwd }) },
-  });
+  };
   const events = {
     append(sessionId, event) {
       appended.push({ event, sessionId });
     },
   };
   const workspace = { resolveExisting: async (cwd) => cwd };
-  const service = new PiService(events, workspace, workspace, sdk);
+  const service = new PiService(events, workspace, workspace, runtimeAdapter);
 
   const draft = await service.ensure("draft-session", "/workspace");
   const durable = await service.ensure("durable-session", "/workspace");
@@ -62,4 +61,57 @@ test("draft and durable Session IDs share one runtime and event stream", async (
     "draft-session",
     "durable-session",
   ]);
+});
+
+test("Host operation ledger accepts a Prompt only once", async () => {
+  const { OperationLedger } = await import(
+    "../packages/host-core/dist/index.js"
+  );
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "omo-operations-"));
+  const events = new EventStore(dataDir);
+  let promptCount = 0;
+  const session = {
+    isStreaming: false,
+    prompt() {
+      promptCount += 1;
+      return Promise.resolve();
+    },
+    sessionFile: "/sessions/session.jsonl",
+    sessionId: "durable-session",
+    subscribe() {
+      return () => undefined;
+    },
+  };
+  const operationLedger = new OperationLedger({
+    get: (operationId) => Promise.resolve(events.requestResult(operationId)),
+    putIfAbsent: (operationId, result) =>
+      Promise.resolve(events.saveRequestIfAbsent(operationId, result)),
+  });
+  const runtimeAdapter = {
+    openSession: () => Promise.resolve({ session }),
+  };
+  const workspace = { resolveExisting: async (value) => value };
+  const service = new PiService(
+    events,
+    workspace,
+    workspace,
+    runtimeAdapter,
+    operationLedger
+  );
+  const command = {
+    cwd: "/workspace",
+    message: "Continue",
+    requestId: "operation-1",
+    sessionId: "draft-session",
+  };
+
+  try {
+    const first = await service.prompt(command);
+    const duplicate = await service.prompt(command);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(duplicate, first);
+    assert.equal(promptCount, 1);
+  } finally {
+    fs.rmSync(dataDir, { force: true, recursive: true });
+  }
 });

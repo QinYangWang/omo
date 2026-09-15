@@ -10,7 +10,13 @@ const { contextDetails } = require("./pi-context.cjs");
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 
 class PiService {
-  constructor(eventStore, workspace, sessionWorkspace, sdk) {
+  constructor(
+    eventStore,
+    workspace,
+    sessionWorkspace,
+    runtimeAdapter,
+    operationLedger
+  ) {
     this.events = eventStore;
     this.workspace = workspace;
     this.sessionWorkspace = sessionWorkspace;
@@ -19,14 +25,20 @@ class PiService {
     this.history = new Map();
     this.fileWatchers = new Map();
     this.authPrompts = new Map();
-    this.sdk = sdk || import("@earendil-works/pi-coding-agent");
-    this.runtimePromise = undefined;
+    this.runtimeAdapter = runtimeAdapter
+      ? Promise.resolve(runtimeAdapter)
+      : import("@omo/pi-runtime").then(
+          ({ PiRuntimeAdapter }) => new PiRuntimeAdapter()
+        );
+    this.operationLedger = operationLedger;
+  }
+
+  adapter() {
+    return this.runtimeAdapter;
   }
 
   async runtime() {
-    const { ModelRuntime } = await this.sdk;
-    this.runtimePromise ||= ModelRuntime.create();
-    return this.runtimePromise;
+    return (await this.adapter()).getModelRuntime();
   }
 
   async ensure(sessionId, cwd, sessionPath) {
@@ -38,18 +50,9 @@ class PiService {
       const resolvedSessionPath = sessionPath
         ? await this.sessionWorkspace.resolveExisting(sessionPath)
         : undefined;
-      const { createAgentSession, SessionManager } = await this.sdk;
-      const modelRuntime = await this.runtime();
-      const { session } = await createAgentSession({
+      const { session } = await (await this.adapter()).openSession({
         cwd: resolvedCwd,
-        modelRuntime,
-        sessionManager: resolvedSessionPath
-          ? SessionManager.open(resolvedSessionPath)
-          : SessionManager.create(resolvedCwd),
-        tools:
-          process.platform === "win32"
-            ? ["read", "powershell", "edit", "write", "grep", "find", "ls"]
-            : ["read", "bash", "edit", "write", "grep", "find", "ls"],
+        sessionPath: resolvedSessionPath,
       });
       const eventSessionIds = new Set([sessionId]);
       this.sessionEventIds.set(session, eventSessionIds);
@@ -80,9 +83,10 @@ class PiService {
       const resolvedCwd = await this.workspace.resolveExisting(cwd);
       const resolvedSessionPath =
         await this.sessionWorkspace.resolveExisting(sessionPath);
-      const { SessionManager } = await this.sdk;
       this.watchSessionFile(sessionId, resolvedSessionPath);
-      const manager = SessionManager.open(resolvedSessionPath);
+      const manager = (await this.adapter()).openSessionDocument(
+        resolvedSessionPath
+      );
       const session = await this.ensure(
         sessionId,
         resolvedCwd,
@@ -205,8 +209,9 @@ class PiService {
   async sync({ sessionId, sessionPath, turnCount, tailItemCount }) {
     const resolvedSessionPath =
       await this.sessionWorkspace.resolveExisting(sessionPath);
-    const { SessionManager } = await this.sdk;
-    const manager = SessionManager.open(resolvedSessionPath);
+    const manager = (await this.adapter()).openSessionDocument(
+      resolvedSessionPath
+    );
     const history = createHistorySnapshot(sessionHistoryMessages(manager), {
       running: this.sessions.get(sessionId)?.isStreaming ?? false,
     });
@@ -340,12 +345,6 @@ class PiService {
   }
 
   async prompt({ sessionId, message, cwd, sessionPath, requestId, images }) {
-    if (requestId) {
-      const existing = this.events.requestResult(requestId);
-      if (existing) {
-        return existing;
-      }
-    }
     const session = await this.ensure(sessionId, cwd, sessionPath);
     if (session.sessionFile) {
       this.watchSessionFile(sessionId, session.sessionFile);
@@ -354,9 +353,6 @@ class PiService {
       sessionFile: session.sessionFile,
       sessionId: session.sessionId,
     };
-    if (requestId) {
-      this.events.saveRequest(requestId, result);
-    }
     if (images !== undefined && !Array.isArray(images)) {
       throw new Error("Invalid image attachments");
     }
@@ -379,14 +375,23 @@ class PiService {
       ...(session.isStreaming ? { streamingBehavior: "followUp" } : {}),
       ...(validImages?.length ? { images: validImages } : {}),
     };
-    session
-      .prompt(message, Object.keys(options).length ? options : undefined)
-      .catch((error) =>
-        this.events.append(sessionId, {
-          message: error instanceof Error ? error.message : String(error),
-          type: "omo_error",
-        })
-      );
+    const dispatch = () => {
+      session
+        .prompt(message, Object.keys(options).length ? options : undefined)
+        .catch((error) =>
+          this.events.append(sessionId, {
+            message: error instanceof Error ? error.message : String(error),
+            type: "omo_error",
+          })
+        );
+    };
+    if (requestId && this.operationLedger) {
+      return this.operationLedger.accept(requestId, result, dispatch);
+    }
+    if (requestId) {
+      this.events.saveRequest(requestId, result);
+    }
+    dispatch();
     return result;
   }
 

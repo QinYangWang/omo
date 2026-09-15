@@ -51,6 +51,9 @@ class EventStore {
     this.putRequest = this.db.prepare(
       "INSERT OR REPLACE INTO requests(request_id, result, created_at) VALUES (?, ?, ?)"
     );
+    this.insertRequest = this.db.prepare(
+      "INSERT OR IGNORE INTO requests(request_id, result, created_at) VALUES (?, ?, ?)"
+    );
   }
 
   append(sessionId, payload) {
@@ -109,6 +112,16 @@ class EventStore {
 
   saveRequest(requestId, result) {
     this.putRequest.run(requestId, JSON.stringify(result), Date.now());
+  }
+
+  saveRequestIfAbsent(requestId, result) {
+    const inserted =
+      this.insertRequest.run(requestId, JSON.stringify(result), Date.now())
+        .changes > 0;
+    return {
+      inserted,
+      result: inserted ? result : this.requestResult(requestId),
+    };
   }
 }
 

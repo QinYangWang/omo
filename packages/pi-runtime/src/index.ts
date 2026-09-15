@@ -1,9 +1,11 @@
+import path from "node:path";
 import {
   type AgentSession,
   type CreateAgentSessionOptions,
   type CreateAgentSessionResult,
   createAgentSession,
   createAgentSessionRuntime,
+  loadSkillsFromDir,
   ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
@@ -32,9 +34,18 @@ export interface OpenPiSessionInput {
 }
 
 export interface PiSessionLease {
+  readonly document: SessionManager;
   release: () => Promise<void>;
   readonly result: CreateAgentSessionResult;
   readonly session: AgentSession;
+}
+
+export type PiSessionDocument = SessionManager;
+
+export interface PiSkillSummary {
+  description: string;
+  filePath: string;
+  name: string;
 }
 
 export interface PiSessionSummary {
@@ -62,18 +73,20 @@ export class PiRuntimeAdapter {
     if (this.#lifecycle.closed) {
       throw new Error("Pi runtime is closed");
     }
+    const document = input.sessionPath
+      ? SessionManager.open(input.sessionPath)
+      : SessionManager.create(input.cwd);
     const result = await createAgentSession({
       cwd: input.cwd,
       modelRuntime: await this.getModelRuntime(),
-      sessionManager: input.sessionPath
-        ? SessionManager.open(input.sessionPath)
-        : SessionManager.create(input.cwd),
+      sessionManager: document,
       tools: input.tools ?? defaultTools(),
     });
     const { session } = result;
     this.#sessions.add(session);
     let released = false;
     return {
+      document,
       release: async () => {
         if (released) {
           return;
@@ -112,6 +125,49 @@ export class PiRuntimeAdapter {
       name: session.name,
       path: session.path,
     }));
+  }
+
+  listSkills(agentDir: string): PiSkillSummary[] {
+    return loadSkillsFromDir({
+      dir: path.join(agentDir, "skills"),
+      source: "user",
+    }).skills.map((skill) => ({
+      description: skill.description,
+      filePath: skill.filePath,
+      name: skill.name,
+    }));
+  }
+
+  openSessionDocument(sessionPath: string): PiSessionDocument {
+    return SessionManager.open(sessionPath);
+  }
+
+  forkSession(sourcePath: string, cwd: string): string {
+    const sessionFile = SessionManager.forkFrom(
+      sourcePath,
+      cwd
+    ).getSessionFile();
+    if (!sessionFile) {
+      throw new Error("Forked Session did not create a Session file");
+    }
+    return sessionFile;
+  }
+
+  renameSession(sessionPath: string, name: string): void {
+    SessionManager.open(sessionPath).appendSessionInfo(name);
+  }
+
+  cloneSession(sessionPath: string): string {
+    const document = SessionManager.open(sessionPath);
+    const leafId = document.getLeafId();
+    if (!leafId) {
+      throw new Error("Cannot clone an empty Session");
+    }
+    const sessionFile = document.createBranchedSession(leafId);
+    if (!sessionFile) {
+      throw new Error("Cloned Session did not create a Session file");
+    }
+    return sessionFile;
   }
 
   getModelRuntime(): Promise<ModelRuntime> {

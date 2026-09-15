@@ -16,7 +16,6 @@ const {
   installPackage,
   listModels,
   listPackages,
-  listSkills,
   removePackage,
   setModelsEnabled,
 } = require("./agent-config.cjs");
@@ -34,7 +33,9 @@ const hostId = loadHostIdentity(config.dataDir);
 const workspace = createWorkspaceGuard(config.workspaceRoots);
 const sessionWorkspace = createWorkspaceGuard([config.sessionRoot]);
 const events = new EventStore(config.dataDir, config.eventRetention);
-const pi = new PiService(events, workspace, sessionWorkspace);
+let pi;
+let piRuntime;
+let projectService;
 const terminals = new TerminalService(workspace);
 const browsers = new BrowserService();
 const projectsFile = path.join(config.dataDir, "projects.json");
@@ -276,30 +277,16 @@ async function browserRoutes(req, res, url) {
 
 async function projectRoutes(req, res, url) {
   if (route(req, url, "GET", "/api/v1/projects")) {
-    json(res, 200, await readProjects());
+    json(res, 200, await projectService.list());
     return true;
   }
   if (route(req, url, "POST", "/api/v1/projects")) {
-    const input = await body(req);
-    const cwd = await workspace.resolveExisting(input.cwd);
-    const projects = await readProjects();
-    let project = projects.find((item) => item.cwd === cwd);
-    if (!project) {
-      project = {
-        cwd,
-        id: crypto.randomUUID(),
-        name: input.name || path.basename(cwd),
-      };
-      projects.push(project);
-      await writeProjects(projects);
-    }
-    json(res, 200, project);
+    json(res, 200, await projectService.add(await body(req)));
     return true;
   }
   if (route(req, url, "GET", "/api/v1/sessions")) {
     const cwd = await workspace.resolveExisting(url.searchParams.get("cwd"));
-    const { SessionManager } = await pi.sdk;
-    const list = (await SessionManager.list(cwd)).map((item) => ({
+    const list = (await piRuntime.listSessions(cwd)).map((item) => ({
       ...item,
       created: +item.created,
       modified: +item.modified,
@@ -308,8 +295,7 @@ async function projectRoutes(req, res, url) {
     return true;
   }
   if (route(req, url, "GET", "/api/v1/sessions/all")) {
-    const { SessionManager } = await pi.sdk;
-    const list = (await SessionManager.listAll())
+    const list = (await piRuntime.listAllSessions())
       .filter((item) =>
         workspace.roots.some(
           (root) => item.cwd && inside(root, path.resolve(item.cwd))
@@ -327,29 +313,23 @@ async function projectRoutes(req, res, url) {
     const input = await body(req);
     const cwd = await workspace.resolveExisting(input.cwd);
     const sourcePath = await sessionWorkspace.resolveExisting(input.sourcePath);
-    const { SessionManager } = await pi.sdk;
     json(res, 200, {
-      path: SessionManager.forkFrom(sourcePath, cwd).getSessionFile(),
+      path: piRuntime.forkSession(sourcePath, cwd),
     });
     return true;
   }
   if (route(req, url, "POST", "/api/v1/sessions/rename")) {
     const input = await body(req);
     const sessionPath = await sessionWorkspace.resolveExisting(input.path);
-    const { SessionManager } = await pi.sdk;
-    SessionManager.open(sessionPath).appendSessionInfo(
-      String(input.name).trim()
-    );
+    piRuntime.renameSession(sessionPath, String(input.name).trim());
     json(res, 200, { ok: true });
     return true;
   }
   if (route(req, url, "POST", "/api/v1/sessions/clone")) {
     const input = await body(req);
     const sessionPath = await sessionWorkspace.resolveExisting(input.path);
-    const { SessionManager } = await pi.sdk;
-    const manager = SessionManager.open(sessionPath);
     json(res, 200, {
-      path: manager.createBranchedSession(manager.getLeafId()),
+      path: piRuntime.cloneSession(sessionPath),
     });
     return true;
   }
@@ -357,9 +337,8 @@ async function projectRoutes(req, res, url) {
     const sessionPath = await sessionWorkspace.resolveExisting(
       url.searchParams.get("path")
     );
-    const { SessionManager } = await pi.sdk;
     json(res, 200, {
-      markdown: sessionMarkdown(SessionManager.open(sessionPath)),
+      markdown: sessionMarkdown(piRuntime.openSessionDocument(sessionPath)),
     });
     return true;
   }
@@ -368,11 +347,10 @@ async function projectRoutes(req, res, url) {
       url.searchParams.get("path")
     );
     const cwd = await workspace.resolveExisting(url.searchParams.get("cwd"));
-    const { SessionManager } = await pi.sdk;
     const branchOutput = String(await git(["branch", "--show-current"], cwd));
     json(res, 200, {
       branch: gitErrorPrefix.test(branchOutput) ? "" : branchOutput.trim(),
-      cost: sessionCost(SessionManager.open(sessionPath)),
+      cost: sessionCost(piRuntime.openSessionDocument(sessionPath)),
     });
     return true;
   }
@@ -600,7 +578,7 @@ async function miscRoutes(req, res, url) {
     return true;
   }
   if (route(req, url, "GET", "/api/v1/skills")) {
-    json(res, 200, await listSkills(path.dirname(config.sessionRoot)));
+    json(res, 200, piRuntime.listSkills(path.dirname(config.sessionRoot)));
     return true;
   }
   if (route(req, url, "GET", "/api/v1/models")) {
@@ -762,6 +740,34 @@ function createServer() {
 
 const server = createServer();
 
+async function initializeCore() {
+  const [
+    { OperationLedger, ProjectService, WorkspaceService },
+    { PiRuntimeAdapter },
+  ] = await Promise.all([import("@omo/host-core"), import("@omo/pi-runtime")]);
+  piRuntime = new PiRuntimeAdapter();
+  projectService = new ProjectService(
+    {
+      list: readProjects,
+      replace: writeProjects,
+    },
+    new WorkspaceService(workspace),
+    () => crypto.randomUUID()
+  );
+  const operationLedger = new OperationLedger({
+    get: (operationId) => Promise.resolve(events.requestResult(operationId)),
+    putIfAbsent: (operationId, result) =>
+      Promise.resolve(events.saveRequestIfAbsent(operationId, result)),
+  });
+  pi = new PiService(
+    events,
+    workspace,
+    sessionWorkspace,
+    piRuntime,
+    operationLedger
+  );
+}
+
 const webSockets = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
@@ -782,16 +788,23 @@ server.on("upgrade", (req, socket, head) => {
   });
 });
 
-server.listen(config.port, config.host, () => {
-  const protocol = config.tlsCert ? "https" : "http";
-  console.log(
-    `omo server listening on ${protocol}://${config.host}:${config.port}`
-  );
-  console.log(`host id: ${hostId}`);
-  console.log(`workspace roots: ${workspace.roots.join(", ")}`);
-  if (!config.token) {
-    console.warn(
-      "WARNING: OMO_TOKEN is not set; API authentication is disabled."
-    );
-  }
-});
+initializeCore()
+  .then(() => {
+    server.listen(config.port, config.host, () => {
+      const protocol = config.tlsCert ? "https" : "http";
+      console.log(
+        `omo server listening on ${protocol}://${config.host}:${config.port}`
+      );
+      console.log(`host id: ${hostId}`);
+      console.log(`workspace roots: ${workspace.roots.join(", ")}`);
+      if (!config.token) {
+        console.warn(
+          "WARNING: OMO_TOKEN is not set; API authentication is disabled."
+        );
+      }
+    });
+  })
+  .catch((error) => {
+    console.error("Unable to initialize Host core", error);
+    process.exitCode = 1;
+  });
