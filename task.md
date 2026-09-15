@@ -11,7 +11,7 @@
 - [x] P0-002：建立 `@omo/contracts`，定义并校验 Host、Project、Session、Agent command/event DTO
 - [x] P0-003：建立 `@omo/pi-runtime`，封装当前 `pi-coding-agent` SDK 与实验性 v2 能力
 - [x] P0-004：建立 `@omo/host-core`，抽离 Project、Session、operation、workspace 用例及 ports
-- [ ] P0-005：建立 `@omo/client-core`，抽离 Host registry、Host identity、connection 与 Session attachment 状态
+- [x] P0-005：建立 `@omo/client-core`，抽离 Host registry、Host identity、connection 与 Session attachment 状态
 - [ ] P0-006：让现有 Server 只通过 `host-core` 与 `pi-runtime` 执行业务
 - [ ] P0-007：让 Web 与 CLI 只通过 `client-core` 访问 Host
 - [ ] P0-008：为 HTTP/SSE 兼容 API 建立 contracts、幂等、重放与双客户端测试
