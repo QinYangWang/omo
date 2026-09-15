@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
+  "bin": {
+    "omo": "cli/omo.mjs"
+  },
   "scripts": {
     "build": "tsc -b && vite build",
     "check": "ultracite check",
@@ -11,6 +14,7 @@
     "dev:desktop": "concurrently -k \"vite\" \"wait-on http://localhost:5188 && electron .\"",
     "dev:web": "vite",
     "fix": "ultracite fix",
+    "omo": "node cli/omo.mjs",
     "restart:web": "bash scripts/restart-web-server.sh",
     "server": "node server/index.cjs",
     "server:dev": "node --watch server/index.cjs",
@@ -20,6 +24,7 @@
     "@base-ui/react": "^1.0.0",
     "@earendil-works/pi-coding-agent": "^0.85.0",
     "@earendil-works/pi-server": "^0.85.0",
+    "@earendil-works/pi-tui": "0.85.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@fontsource-variable/outfit": "^5.3.0",

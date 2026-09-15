@@ -4,6 +4,16 @@ omo Server 在服务器进程中运行 Pi SDK，并通过 HTTP、SSE 和 WebSock
 
 ## 启动
 
+通过 omo CLI 前台启动：
+
+```bash
+pnpm omo serve --host 0.0.0.0 --port 5189
+```
+
+直接运行 `pnpm omo` 会连接 `OMO_URL`（默认 `http://127.0.0.1:5189`），本机默认 Host 不存在时自动启动，再进入 omo TUI。远程 Host 可传 `--url` 与 `--token`；`pnpm omo session list --cwd <path>` 可验证 Session 发现。
+
+现有 Server 脚本仍可直接使用：
+
 ```bash
 pnpm install
 pnpm build

@@ -9,6 +9,7 @@ const { WebSocketServer } = require("ws");
 const config = require("./config.cjs");
 const { createWorkspaceGuard, inside } = require("./workspace.cjs");
 const { EventStore } = require("./event-store.cjs");
+const { loadHostIdentity } = require("./host-identity.cjs");
 const { PiService } = require("./pi-service.cjs");
 const { usageSnapshot } = require("./usage.cjs");
 const {
@@ -29,6 +30,7 @@ const {
   browserSessionPattern,
 } = require("./browser-service.cjs");
 
+const hostId = loadHostIdentity(config.dataDir);
 const workspace = createWorkspaceGuard(config.workspaceRoots);
 const sessionWorkspace = createWorkspaceGuard([config.sessionRoot]);
 const events = new EventStore(config.dataDir, config.eventRetention);
@@ -706,7 +708,9 @@ async function handleRequest(req, res) {
         "terminal",
         "browser",
       ],
+      hostId,
       ok: true,
+      protocolVersion: 1,
       version: 1,
     });
     return;
@@ -783,6 +787,7 @@ server.listen(config.port, config.host, () => {
   console.log(
     `omo server listening on ${protocol}://${config.host}:${config.port}`
   );
+  console.log(`host id: ${hostId}`);
   console.log(`workspace roots: ${workspace.roots.join(", ")}`);
   if (!config.token) {
     console.warn(

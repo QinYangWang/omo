@@ -10,15 +10,16 @@ const { contextDetails } = require("./pi-context.cjs");
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 
 class PiService {
-  constructor(eventStore, workspace, sessionWorkspace) {
+  constructor(eventStore, workspace, sessionWorkspace, sdk) {
     this.events = eventStore;
     this.workspace = workspace;
     this.sessionWorkspace = sessionWorkspace;
     this.sessions = new Map();
+    this.sessionEventIds = new WeakMap();
     this.history = new Map();
     this.fileWatchers = new Map();
     this.authPrompts = new Map();
-    this.sdk = import("@earendil-works/pi-coding-agent");
+    this.sdk = sdk || import("@earendil-works/pi-coding-agent");
     this.runtimePromise = undefined;
   }
 
@@ -50,12 +51,24 @@ class PiService {
             ? ["read", "powershell", "edit", "write", "grep", "find", "ls"]
             : ["read", "bash", "edit", "write", "grep", "find", "ls"],
       });
-      session.subscribe((event) => this.events.append(sessionId, event));
+      const eventSessionIds = new Set([sessionId]);
+      this.sessionEventIds.set(session, eventSessionIds);
+      session.subscribe((event) => {
+        for (const eventSessionId of eventSessionIds) {
+          this.events.append(eventSessionId, event);
+        }
+      });
       return session;
     })();
     this.sessions.set(sessionId, creating);
     try {
-      return await creating;
+      const session = await creating;
+      const durableSessionId = session.sessionId;
+      if (durableSessionId && durableSessionId !== sessionId) {
+        this.sessions.set(durableSessionId, creating);
+        this.sessionEventIds.get(session)?.add(durableSessionId);
+      }
+      return session;
     } catch (error) {
       this.sessions.delete(sessionId);
       throw error;
