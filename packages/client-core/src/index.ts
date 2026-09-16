@@ -220,13 +220,22 @@ export class HttpHostClient implements HostClient {
     controller: AbortController
   ): Promise<void> {
     let afterSequence = initialSequence;
+    const deliver = (event: AgentEventEnvelope): void => {
+      // Track the highest delivered sequence outside the per-connection read
+      // so an abrupt disconnect resumes from it instead of replaying what
+      // was already delivered.
+      if (event.sequence > afterSequence) {
+        afterSequence = event.sequence;
+      }
+      listener(event);
+    };
     while (!controller.signal.aborted) {
       try {
         // biome-ignore lint/performance/noAwaitInLoops: reconnects are sequential.
-        afterSequence = await this.readEventStream(
+        await this.readEventStream(
           sessionId,
           afterSequence,
-          listener,
+          deliver,
           controller.signal
         );
       } catch (error) {
