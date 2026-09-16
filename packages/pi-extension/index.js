@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  buildAckRequest,
+  buildCommandStreamPath,
   buildDetachRequest,
   buildEventBatch,
   buildHeartbeatRequest,
@@ -29,6 +31,38 @@ const DAEMON_REREGISTER_ATTEMPTS = 3;
 const DAEMON_REREGISTER_BASE_MS = 500;
 const DAEMON_HEARTBEAT_FAILURE_LIMIT = 3;
 const DAEMON_DEFAULT_HEARTBEAT_MS = 5000;
+
+const extractSseData = (frame) =>
+  frame
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+
+/**
+ * Minimal, shared SSE frame parser for the spike and daemon command streams.
+ * Frames are separated by a blank line; only `data:` payloads are handed to
+ * `onData`, so comments and keep-alives are ignored. Malformed JSON is the
+ * caller's concern and never throws here.
+ */
+async function readSseStream(stream, onData) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const value of stream) {
+    buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replaceAll("\r\n", "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const data = extractSseData(frame);
+      if (data.length > 0) {
+        onData(data);
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
 
 /**
  * Native Pi events forwarded to the omo test receiver (E0-002 spike). Keeping
@@ -446,30 +480,8 @@ function createSpikeSession({
     }
   };
 
-  const extractSseData = (frame) =>
-    frame
-      .split("\n")
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart())
-      .join("\n");
-
   const readCommandStream = async (stream) => {
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for await (const value of stream) {
-      buffer += decoder.decode(value, { stream: true });
-      buffer = buffer.replaceAll("\r\n", "\n");
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary !== -1) {
-        const frame = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const data = extractSseData(frame);
-        if (data.length > 0) {
-          enqueueCommand(data);
-        }
-        boundary = buffer.indexOf("\n\n");
-      }
-    }
+    await readSseStream(stream, (data) => enqueueCommand(data));
   };
 
   const openCommandStream = () => {
@@ -604,10 +616,13 @@ function createSpikeSession({
 }
 
 /**
- * Per-session daemon attachment (E2-002). Owns the register/heartbeat/event
- * forwarding lifecycle. All resources (timer, queue, channel state) are
- * created in `start` and released in `dispose`. The extension never opens a
- * listening socket: every request goes OUT over the daemon's socketPath.
+ * Per-session daemon attachment (E2-002/E2-003). Owns the register/heartbeat/
+ * event forwarding lifecycle plus the private command stream (prompt/abort
+ * dispatch and structured acks). Every mutable resource (heartbeat timer,
+ * recovery timer, command stream, delivery queue, command dedup state) is
+ * created here and released idempotently by `dispose()`. The extension never
+ * opens a listening socket: every request goes OUT over the daemon's
+ * socketPath.
  */
 function createDaemonAttachment({
   cwd,
@@ -616,6 +631,7 @@ function createDaemonAttachment({
   log,
   nextSequence,
   peerCheck,
+  pi,
   piVersion,
   sessionFile,
   sessionId,
@@ -637,6 +653,25 @@ function createDaemonAttachment({
   let recoveryTimer;
   let currentSessionFile = sessionFile;
   let currentSessionId = sessionId;
+  // The live session context. Abort/idle checks go through this exact object;
+  // it is cleared on dispose so a switched or reloaded session can never be
+  // reached through stale state.
+  let ctx;
+
+  // --- command stream + prompt/abort dispatch (E2-003) -------------------
+  let commandStopped = true;
+  let commandAttempts = 0;
+  let commandController;
+  let commandReconnectTimer;
+  const seenRequestIds = new Set();
+  const requestIdOrder = [];
+  let lastCommandSequence = 0;
+  let activePrompt;
+  let promptStarted = false;
+  let activeAbort;
+  let lastAssistantStopReason;
+  const commandQueue = [];
+  let commandDraining = false;
 
   function registerBody() {
     return buildRegisterRequest({
@@ -723,10 +758,13 @@ function createDaemonAttachment({
     recovering = true;
     attached = false;
     stopHeartbeat();
+    stopCommandStream();
+    forgetInFlightCommands();
     generation = undefined;
     credential = undefined;
-    // Events queued for the old generation are dropped: the daemon would
-    // reject them anyway, and nothing may be replayed without a new lease.
+    // Events and acks queued for the old generation are dropped: the daemon
+    // would reject them anyway, and nothing may be replayed without a new
+    // lease.
     queue.dropAll();
     recoveryAttempts = 0;
     scheduleReregister();
@@ -769,6 +807,10 @@ function createDaemonAttachment({
     heartbeatFailures = 0;
     channel.reset();
     startHeartbeat();
+    // A new generation restarts command dedup and re-opens the command stream
+    // with the freshly minted credential.
+    forgetInFlightCommands();
+    startCommandStream();
   }
 
   async function register() {
@@ -818,39 +860,42 @@ function createDaemonAttachment({
     scheduleReregister();
   }
 
-  async function sendBatch(item) {
+  async function deliver(item) {
     if (item.generation !== generation || credential === undefined) {
       return false;
     }
-    const result = await channel.send(`${DAEMON_PATH_PREFIX}/events`, {
+    const result = await channel.send(item.pathname, {
       body: item.body,
       credential,
     });
-    if (result.status === 409) {
+    if (result.status === 401 || result.status === 409) {
       beginRecovery();
     }
     return result.delivered;
   }
 
   const queue = new SerialDeliveryQueue({
-    deliver: sendBatch,
+    deliver,
     isDropped: () => disposed,
   });
 
-  function forward(eventName, payload, ctx) {
+  function forward(eventName, payload, eventCtx) {
     if (!(active && attached) || generation === undefined) {
       // Never buffer events while registration is pending, failed or
       // recovering: the forwarded set is bounded to the live attachment.
       return;
     }
-    const sid = readSessionId(ctx) ?? currentSessionId;
+    const sid = readSessionId(eventCtx) ?? currentSessionId;
     if (typeof sid !== "string" || sid.length === 0) {
       return;
     }
-    const sfile = readSessionFile(ctx) ?? currentSessionFile;
+    const sfile = readSessionFile(eventCtx) ?? currentSessionFile;
     currentSessionId = sid;
     currentSessionFile = sfile;
     const capturedGeneration = generation;
+    // Intentionally not awaited: events and acks share one serialized queue
+    // so their delivery order (and the event nativeSequence ordering) is
+    // preserved without ever stalling Pi.
     queue.enqueue({
       body: buildEventBatch({
         events: [
@@ -867,7 +912,322 @@ function createDaemonAttachment({
         instanceId,
       }),
       generation: capturedGeneration,
+      pathname: `${DAEMON_PATH_PREFIX}/events`,
     });
+  }
+
+  /**
+   * Enqueues a frozen `ExtensionAck`. Acks ride the exact same serialized
+   * queue as events, so the daemon observes accepted/started/completed in the
+   * correct order relative to the native event stream. The captured generation
+   * fences the ack: once the attachment re-registers, old-generation acks are
+   * dropped by `deliver`.
+   */
+  function sendAck({ commandSequence, reason, requestId, status }) {
+    if (!(active && attached) || generation === undefined) {
+      return Promise.resolve(false);
+    }
+    const capturedGeneration = generation;
+    return queue.enqueue({
+      body: buildAckRequest({
+        commandSequence,
+        generation: capturedGeneration,
+        instanceId,
+        reason,
+        requestId,
+        status,
+      }),
+      generation: capturedGeneration,
+      pathname: `${DAEMON_PATH_PREFIX}/ack`,
+    });
+  }
+
+  const rememberRequestId = (requestId) => {
+    seenRequestIds.add(requestId);
+    requestIdOrder.push(requestId);
+    if (requestIdOrder.length > MAX_SEEN_REQUEST_IDS) {
+      const oldest = requestIdOrder.shift();
+      seenRequestIds.delete(oldest);
+    }
+  };
+
+  const rejectCommand = (requestId, commandSequence, reason) =>
+    sendAck({ commandSequence, reason, requestId, status: "rejected" });
+
+  const isCtxIdle = (currentCtx, whenUnknown) => {
+    try {
+      return currentCtx.isIdle();
+    } catch {
+      return whenUnknown;
+    }
+  };
+
+  /**
+   * Shape/type validation mirroring `ExtensionCommandSchema`. Returns a
+   * normalized command or `undefined` for a malformed frame, which is dropped
+   * without crashing Pi. An unknown but well-shaped `type` stays a truthful
+   * `unknown_command_type` rejection.
+   */
+  const normalizeCommand = (value) => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return;
+    }
+    const { commandSequence, requestId, type } = value;
+    if (typeof requestId !== "string" || requestId.length === 0) {
+      return;
+    }
+    if (!Number.isInteger(commandSequence) || commandSequence < 1) {
+      return;
+    }
+    if (typeof type !== "string" || type.length === 0) {
+      return;
+    }
+    if (type === "prompt" && typeof value.text !== "string") {
+      return;
+    }
+    return { commandSequence, requestId, text: value.text, type };
+  };
+
+  const handlePromptCommand = async ({ commandSequence, requestId, text }) => {
+    if (text.trim().length === 0) {
+      await rejectCommand(requestId, commandSequence, "empty_text");
+      return;
+    }
+    const currentCtx = ctx;
+    if (!(active && currentCtx)) {
+      await rejectCommand(requestId, commandSequence, "no_active_session");
+      return;
+    }
+    if (!isCtxIdle(currentCtx, false)) {
+      await rejectCommand(requestId, commandSequence, "turn_already_running");
+      return;
+    }
+    activePrompt = { commandSequence, requestId };
+    promptStarted = false;
+    lastAssistantStopReason = undefined;
+    // The accepted ack is queued before dispatch so it always precedes a
+    // possible `started`; a synchronous dispatch failure is then rejected.
+    await sendAck({ commandSequence, requestId, status: "accepted" });
+    try {
+      // Native Pi capability (0.85.0): `sendUserMessage` starts a real user
+      // turn. A `started` ack is only emitted once `agent_start` actually
+      // fires, never optimistically here.
+      pi.sendUserMessage(text);
+    } catch (error) {
+      activePrompt = undefined;
+      await rejectCommand(
+        requestId,
+        commandSequence,
+        `dispatch_failed: ${errorMessage(error)}`
+      );
+    }
+  };
+
+  const handleAbortCommand = async ({ commandSequence, requestId }) => {
+    const currentCtx = ctx;
+    if (!(active && currentCtx)) {
+      await rejectCommand(requestId, commandSequence, "no_active_session");
+      return;
+    }
+    if (isCtxIdle(currentCtx, true)) {
+      await rejectCommand(requestId, commandSequence, "no_active_turn");
+      return;
+    }
+    activeAbort = { commandSequence, requestId };
+    try {
+      currentCtx.abort();
+    } catch (error) {
+      activeAbort = undefined;
+      await rejectCommand(
+        requestId,
+        commandSequence,
+        `abort_failed: ${errorMessage(error)}`
+      );
+      return;
+    }
+    await sendAck({ commandSequence, requestId, status: "accepted" });
+  };
+
+  const handleCommand = async (raw) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // A malformed frame must never crash the Pi session.
+      return;
+    }
+    const command = normalizeCommand(parsed);
+    if (!command) {
+      return;
+    }
+    const { commandSequence, requestId, type } = command;
+    if (commandSequence <= lastCommandSequence) {
+      // Out-of-order or already-applied command: ignore silently.
+      return;
+    }
+    lastCommandSequence = commandSequence;
+    if (seenRequestIds.has(requestId)) {
+      await rejectCommand(requestId, commandSequence, "duplicate_request");
+      return;
+    }
+    rememberRequestId(requestId);
+    if (type === "prompt") {
+      await handlePromptCommand(command);
+      return;
+    }
+    if (type === "abort") {
+      await handleAbortCommand(command);
+      return;
+    }
+    await rejectCommand(
+      requestId,
+      commandSequence,
+      `unknown_command_type: ${type}`
+    );
+  };
+
+  // Commands are processed strictly in arrival order through a serial drain so
+  // sequence tracking and acks stay deterministic.
+  const processCommands = async () => {
+    const data = commandQueue.shift();
+    if (data === undefined) {
+      commandDraining = false;
+      return;
+    }
+    try {
+      await handleCommand(data);
+    } catch (error) {
+      // Handler errors are swallowed so one bad command can never kill the
+      // stream or the Pi session.
+      log(`command handling failed: ${errorMessage(error)}`);
+    }
+    await processCommands();
+  };
+
+  const enqueueCommand = (data) => {
+    commandQueue.push(data);
+    if (!commandDraining) {
+      commandDraining = true;
+      processCommands();
+    }
+  };
+
+  /**
+   * Clears per-generation command state. Called whenever the attachment gets
+   * a new generation (initial register or recovery) and on dispose: in-flight
+   * acks for a dead generation must never be relabelled to the new one.
+   */
+  function forgetInFlightCommands() {
+    activePrompt = undefined;
+    promptStarted = false;
+    activeAbort = undefined;
+    lastAssistantStopReason = undefined;
+    lastCommandSequence = 0;
+    commandQueue.length = 0;
+  }
+
+  /**
+   * Handles the HTTP result of one command-stream attempt. Returns whether a
+   * bounded reconnect should still be attempted for this run.
+   */
+  async function handleCommandStreamResult(res, status) {
+    if (status === 401 || status === 409) {
+      // The generation is dead: stop reconnecting and let the heartbeat
+      // recovery path re-register with a fresh generation.
+      commandStopped = true;
+      res.destroy();
+      return false;
+    }
+    if (status !== 200) {
+      res.destroy();
+      return true;
+    }
+    commandAttempts = 0;
+    await readSseStream(res, (data) => enqueueCommand(data));
+    return true;
+  }
+
+  function openCommandStream() {
+    if (
+      disposed ||
+      disposing ||
+      commandStopped ||
+      commandController ||
+      generation === undefined ||
+      credential === undefined
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    commandController = controller;
+    const capturedGeneration = generation;
+    const capturedCredential = credential;
+    const run = async () => {
+      let shouldReconnect = true;
+      try {
+        const { res, status } = await channel.stream(
+          buildCommandStreamPath({
+            generation: capturedGeneration,
+            instanceId,
+          }),
+          { credential: capturedCredential, signal: controller.signal }
+        );
+        shouldReconnect = await handleCommandStreamResult(res, status);
+      } catch (error) {
+        if (!(controller.signal.aborted || commandStopped)) {
+          log(`command stream failed: ${errorMessage(error)}`);
+        }
+      } finally {
+        if (commandController === controller) {
+          commandController = undefined;
+        }
+      }
+      if (
+        shouldReconnect &&
+        !(controller.signal.aborted || commandStopped) &&
+        commandController === undefined
+      ) {
+        scheduleCommandReconnect();
+      }
+    };
+    run();
+  }
+
+  function scheduleCommandReconnect() {
+    if (disposed || disposing || commandStopped || commandReconnectTimer) {
+      return;
+    }
+    if (commandAttempts >= COMMAND_RECONNECT_ATTEMPTS) {
+      return;
+    }
+    commandAttempts += 1;
+    const delayMs = COMMAND_RECONNECT_BASE_MS * 2 ** (commandAttempts - 1);
+    commandReconnectTimer = setTimeout(() => {
+      commandReconnectTimer = undefined;
+      openCommandStream();
+    }, delayMs);
+    commandReconnectTimer.unref?.();
+  }
+
+  function stopCommandStream() {
+    commandStopped = true;
+    if (commandReconnectTimer) {
+      clearTimeout(commandReconnectTimer);
+      commandReconnectTimer = undefined;
+    }
+    const controller = commandController;
+    commandController = undefined;
+    controller?.abort();
+  }
+
+  function startCommandStream() {
+    if (disposed || disposing) {
+      return;
+    }
+    stopCommandStream();
+    commandStopped = false;
+    commandAttempts = 0;
+    openCommandStream();
   }
 
   function flushQueue(timeoutMs) {
@@ -904,6 +1264,32 @@ function createDaemonAttachment({
     }
   }
 
+  const finishTurn = async () => {
+    const prompt = activePrompt;
+    const abort = activeAbort;
+    activePrompt = undefined;
+    activeAbort = undefined;
+    promptStarted = false;
+    const reason = lastAssistantStopReason;
+    lastAssistantStopReason = undefined;
+    if (prompt) {
+      await sendAck({
+        commandSequence: prompt.commandSequence,
+        reason,
+        requestId: prompt.requestId,
+        status: "completed",
+      });
+    }
+    if (abort) {
+      await sendAck({
+        commandSequence: abort.commandSequence,
+        reason,
+        requestId: abort.requestId,
+        status: "completed",
+      });
+    }
+  };
+
   return {
     async dispose() {
       if (disposed || disposing) {
@@ -912,6 +1298,11 @@ function createDaemonAttachment({
       disposing = true;
       active = false;
       stopHeartbeat();
+      stopCommandStream();
+      // Clear the live binding before any await: no command may reach a ctx
+      // whose session is being torn down.
+      ctx = undefined;
+      forgetInFlightCommands();
       if (recoveryTimer) {
         clearTimeout(recoveryTimer);
         recoveryTimer = undefined;
@@ -924,10 +1315,29 @@ function createDaemonAttachment({
       queue.dropAll();
     },
     forward,
-    async start() {
+    onAgentSettled() {
+      finishTurn();
+    },
+    onAgentStart() {
+      if (!(activePrompt && !promptStarted)) {
+        return;
+      }
+      promptStarted = true;
+      const { commandSequence, requestId } = activePrompt;
+      sendAck({ commandSequence, requestId, status: "started" });
+    },
+    onMessageEnd(event) {
+      if (event?.message?.role === "assistant") {
+        lastAssistantStopReason = event.message.stopReason;
+      }
+    },
+    async start(currentCtx) {
       if (disposed) {
         return;
       }
+      // Bind the live session context before registering so a command that
+      // arrives immediately after `register` dispatches to the right runtime.
+      ctx = currentCtx;
       active = true;
       if (!peerCheck.ok) {
         log(peerCheck.reason);
@@ -1027,12 +1437,13 @@ export default function omoEventForwarder(pi) {
         log,
         nextSequence,
         peerCheck,
+        pi,
         piVersion,
         sessionFile: readSessionFile(ctx),
         sessionId: readSessionId(ctx),
         socketPath: daemonSocket,
       });
-      await daemonSession.start();
+      await daemonSession.start(ctx);
     }
     forwardToSessions("session_start", event, ctx);
   });
@@ -1071,7 +1482,17 @@ export default function omoEventForwarder(pi) {
   if (daemonSocket) {
     for (const eventName of DAEMON_STREAM_EVENTS) {
       pi.on(eventName, (event, ctx) => {
+        // One handler per native event forwards it and, for the three ack
+        // lifecycle events, drives the truthful `started`/`completed` acks
+        // through the same serialized delivery queue.
         daemonSession?.forward(eventName, event, ctx);
+        if (eventName === "agent_start") {
+          daemonSession?.onAgentStart();
+        } else if (eventName === "message_end") {
+          daemonSession?.onMessageEnd(event);
+        } else if (eventName === "agent_settled") {
+          daemonSession?.onAgentSettled();
+        }
       });
     }
   }

@@ -52,16 +52,19 @@ export function makeCtx({
 }
 
 /** Minimal `ExtensionAPI`-shaped double: captures handlers and replays them. */
-export function createMockPi() {
+export function createMockPi(options = {}) {
+  const { sendUserMessage } = options;
   const handlers = new Map();
+  const sentUserMessages = [];
   const api = {
     on(event, handler) {
       const list = handlers.get(event) ?? [];
       list.push(handler);
       handlers.set(event, list);
     },
-    sendUserMessage() {
-      // The mock records nothing; command-bridge coverage uses a live Pi.
+    sendUserMessage(content, sendOptions) {
+      sentUserMessages.push({ content, options: sendOptions });
+      sendUserMessage?.(content, sendOptions);
     },
   };
   return {
@@ -71,6 +74,7 @@ export function createMockPi() {
       await Promise.all(list.map((handler) => handler(event, ctx)));
     },
     handlersFor: (name) => handlers.get(name) ?? [],
+    sentUserMessages,
   };
 }
 
@@ -170,6 +174,80 @@ export function spawnPi({ args, env = {}, timeoutMs = 120_000 }) {
     get stdout() {
       return stdout;
     },
+  };
+}
+
+/**
+ * Spawns Pi in RPC mode, which keeps the native `AgentSession` alive and idle
+ * until an external command arrives. `stop()` ends stdin to trigger the
+ * documented graceful shutdown path, then force-kills after a short grace.
+ */
+export function spawnPiRpc({
+  args = [],
+  env = {},
+  timeoutMs = 170_000,
+  stopTimeoutMs = 5000,
+} = {}) {
+  const child = spawn(
+    PI_BINARY,
+    [
+      "--mode",
+      "rpc",
+      "--no-session",
+      "--no-extensions",
+      "--no-context-files",
+      "--provider",
+      "opencode-go",
+      "--model",
+      "deepseek-v4.1-flash",
+      ...args,
+    ],
+    {
+      cwd: REPO_ROOT,
+      env: { ...process.env, NO_COLOR: "1", ...env },
+      stdio: ["pipe", "pipe", "pipe"],
+    }
+  );
+  let stderr = "";
+  let stdout = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString("utf8");
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString("utf8");
+  });
+  const killTimer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+  const closed = new Promise((resolve) => {
+    child.once("error", (error) => {
+      clearTimeout(killTimer);
+      resolve({ code: null, error });
+    });
+    child.once("close", (code) => {
+      clearTimeout(killTimer);
+      resolve({ code });
+    });
+  });
+  const stop = async () => {
+    child.stdin.end();
+    const code = await Promise.race([
+      closed.then(() => "closed"),
+      delay(stopTimeoutMs).then(() => "timeout"),
+    ]);
+    if (code === "timeout") {
+      child.kill("SIGKILL");
+      await closed;
+    }
+  };
+  return {
+    child,
+    closed,
+    get stderr() {
+      return stderr;
+    },
+    get stdout() {
+      return stdout;
+    },
+    stop,
   };
 }
 

@@ -33,6 +33,7 @@ export async function startDaemonHarness(options = {}) {
     heartbeatIntervalMs = 1000,
     heartbeatTimeoutMs = 15_000,
     now,
+    onAck: userOnAck,
     onDetach: userOnDetach,
     onNativeEvent: userOnNativeEvent,
     sweepIntervalMs = 100,
@@ -42,11 +43,16 @@ export async function startDaemonHarness(options = {}) {
   const socketPath = path.join(root, "extension.sock");
   const nativeEvents = [];
   const detaches = [];
+  const acks = [];
   const service = new ExtensionService({
     heartbeatIntervalMs,
     heartbeatTimeoutMs,
     hostId: crypto.randomUUID(),
     now,
+    onAck: (attachment, ack) => {
+      acks.push({ ack, attachment });
+      userOnAck?.(attachment, ack);
+    },
     onDetach: (sessionId, attachment, reason) => {
       detaches.push({ attachment, reason, sessionId });
       userOnDetach?.(sessionId, attachment, reason);
@@ -76,9 +82,22 @@ export async function startDaemonHarness(options = {}) {
   record("detach", detachCalls);
 
   const requests = [];
+  const commandResponses = [];
   const server = http.createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     requests.push({ method: request.method, pathname: url.pathname });
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/v1/extension/commands"
+    ) {
+      commandResponses.push(response);
+      request.on("close", () => {
+        const index = commandResponses.indexOf(response);
+        if (index !== -1) {
+          commandResponses.splice(index, 1);
+        }
+      });
+    }
     service
       .handle(request, response, url)
       .then((handled) => {
@@ -100,6 +119,7 @@ export async function startDaemonHarness(options = {}) {
   });
 
   return {
+    acks,
     async close() {
       service.dispose();
       server.closeAllConnections?.();
@@ -109,10 +129,32 @@ export async function startDaemonHarness(options = {}) {
     detachCalls,
     detaches,
     eventBatches,
+    hasCommandSubscriber(sessionId) {
+      const attachment = service.currentBySession.get(sessionId);
+      if (!attachment || attachment.released) {
+        return false;
+      }
+      const { subscriber } = attachment;
+      return Boolean(subscriber && !subscriber.isClosed());
+    },
     heartbeatCalls,
     nativeEvents,
     registerCalls,
     requests,
+    sendCommand(sessionId, command) {
+      return service.sendCommand(sessionId, command);
+    },
+    /** Writes a raw SSE frame to the newest command stream (for malformed input). */
+    sendRawCommand(raw) {
+      const response = commandResponses.find(
+        (candidate) => !(candidate.writableEnded || candidate.destroyed)
+      );
+      if (!response) {
+        return false;
+      }
+      response.write(`data: ${raw}\n\n`);
+      return true;
+    },
     service,
     socketPath,
   };

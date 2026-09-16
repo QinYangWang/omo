@@ -175,6 +175,40 @@ export function buildEventBatch({ events, generation, instanceId }) {
   return { events, generation, instanceId };
 }
 
+/**
+ * Frozen `ExtensionAck` envelope (contracts `ExtensionAckSchema`). It carries
+ * no `nativeSequence`; ordering across events and acks is guaranteed by the
+ * single serialized delivery queue, not by the ack body.
+ */
+export function buildAckRequest({
+  commandSequence,
+  generation,
+  instanceId,
+  reason,
+  requestId,
+  status,
+}) {
+  const body = { commandSequence, generation, instanceId, requestId, status };
+  const normalizedReason = optionalString(reason);
+  if (normalizedReason !== undefined) {
+    body.reason = normalizedReason;
+  }
+  return body;
+}
+
+/**
+ * Path of the private command SSE stream. The daemon fences the stream on
+ * `(instanceId, generation, credential)`; the credential rides the
+ * `Authorization` header added by `DaemonChannel.stream`.
+ */
+export function buildCommandStreamPath({ generation, instanceId }) {
+  const params = new URLSearchParams({
+    generation: String(generation),
+    instanceId,
+  });
+  return `/api/v1/extension/commands?${params.toString()}`;
+}
+
 export function buildDetachRequest({ generation, instanceId, reason }) {
   const body = { generation, instanceId };
   const normalizedReason = optionalString(reason);
@@ -301,6 +335,41 @@ export class DaemonChannel {
       if (payload !== undefined) {
         req.write(payload);
       }
+      req.end();
+    });
+  }
+
+  /**
+   * Opens a long-lived streaming GET (the private command SSE channel).
+   * Resolves with the raw `http.IncomingMessage` plus status so the caller can
+   * distinguish a live `200` stream from a fencing `401`/`409`. Rejects only on
+   * transport errors. The caller owns the returned stream and must destroy or
+   * abort it.
+   */
+  stream(pathname, { credential, signal } = {}) {
+    return new Promise((resolve, reject) => {
+      const headers = { accept: "text/event-stream" };
+      if (typeof credential === "string" && credential.length > 0) {
+        headers.authorization = `Bearer ${credential}`;
+      }
+      const req = http.request(
+        {
+          headers,
+          method: "GET",
+          path: pathname,
+          socketPath: this.#socketPath,
+        },
+        (res) => resolve({ res, status: res.statusCode ?? 0 })
+      );
+      if (signal) {
+        const onAbort = () => req.destroy(new Error("daemon stream aborted"));
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+      }
+      req.once("error", reject);
       req.end();
     });
   }
