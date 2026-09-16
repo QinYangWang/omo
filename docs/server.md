@@ -10,6 +10,8 @@ omo Server 在服务器进程中运行 Pi SDK，并通过 HTTP、SSE 和 WebSock
 pnpm omo serve --host 0.0.0.0 --port 5189
 ```
 
+`pnpm install` 会预构建 CLI 使用的 workspace packages，正常 `pnpm omo` 不会在每次启动时重复运行 TypeScript 编译。修改 `packages/contracts` 或 `packages/client-core` 源码后，可用 `pnpm omo:dev` 强制重新构建再运行。
+
 直接运行 `pnpm omo`（或 `omo`）时默认使用本机 daemon：先按与 Host 相同的 data dir/config 读取 `daemon.json` 发现记录，确认记录的 pid 仍存活后，优先通过 Unix socket / Windows named pipe（也兼容已记录的 TCP endpoint）连接；没有存活且可达的 Host 时，会以 detached `omo serve` 子进程按确定性本机 socket 自动启动，再进入 omo TUI。`pnpm omo session list --cwd <path>` 可验证 Session 发现。
 
 ### 目标优先级

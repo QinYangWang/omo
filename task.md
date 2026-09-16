@@ -42,6 +42,11 @@
 - [x] D1-004：让 `omo` 默认发现或启动本机 Host 后进入 TUI
 - [x] D1-GATE：验证重复启动、异常退出、重启与本机连接
 
+## Performance：CLI 启动
+
+- [x] PERF-001：将 workspace 编译移至安装/开发阶段，正常 `omo` 启动不再重复执行 TypeScript build
+- [ ] PERF-GATE：已运行 daemon 的 `pnpm run omo -- session list` 启动时间低于 1 秒
+
 ## Stage M：多 Host
 
 - [ ] M1-001：基于单 Host 使用结果设计 Host registry 与多 endpoint 语义
