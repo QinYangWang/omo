@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   OperationLedger,
   ProjectService,
-  SessionCoordinator,
   WorkspaceService,
 } from "../dist/index.js";
 
@@ -18,7 +17,6 @@ test("Project service resolves and deduplicates canonical workspaces", async () 
   };
   const workspace = new WorkspaceService({
     resolveExisting: async () => "/workspace/project",
-    roots: ["/workspace"],
   });
   const service = new ProjectService(repository, workspace, () => "project-1");
 
@@ -63,47 +61,4 @@ test("Operation ledger persists acceptance before dispatch and deduplicates", as
     result
   );
   assert.deepEqual(order, ["persist", "dispatch"]);
-});
-
-test("Session coordinator opens one runtime for multiple presentation IDs", async () => {
-  let opens = 0;
-  let closes = 0;
-  const sessionRuntime = {
-    abort: async () => undefined,
-    close: () => {
-      closes += 1;
-      return Promise.resolve();
-    },
-    isStreaming: false,
-    prompt: async () => undefined,
-    sessionId: "durable-session",
-    sessionPath: "/sessions/session.sqlite",
-    subscribe: () => () => undefined,
-  };
-  const coordinator = new SessionCoordinator({
-    listSessions: async () => [],
-    openSession: () => {
-      opens += 1;
-      return Promise.resolve(sessionRuntime);
-    },
-  });
-
-  const first = await coordinator.attach({
-    cwd: "/workspace/project",
-    sessionId: "presentation-a",
-    sessionPath: sessionRuntime.sessionPath,
-  });
-  const second = await coordinator.attach({
-    cwd: "/workspace/project",
-    sessionId: "presentation-b",
-    sessionPath: sessionRuntime.sessionPath,
-  });
-
-  assert.equal(first.runtime, second.runtime);
-  assert.equal(opens, 1);
-  first.detach();
-  first.detach();
-  second.detach();
-  await coordinator.close();
-  assert.equal(closes, 1);
 });

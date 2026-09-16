@@ -1,13 +1,7 @@
-import type {
-  JsonValue,
-  OpenSessionCommand,
-  Project,
-  SessionSummary,
-} from "@omo/contracts";
+import type { JsonValue, Project } from "@omo/contracts";
 
 export interface WorkspacePort {
   resolveExisting: (path: string) => Promise<string>;
-  readonly roots: readonly string[];
 }
 
 export interface ProjectRepositoryPort {
@@ -28,21 +22,6 @@ export interface OperationRepositoryPort {
   ) => Promise<OperationPutResult>;
 }
 
-export interface SessionRuntimePort {
-  abort: () => Promise<void>;
-  close: () => Promise<void>;
-  readonly isStreaming: boolean;
-  prompt: (message: string) => Promise<void>;
-  readonly sessionId: string;
-  readonly sessionPath?: string;
-  subscribe: (listener: (event: JsonValue) => void) => () => void;
-}
-
-export interface PiRuntimePort {
-  listSessions: (cwd: string) => Promise<SessionSummary[]>;
-  openSession: (input: OpenSessionCommand) => Promise<SessionRuntimePort>;
-}
-
 export interface AddProjectInput {
   cwd: string;
   name?: string;
@@ -59,10 +38,6 @@ export class WorkspaceService {
 
   resolveExisting(path: string): Promise<string> {
     return this.port.resolveExisting(path);
-  }
-
-  containsRoot(path: string): boolean {
-    return this.port.roots.includes(path);
   }
 }
 
@@ -126,94 +101,5 @@ export class OperationLedger {
       await dispatch();
     }
     return accepted.result as T;
-  }
-}
-
-interface ManagedSession {
-  attachments: number;
-  readonly runtime: SessionRuntimePort;
-}
-
-export interface SessionAttachment {
-  detach: () => void;
-  readonly runtime: SessionRuntimePort;
-}
-
-const sessionPathKey = (sessionPath: string): string => `path:${sessionPath}`;
-const sessionIdKey = (sessionId: string): string => `id:${sessionId}`;
-
-export class SessionCoordinator {
-  readonly runtime: PiRuntimePort;
-  readonly #sessions = new Map<string, Promise<ManagedSession>>();
-  readonly #managed = new Set<ManagedSession>();
-
-  constructor(runtime: PiRuntimePort) {
-    this.runtime = runtime;
-  }
-
-  async attach(input: OpenSessionCommand): Promise<SessionAttachment> {
-    const requestedKeys = [sessionIdKey(input.sessionId)];
-    if (input.sessionPath) {
-      requestedKeys.unshift(sessionPathKey(input.sessionPath));
-    }
-    const existing = requestedKeys
-      .map((key) => this.#sessions.get(key))
-      .find((session) => session !== undefined);
-    const opening = existing ?? this.open(input);
-    for (const key of requestedKeys) {
-      this.#sessions.set(key, opening);
-    }
-    const managed = await opening;
-    managed.attachments += 1;
-    this.#sessions.set(sessionIdKey(managed.runtime.sessionId), opening);
-    if (managed.runtime.sessionPath) {
-      this.#sessions.set(sessionPathKey(managed.runtime.sessionPath), opening);
-    }
-    let attached = true;
-    return {
-      detach: () => {
-        if (!attached) {
-          return;
-        }
-        attached = false;
-        managed.attachments = Math.max(0, managed.attachments - 1);
-      },
-      runtime: managed.runtime,
-    };
-  }
-
-  list(cwd: string): Promise<SessionSummary[]> {
-    return this.runtime.listSessions(cwd);
-  }
-
-  async close(): Promise<void> {
-    const managed = [...this.#managed];
-    this.#managed.clear();
-    this.#sessions.clear();
-    const results = await Promise.allSettled(
-      managed.map(({ runtime }) => runtime.close())
-    );
-    const errors = results.flatMap((result) =>
-      result.status === "rejected" ? [result.reason] : []
-    );
-    if (errors.length > 0) {
-      throw new AggregateError(errors, "Failed to close Session runtimes");
-    }
-  }
-
-  private open(input: OpenSessionCommand): Promise<ManagedSession> {
-    const opening = this.runtime.openSession(input).then((runtime) => {
-      const managed = { attachments: 0, runtime };
-      this.#managed.add(managed);
-      return managed;
-    });
-    opening.catch(() => {
-      for (const [key, candidate] of this.#sessions) {
-        if (candidate === opening) {
-          this.#sessions.delete(key);
-        }
-      }
-    });
-    return opening;
   }
 }
