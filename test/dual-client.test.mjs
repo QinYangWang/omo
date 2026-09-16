@@ -23,8 +23,15 @@ const json = (response, value) => {
   response.end(JSON.stringify(value));
 };
 
-test("two Host clients attach to one Session event stream", async () => {
+test("CLI Prompt is delivered to an attached Web client", async () => {
   const streams = new Set();
+  const broadcast = (envelope) => {
+    for (const stream of streams) {
+      stream.write(
+        `id: ${envelope.sequence}\nevent: message\ndata: ${JSON.stringify(envelope)}\n\n`
+      );
+    }
+  };
   let resolveConnected;
   const connected = new Promise((resolve) => {
     resolveConnected = resolve;
@@ -33,6 +40,25 @@ test("two Host clients attach to one Session event stream", async () => {
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname === "/api/v1/pi/open") {
       json(response, openResponse);
+      return;
+    }
+    if (url.pathname === "/api/v1/pi/prompt") {
+      json(response, {
+        operationId: "operation-1",
+        sessionFile: openResponse.sessionFile,
+        sessionId: SESSION_ID,
+      });
+      broadcast({
+        id: "event-2",
+        payload: {
+          message: { content: "Continue", role: "user" },
+          type: "message_start",
+        },
+        sequence: 2,
+        sessionId: SESSION_ID,
+        timestamp: Date.now(),
+        type: "message_start",
+      });
       return;
     }
     if (url.pathname === "/api/v1/events") {
@@ -71,9 +97,24 @@ test("two Host clients attach to one Session event stream", async () => {
     const cliEvent = new Promise((resolve) => {
       subscriptions.push(cliClient.subscribeSession(SESSION_ID, 0, resolve));
     });
+    let resolveWebEvent;
+    let resolveWebPrompt;
     const webEvent = new Promise((resolve) => {
-      subscriptions.push(webClient.subscribeSession(SESSION_ID, 0, resolve));
+      resolveWebEvent = resolve;
     });
+    const webPromptEvent = new Promise((resolve) => {
+      resolveWebPrompt = resolve;
+    });
+    subscriptions.push(
+      webClient.subscribeSession(SESSION_ID, 0, (event) => {
+        if (event.sequence === 1) {
+          resolveWebEvent(event);
+        }
+        if (event.sequence === 2) {
+          resolveWebPrompt(event);
+        }
+      })
+    );
     await connected;
 
     const envelope = {
@@ -84,11 +125,7 @@ test("two Host clients attach to one Session event stream", async () => {
       timestamp: Date.now(),
       type: "message_update",
     };
-    for (const stream of streams) {
-      stream.write(
-        `id: 1\nevent: message\ndata: ${JSON.stringify(envelope)}\n\n`
-      );
-    }
+    broadcast(envelope);
 
     const [receivedByCli, receivedByWeb] = await Promise.all([
       cliEvent,
@@ -96,6 +133,17 @@ test("two Host clients attach to one Session event stream", async () => {
     ]);
     assert.deepEqual(receivedByCli, envelope);
     assert.deepEqual(receivedByWeb, envelope);
+
+    const accepted = await cliClient.prompt({
+      cwd: "/workspace",
+      message: "Continue",
+      requestId: "operation-1",
+      sessionId: SESSION_ID,
+    });
+    const receivedPrompt = await webPromptEvent;
+    assert.equal(accepted.operationId, "operation-1");
+    assert.equal(receivedPrompt.payload.type, "message_start");
+    assert.equal(receivedPrompt.payload.message.content, "Continue");
   } finally {
     for (const subscription of subscriptions) {
       subscription.close();
