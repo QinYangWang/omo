@@ -68,7 +68,26 @@ Remote API 为每次 Prompt 生成 UUID `requestId`。Server 的 `requests` 表�
 4. 在调用异步 Prompt 前保存响应。
 5. 启动 Prompt。
 
+### 并发重复提交（best-effort）
+
+幂等依赖 `OperationLedger.accept()` 的 `putIfAbsent` 仓库调用；真实实现对应 `EventStore.saveRequestIfAbsent()`，执行 `INSERT OR IGNORE`，因此「查询后插入」在 SQLite 层面原子：即使多个请求同时带着同一 `requestId` 并发提交，也只有一个调用会以 `inserted=true` 插入成功并拿到 dispatch 权，其余并发调用返回同一份已持久化的 acceptance，不再次调用 `session.prompt`。
+
+实测语义：
+
+- 同一 `requestId` 的并发请求全部返回相同的 acceptance 结果（operationId、sessionId、sessionFile）。
+- `session.prompt` 至多被调用一次，即使第一个 Prompt 仍在运行中收到重复请求也不会二次 dispatch。
+- 不同 `requestId` 之间互不影响，各自独立 dispatch。
+
 网络超时后使用同一 request ID 重试不会重复提交 Prompt。
+
+### 已知限制：acceptance 持久化与 dispatch 之间的崩溃窗口
+
+第 4 步（持久化 acceptance）与第 5 步（启动 Prompt）之间不是原子的。若进程在这两步之间崩溃或退出：
+
+- `requests` 表已经包含该 requestId 的 acceptance，但 Prompt 从未真正启动（该 turn 丢失）。
+- 重启后客户端用同一 `requestId` 重试会命中已持久化的 acceptance 并直接返回，而不会重新 dispatch。
+
+这是有意的 best-effort 语义：在 dispatch 前持久化 acceptance 并以 `INSERT OR IGNORE` 原子判重，换取了「并发与重试绝不重复提交」的强保证；代价是崩溃窗口内的那一次 Prompt 会静默丢失，而不是被重放。客户端可以对比 acceptance 返回后的事件流来发现此类丢失。
 
 ## 终端恢复
 
