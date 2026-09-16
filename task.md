@@ -28,7 +28,7 @@
 - [x] V1-004：让 Web 垂直切片的 Project、Session 与 Agent HTTP/SSE 只通过 `HostClient` 访问 Host
 - [x] V1-005：建立 CLI 与 Web 同时 attach 同一 Session 的集成测试
 - [x] V1-006：验证 CLI Prompt → Web 实时显示
-- [ ] V1-007：验证 Web follow-up → CLI 实时显示
+- [x] V1-007：验证 Web follow-up → CLI 实时显示
 - [ ] V1-008：验证 SSE 重复事件、断线与 sequence 重放
 - [ ] V1-009：验证重复 `requestId` 只 dispatch 一次，并记录崩溃窗口限制
 - [ ] V1-010：验证无客户端连接时 Session 继续运行
