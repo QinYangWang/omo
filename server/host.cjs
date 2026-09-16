@@ -9,6 +9,7 @@ const { WebSocketServer } = require("ws");
 const config = require("./config.cjs");
 const { createWorkspaceGuard, inside } = require("./workspace.cjs");
 const { EventStore } = require("./event-store.cjs");
+const { ExtensionService } = require("./extension-service.cjs");
 const { loadHostIdentity } = require("./host-identity.cjs");
 const {
   prepareLocalEndpoint,
@@ -48,6 +49,7 @@ let projectsFile;
 let server;
 let webSockets;
 let localEndpoint;
+let extensionService;
 
 const mime = {
   ".css": "text/css; charset=utf-8",
@@ -71,6 +73,7 @@ const MAX_IMAGE_FILE_BYTES = 5_900_000;
 const terminalPattern = /^\/api\/v1\/terminals\/([^/]+)$/;
 const terminalTicketPattern = /^\/api\/v1\/terminals\/([^/]+)\/ticket$/;
 const terminalStreamPattern = /^\/api\/v1\/terminals\/([^/]+)\/stream$/;
+const extensionPathPrefix = "/api/v1/extension/";
 
 function setCors(req, res) {
   const { origin } = req.headers;
@@ -670,6 +673,27 @@ async function handleApiRequest(req, res, url) {
   return miscRoutes(req, res, url);
 }
 
+async function extensionRoutes(req, res, url) {
+  if (!url.pathname.startsWith(extensionPathPrefix)) {
+    return false;
+  }
+  if (localEndpoint && extensionService) {
+    try {
+      if (await extensionService.handle(req, res, url)) {
+        return true;
+      }
+    } catch (error) {
+      console.error(error);
+      if (!res.headersSent) {
+        json(res, 500, { error: "Internal error" });
+      }
+      return true;
+    }
+  }
+  json(res, 404, { error: "Not found" });
+  return true;
+}
+
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   setCors(req, res);
@@ -680,6 +704,12 @@ async function handleRequest(req, res) {
   if (req.method === "OPTIONS" && !isBrowserProxy) {
     res.writeHead(204);
     res.end();
+    return;
+  }
+  // The private Extension channel never uses the public Bearer Token. It is
+  // mounted only on the local socket/pipe listener and every route except
+  // `register` authenticates with the short-lived instance credential.
+  if (await extensionRoutes(req, res, url)) {
     return;
   }
   if (url.pathname === "/api/v1/health") {
@@ -841,6 +871,16 @@ function installSignalHandlers() {
 
 async function initializeHost() {
   hostId = loadHostIdentity(config.dataDir);
+  extensionService = new ExtensionService({
+    heartbeatIntervalMs: config.extensionHeartbeatIntervalMs,
+    heartbeatTimeoutMs: config.extensionHeartbeatTimeoutMs,
+    hostId,
+    sweepIntervalMs: Math.min(
+      config.extensionHeartbeatIntervalMs,
+      config.extensionHeartbeatTimeoutMs,
+      1000
+    ),
+  });
   workspace = createWorkspaceGuard(config.workspaceRoots);
   sessionWorkspace = createWorkspaceGuard([config.sessionRoot]);
   events = new EventStore(config.dataDir, config.eventRetention);
@@ -926,6 +966,7 @@ async function shutdownHost() {
   }
   terminals?.dispose();
   browsers?.dispose();
+  extensionService?.dispose();
   await piRuntime?.close();
   pi?.dispose();
   events?.close();

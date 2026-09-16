@@ -69,7 +69,7 @@
 ### E1：Attachment contract 与执行租约
 
 - [x] E1-001：为 register、heartbeat、detach、native event batch、command stream 与 ack 定义运行时 contracts
-- [ ] E1-002：实现仅限本机 socket/pipe 的 Extension 私有 HTTP/SSE 通道与短期 instance credential
+- [x] E1-002：实现仅限本机 socket/pipe 的 Extension 私有 HTTP/SSE 通道与短期 instance credential（`b98edf5`）
 - [ ] E1-003：实现 `headless-owned` / `native-attached` / `detached` SessionExecutionBroker 与 generation lease
 - [ ] E1-004：将 native sequence 去重后映射为现有 Host event sequence，并抑制 attachment 活跃时的文件 watcher 重复事件
 - [ ] E1-GATE：验证 attach 竞争、stale generation、heartbeat 超时、daemon 重启与单 Session 单执行者
