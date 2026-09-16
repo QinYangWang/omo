@@ -80,7 +80,7 @@
 - [x] E2-002：实现 Session 注册、heartbeat 及 message/turn/tool/agent/retry/compaction/model lifecycle 转发（`2d2d536`）
 - [x] E2-003：实现私有 command stream 的 Prompt/Abort dispatch、结构化 ack 与 requestId 关联（`5ec9098`）
 - [x] E2-004：正确处理 `/new`、`/resume`、`/fork`、`/reload` 和异常退出，不复用 stale SessionContext（`3847887`）
-- [ ] E2-GATE：验证 Extension reload/switch/crash 不泄漏 watcher、timer、socket 或旧 generation 事件
+- [x] E2-GATE：验证 Extension reload/switch/crash 不泄漏 watcher、timer、socket 或旧 generation 事件
 
 ### E3：原生本机 CLI
 
