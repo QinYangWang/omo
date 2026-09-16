@@ -18,7 +18,7 @@
 - [x] S0-002：删除未接入的 `host-core` Session coordinator、attachment lifecycle 与冗余 ports
 - [x] S0-003：将 `client-core` 收缩为最小 `HostClient` 接口，暂不抽取 Host registry 和连接状态机
 - [x] S0-004：清理 workspace 转发依赖，确保旧目录在垂直切片完成前可直接开发运行
-- [ ] S0-GATE：通过 `pnpm check`、`pnpm test`、`pnpm build`，且行为无回归
+- [x] S0-GATE：通过 `pnpm check`、`pnpm test`、`pnpm build`，且行为无回归
 
 ## Stage V：双客户端垂直切片
 
