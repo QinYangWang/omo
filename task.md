@@ -25,7 +25,7 @@
 - [x] V1-001：补齐 health、Project、Session list/open、Prompt、abort 与 SSE 的 contracts
 - [x] V1-002：实现基于现有 `/api/v1` HTTP/SSE 的共享 `HostClient`
 - [x] V1-003：让 CLI 只通过 `HostClient` 访问 Host
-- [ ] V1-004：让 Web 只通过 `HostClient` 访问 Host
+- [x] V1-004：让 Web 垂直切片的 Project、Session 与 Agent HTTP/SSE 只通过 `HostClient` 访问 Host
 - [ ] V1-005：建立 CLI 与 Web 同时 attach 同一 Session 的集成测试
 - [ ] V1-006：验证 CLI Prompt → Web 实时显示
 - [ ] V1-007：验证 Web follow-up → CLI 实时显示

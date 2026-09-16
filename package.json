@@ -10,9 +10,9 @@
   "scripts": {
     "build": "pnpm --filter './packages/**' -r build && tsc -b && vite build",
     "check": "ultracite check",
-    "dev": "vite",
-    "dev:desktop": "concurrently -k \"vite\" \"wait-on http://localhost:5188 && electron .\"",
-    "dev:web": "vite",
+    "dev": "pnpm --filter @omo/client-core... build && vite",
+    "dev:desktop": "concurrently -k \"pnpm --filter @omo/client-core... build && vite\" \"wait-on http://localhost:5188 && electron .\"",
+    "dev:web": "pnpm --filter @omo/client-core... build && vite",
     "fix": "ultracite fix",
     "omo": "pnpm --filter @omo/client-core build && node cli/omo.mjs",
     "restart:web": "bash scripts/restart-web-server.sh",

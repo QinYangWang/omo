@@ -3,6 +3,8 @@ import {
   AbortCommandSchema,
   type AcceptedOperation,
   AcceptedOperationSchema,
+  type AddProjectCommand,
+  AddProjectCommandSchema,
   type AgentEventEnvelope,
   AgentEventEnvelopeSchema,
   HostApiContracts,
@@ -28,6 +30,7 @@ export interface SessionEventSubscription {
 
 export interface HostClient<TSessionSnapshot = OpenSessionResponse> {
   abort: (command: AbortCommand) => Promise<void>;
+  addProject: (command: AddProjectCommand) => Promise<Project>;
   health: () => Promise<HostHealth>;
   listProjects: () => Promise<Project[]>;
   listSessions: (cwd: string) => Promise<SessionSummary[]>;
@@ -90,6 +93,22 @@ export class HttpHostClient implements HostClient {
       HostHealthSchema,
       await this.request(HostApiContracts.health.path),
       "HostHealth"
+    );
+  }
+
+  async addProject(command: AddProjectCommand): Promise<Project> {
+    const body = parseContract(
+      AddProjectCommandSchema,
+      command,
+      "AddProjectCommand"
+    );
+    return parseContract(
+      HostApiContracts.addProject.response,
+      await this.request(HostApiContracts.addProject.path, {
+        body: JSON.stringify(body),
+        method: "POST",
+      }),
+      "Project"
     );
   }
 

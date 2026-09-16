@@ -159,7 +159,7 @@ export type ImageAttachment = Static<typeof ImageAttachmentSchema>;
 
 export const PromptCommandSchema = Type.Object(
   {
-    cwd: Type.String({ minLength: 1 }),
+    cwd: Type.Optional(Type.String({ minLength: 1 })),
     images: Type.Optional(Type.Array(ImageAttachmentSchema, { maxItems: 8 })),
     message: Type.String({ minLength: 1 }),
     requestId: Type.String({ minLength: 1 }),
