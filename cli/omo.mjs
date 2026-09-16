@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import {
@@ -23,6 +24,12 @@ import {
   parseArguments,
   selectTransportMode,
 } from "./local-host.mjs";
+import {
+  assertExtensionExists,
+  buildNativeSpawnConfig,
+  defaultExtensionPath,
+  resolvePiBinary,
+} from "./native-pi.mjs";
 
 const require = createRequire(import.meta.url);
 const SESSION_TITLE_WHITESPACE = /\s+/g;
@@ -319,6 +326,77 @@ async function runTui(client, baseUrl, host, options) {
   await app.run();
 }
 
+const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 };
+const NATIVE_LOCAL_ONLY_ERROR =
+  "`omo --native` only supports the local omo daemon. Remove --url/--socket/--server (or the OMO_URL/OMO_LOCAL_SOCKET environment overrides) to launch the native Pi TUI.";
+
+/**
+ * Runs the native Pi TUI as the foreground process sharing the user's TTY.
+ * SIGINT/SIGTERM are forwarded so `omo` never leaves an orphaned Pi behind
+ * when it is signalled directly instead of through the terminal group.
+ */
+function runForeground({ command, args, cwd, env }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, env, stdio: "inherit" });
+    const forward = (signal) => {
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          child.kill(signal);
+        } catch {
+          // The child exited between the liveness check and the signal.
+        }
+      }
+    };
+    const onSigint = () => forward("SIGINT");
+    const onSigterm = () => forward("SIGTERM");
+    const cleanup = () => {
+      process.removeListener("SIGINT", onSigint);
+      process.removeListener("SIGTERM", onSigterm);
+    };
+    process.on("SIGINT", onSigint);
+    process.on("SIGTERM", onSigterm);
+    child.once("error", (error) => {
+      cleanup();
+      reject(
+        new Error(`Unable to start the native Pi TUI: ${error.message}`, {
+          cause: error,
+        })
+      );
+    });
+    child.once("exit", (code, signal) => {
+      cleanup();
+      resolve(signal ? (SIGNAL_EXIT_CODES[signal] ?? 1) : (code ?? 0));
+    });
+  });
+}
+
+/**
+ * `omo --native`: discover/start the local daemon exactly like the default
+ * local flow, then hand the terminal to the project-locked Pi CLI with the
+ * omo extension explicitly loaded. The daemon is a separate detached process,
+ * so Pi exiting does not stop it. Daemon-side event ingestion is E1; for the
+ * spike the events URL is only passed through from the operator environment.
+ */
+async function runNativePi(options) {
+  if (selectTransportMode(options) !== "local") {
+    throw new Error(NATIVE_LOCAL_ONLY_ERROR);
+  }
+  await ensureLocalHost(options);
+  const { binaryPath, version } = resolvePiBinary();
+  const extensionPath = assertExtensionExists(defaultExtensionPath());
+  const spawnConfig = buildNativeSpawnConfig({
+    baseEnv: process.env,
+    binaryPath,
+    cwd: options.cwd,
+    extensionPath,
+    passthroughArgs: options.positional,
+  });
+  console.error(
+    `omo: launching project-locked Pi ${version} (${binaryPath}) with extension ${extensionPath}`
+  );
+  process.exitCode = await runForeground(spawnConfig);
+}
+
 /**
  * Starts the local Host in-process while holding the exclusive daemon lease
  * for the resolved data directory. A second concurrent `omo serve` for the
@@ -406,6 +484,57 @@ async function serveHost(options) {
   }
 }
 
+/**
+ * Resolves the Host client, display target and health record for the active
+ * transport mode. Precedence: explicit --socket, explicit --url, their env
+ * equivalents, explicit --server, then the selected registry entry, then
+ * default local discovery/auto-start. Only local modes ever start a Host, and
+ * a selected remote failure never falls back to local.
+ */
+async function resolveClientTarget(options) {
+  const mode = selectTransportMode(options);
+  if (mode === "socket") {
+    const client = buildClientForEndpoint(
+      {
+        path: options.socket,
+        transport: process.platform === "win32" ? "pipe" : "unix",
+      },
+      options.token
+    );
+    return {
+      client,
+      host: await ensureExplicitHost(client, options.socket),
+      target: options.socket,
+    };
+  }
+  if (mode === "url") {
+    const client = buildClientForEndpoint(
+      { transport: "tcp", url: options.url },
+      options.token
+    );
+    return {
+      client,
+      host: await ensureExplicitHost(client, options.url),
+      target: options.url,
+    };
+  }
+  if (mode === "server" && options.server !== "local") {
+    const { client, hostId, label } = await connectRegistryHost(
+      options.server,
+      options
+    );
+    return { client, host: { hostId }, target: label };
+  }
+  const selected =
+    mode === "server" ? null : await connectSelectedRegistryHost(options);
+  if (selected) {
+    const { client, hostId, label } = selected;
+    return { client, host: { hostId }, target: label };
+  }
+  const { client, endpoint, hostId } = await ensureLocalHost(options);
+  return { client, host: { hostId }, target: endpointLabel(endpoint) };
+}
+
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   if (options.command === "serve") {
@@ -420,60 +549,12 @@ async function main() {
     runHostCommand(options.command, options, resolveDataDir(options));
     return;
   }
-
-  // Precedence: explicit --socket, explicit --url, their env equivalents,
-  // explicit --server, then the selected registry entry, then default local
-  // discovery/auto-start. Only local modes ever start a Host, and a selected
-  // remote failure never falls back to local.
-  const mode = selectTransportMode(options);
-  let client;
-  let target;
-  let host;
-  if (mode === "socket") {
-    client = buildClientForEndpoint(
-      {
-        path: options.socket,
-        transport: process.platform === "win32" ? "pipe" : "unix",
-      },
-      options.token
-    );
-    target = options.socket;
-    host = await ensureExplicitHost(client, target);
-  } else if (mode === "url") {
-    client = buildClientForEndpoint(
-      { transport: "tcp", url: options.url },
-      options.token
-    );
-    target = options.url;
-    host = await ensureExplicitHost(client, target);
-  } else if (mode === "server" && options.server !== "local") {
-    const {
-      client: registryClient,
-      hostId,
-      label,
-    } = await connectRegistryHost(options.server, options);
-    client = registryClient;
-    target = label;
-    host = { hostId };
-  } else {
-    const selected =
-      mode === "server" ? null : await connectSelectedRegistryHost(options);
-    if (selected) {
-      const { client: selectedClient, hostId, label } = selected;
-      client = selectedClient;
-      target = label;
-      host = { hostId };
-    } else {
-      const {
-        client: localClient,
-        endpoint,
-        hostId,
-      } = await ensureLocalHost(options);
-      client = localClient;
-      target = endpointLabel(endpoint);
-      host = { hostId };
-    }
+  if (options.native) {
+    await runNativePi(options);
+    return;
   }
+
+  const { client, target, host } = await resolveClientTarget(options);
   if (options.command === "session-list") {
     const sessions = await client.listSessions(options.cwd);
     for (const session of sessions) {
