@@ -13,6 +13,7 @@ import {
   Text,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
+import { HttpHostClient } from "@omo/client-core";
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SERVER_ENTRY = fileURLToPath(
@@ -90,94 +91,25 @@ function parseArguments(argv) {
   return options;
 }
 
-class HostApi {
-  constructor(baseUrl, token) {
-    this.baseUrl = baseUrl;
-    this.token = token;
-  }
-
-  async request(route, init = {}) {
-    const response = await fetch(`${this.baseUrl}/api/v1${route}`, {
-      ...init,
-      headers: {
-        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
-        ...init.headers,
-      },
-    });
-    const value = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(
-        value.error || `Host request failed (${response.status})`
-      );
-    }
-    return value;
-  }
-
-  get(route) {
-    return this.request(route);
-  }
-
-  post(route, body) {
-    return this.request(route, { body: JSON.stringify(body), method: "POST" });
-  }
-
-  async events(sessionId, after, signal, listener) {
-    const query = new URLSearchParams({ after: String(after), sessionId });
-    const response = await fetch(`${this.baseUrl}/api/v1/events?${query}`, {
-      headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      signal,
-    });
-    if (!(response.ok && response.body)) {
-      throw new Error(`Event stream failed (${response.status})`);
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    while (!signal.aborted) {
-      // biome-ignore lint/performance/noAwaitInLoops: event chunks must be consumed in order.
-      const { done, value } = await reader.read();
-      if (done) {
-        return;
-      }
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        const block = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        const data = block
-          .split("\n")
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trimStart())
-          .join("\n");
-        if (data) {
-          listener(JSON.parse(data));
-        }
-        boundary = buffer.indexOf("\n\n");
-      }
-    }
-  }
-}
-
-async function waitForHost(api) {
+async function waitForHost(client, baseUrl) {
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     try {
       // biome-ignore lint/performance/noAwaitInLoops: Host startup must be polled sequentially.
-      return await api.get("/health");
+      return await client.health();
     } catch {
       await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
     }
   }
-  throw new Error(`Timed out waiting for omo Host at ${api.baseUrl}`);
+  throw new Error(`Timed out waiting for omo Host at ${baseUrl}`);
 }
 
-async function ensureLocalHost(api) {
+async function ensureLocalHost(client, baseUrl) {
   try {
-    return await api.get("/health");
+    return await client.health();
   } catch (error) {
-    if (api.baseUrl !== DEFAULT_URL) {
-      throw new Error(`Unable to connect to omo Host at ${api.baseUrl}`, {
+    if (baseUrl !== DEFAULT_URL) {
+      throw new Error(`Unable to connect to omo Host at ${baseUrl}`, {
         cause: error,
       });
     }
@@ -189,7 +121,7 @@ async function ensureLocalHost(api) {
     stdio: "ignore",
   });
   child.unref();
-  return waitForHost(api);
+  return waitForHost(client, baseUrl);
 }
 
 function textFromContent(content) {
@@ -219,8 +151,9 @@ function initialEntries(messages) {
 }
 
 class OmoTui {
-  constructor(api, host, options, opened, clientSessionId) {
-    this.api = api;
+  constructor(client, baseUrl, host, options, opened, clientSessionId) {
+    this.client = client;
+    this.baseUrl = baseUrl;
     this.host = host;
     this.options = options;
     this.clientSessionId = clientSessionId;
@@ -229,7 +162,6 @@ class OmoTui {
     this.eventSequence = opened.eventSequence || 0;
     this.streaming = Boolean(opened.isStreaming);
     this.connectionState = "online";
-    this.controller = new AbortController();
     this.terminal = new ProcessTerminal();
     this.tui = new TuiMainScreen(this.terminal);
     this.root = new Container();
@@ -270,7 +202,7 @@ class OmoTui {
   refresh() {
     const model = this.options.model || "default model";
     this.header.setText(
-      `${colors.accent("omo")}  ${this.host.hostId || "legacy-host"}\n${colors.dim(`${this.api.baseUrl} · ${this.options.cwd} · ${model}`)}`
+      `${colors.accent("omo")}  ${this.host.hostId || "legacy-host"}\n${colors.dim(`${this.baseUrl} · ${this.options.cwd} · ${model}`)}`
     );
     const transcript = this.entries
       .map(({ role, text }) => {
@@ -377,7 +309,7 @@ class OmoTui {
     this.streaming = true;
     this.refresh();
     try {
-      const result = await this.api.post("/pi/prompt", {
+      const result = await this.client.prompt({
         cwd: this.options.cwd,
         message: text,
         requestId: randomUUID(),
@@ -394,7 +326,7 @@ class OmoTui {
 
   async abort() {
     try {
-      await this.api.post("/pi/abort", { sessionId: this.clientSessionId });
+      await this.client.abort({ sessionId: this.clientSessionId });
     } catch (error) {
       this.entries.push({ role: "error", text: error.message });
     }
@@ -407,55 +339,30 @@ class OmoTui {
       return;
     }
     this.closed = true;
-    this.controller.abort();
+    this.subscription?.close();
     this.removeInputListener();
     this.tui.stop();
     this.resolve?.();
   }
 
-  async eventLoop() {
-    let retryMs = 1000;
-    while (!this.controller.signal.aborted) {
-      try {
-        this.connectionState = "online";
-        this.refresh();
-        // biome-ignore lint/performance/noAwaitInLoops: each SSE connection must finish before reconnecting.
-        await this.api.events(
-          this.clientSessionId,
-          this.eventSequence,
-          this.controller.signal,
-          (record) => this.consume(record)
-        );
-        if (!this.controller.signal.aborted) {
-          throw new Error("event stream closed");
-        }
-      } catch {
-        if (this.controller.signal.aborted) {
-          return;
-        }
-        this.connectionState = `reconnecting in ${retryMs / 1000}s`;
-        this.refresh();
-        await new Promise((resolve) => setTimeout(resolve, retryMs));
-        retryMs = Math.min(retryMs * 2, 30_000);
-      }
-    }
-  }
-
   run() {
+    this.subscription = this.client.subscribeSession(
+      this.clientSessionId,
+      this.eventSequence,
+      (record) => this.consume(record)
+    );
     this.tui.start();
-    this.eventTask = this.eventLoop().catch((error) => this.showError(error));
     return new Promise((resolve) => {
       this.resolve = resolve;
     });
   }
 }
 
-async function runTui(api, host, options) {
+async function runTui(client, baseUrl, host, options) {
   if (!(process.stdin.isTTY && process.stdout.isTTY)) {
     throw new Error("omo TUI requires an interactive terminal");
   }
-  const query = new URLSearchParams({ cwd: options.cwd });
-  const sessions = await api.get(`/sessions?${query}`);
+  const sessions = await client.listSessions(options.cwd);
   let selectedSession;
   if (options.command !== "session-new") {
     selectedSession = options.sessionPath
@@ -471,7 +378,7 @@ async function runTui(api, host, options) {
   }
   const sessionPath = selectedSession?.path;
   const clientSessionId = selectedSession?.id || randomUUID();
-  const opened = await api.post("/pi/open", {
+  const opened = await client.openSession({
     cwd: options.cwd,
     sessionId: clientSessionId,
     sessionPath,
@@ -479,7 +386,14 @@ async function runTui(api, host, options) {
   options.model = opened.model
     ? `${opened.model.provider}/${opened.model.id}`
     : undefined;
-  const app = new OmoTui(api, host, options, opened, clientSessionId);
+  const app = new OmoTui(
+    client,
+    baseUrl,
+    host,
+    options,
+    opened,
+    clientSessionId
+  );
   await app.run();
 }
 
@@ -495,12 +409,13 @@ async function main() {
     return;
   }
 
-  const api = new HostApi(options.url, options.token);
-  const host = await ensureLocalHost(api);
+  const client = new HttpHostClient({
+    baseUrl: options.url,
+    token: options.token,
+  });
+  const host = await ensureLocalHost(client, options.url);
   if (options.command === "session-list") {
-    const sessions = await api.get(
-      `/sessions?${new URLSearchParams({ cwd: options.cwd })}`
-    );
+    const sessions = await client.listSessions(options.cwd);
     for (const session of sessions) {
       const title = String(session.name || session.firstMessage || "Untitled")
         .replace(SESSION_TITLE_WHITESPACE, " ")
@@ -509,7 +424,7 @@ async function main() {
     }
     return;
   }
-  await runTui(api, host, options);
+  await runTui(client, options.url, host, options);
 }
 
 main().catch((error) => {
