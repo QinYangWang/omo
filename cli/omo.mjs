@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import {
   Container,
   Editor,
@@ -14,29 +12,17 @@ import {
   Text,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
-import { HttpHostClient } from "@omo/client-core";
-import { createLocalEndpointFetch } from "./local-transport.mjs";
+import {
+  buildClientForEndpoint,
+  endpointLabel,
+  ensureExplicitHost,
+  ensureLocalHost,
+  parseArguments,
+  selectTransportMode,
+} from "./local-host.mjs";
 
 const require = createRequire(import.meta.url);
-const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const SERVER_ENTRY = fileURLToPath(
-  new URL("../server/index.cjs", import.meta.url)
-);
-const DEFAULT_URL = "http://127.0.0.1:5189";
-const START_TIMEOUT_MS = 8000;
-const RETRY_MS = 100;
 const SESSION_TITLE_WHITESPACE = /\s+/g;
-const TRAILING_SLASH = /\/$/;
-const VALUE_OPTIONS = new Map([
-  ["--cwd", "cwd"],
-  ["--data-dir", "dataDir"],
-  ["--host", "host"],
-  ["--port", "port"],
-  ["--session", "sessionPath"],
-  ["--socket", "socket"],
-  ["--token", "token"],
-  ["--url", "url"],
-]);
 
 const colors = {
   accent: (value) => `\u001b[36m${value}\u001b[39m`,
@@ -56,80 +42,6 @@ const editorTheme = {
     selectedText: colors.accent,
   },
 };
-
-function parseArguments(argv) {
-  const options = {
-    command: "tui",
-    cwd: process.cwd(),
-    dataDir: process.env.OMO_DATA_DIR,
-    host: process.env.OMO_HOST || "127.0.0.1",
-    port: process.env.OMO_PORT || "5189",
-    sessionPath: undefined,
-    socket: process.env.OMO_LOCAL_SOCKET || "",
-    token: process.env.OMO_TOKEN || "",
-    url: process.env.OMO_URL || DEFAULT_URL,
-  };
-  const positional = [];
-  let pendingOption;
-  for (const argument of argv) {
-    if (pendingOption) {
-      options[pendingOption] = argument;
-      pendingOption = undefined;
-      continue;
-    }
-    const option = VALUE_OPTIONS.get(argument);
-    if (option) {
-      pendingOption = option;
-    } else if (argument !== "--") {
-      positional.push(argument);
-    }
-  }
-  if (pendingOption) {
-    throw new Error(`Missing value for --${pendingOption}`);
-  }
-  options.url = options.url.replace(TRAILING_SLASH, "");
-  if (positional[0] === "serve") {
-    options.command = "serve";
-  } else if (positional[0] === "session" && positional[1] === "list") {
-    options.command = "session-list";
-  } else if (positional[0] === "session" && positional[1] === "new") {
-    options.command = "session-new";
-  }
-  return options;
-}
-
-async function waitForHost(client, baseUrl) {
-  const deadline = Date.now() + START_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      // biome-ignore lint/performance/noAwaitInLoops: Host startup must be polled sequentially.
-      return await client.health();
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
-    }
-  }
-  throw new Error(`Timed out waiting for omo Host at ${baseUrl}`);
-}
-
-async function ensureLocalHost(client, target, allowAutoStart) {
-  try {
-    return await client.health();
-  } catch (error) {
-    if (!allowAutoStart) {
-      throw new Error(`Unable to connect to omo Host at ${target}`, {
-        cause: error,
-      });
-    }
-  }
-  const child = spawn(process.execPath, [SERVER_ENTRY], {
-    cwd: PACKAGE_ROOT,
-    detached: true,
-    env: process.env,
-    stdio: "ignore",
-  });
-  child.unref();
-  return waitForHost(client, target);
-}
 
 function textFromContent(content) {
   if (typeof content === "string") {
@@ -427,13 +339,23 @@ async function serveHost(options) {
     acquireDaemonLease,
     tcpEndpoint,
   } = require("../server/daemon-state.cjs");
+  const { resolveLocalEndpoint } = require("../server/local-endpoint.cjs");
   const { startHost } = require("../server/host.cjs");
+  // Record the endpoint the Host will actually bind before it starts, so a
+  // discovery reader never sees a TCP endpoint for a socket transport.
+  const localEndpoint =
+    config.transport === "socket"
+      ? resolveLocalEndpoint({
+          dataDir: config.dataDir,
+          explicit: config.localSocket,
+        })
+      : null;
   const lease = acquireDaemonLease({
     dataDir: config.dataDir,
-    endpoint: options.socket
+    endpoint: localEndpoint
       ? {
-          path: options.socket,
-          transport: process.platform === "win32" ? "pipe" : "unix",
+          path: localEndpoint.path,
+          transport: localEndpoint.kind === "pipe" ? "pipe" : "unix",
           url: "http://localhost",
         }
       : tcpEndpoint({
@@ -488,19 +410,40 @@ async function main() {
     return;
   }
 
-  const useLocalSocket = options.socket.length > 0;
-  const client = new HttpHostClient({
-    baseUrl: useLocalSocket ? "http://localhost" : options.url,
-    fetch: useLocalSocket
-      ? createLocalEndpointFetch(options.socket)
-      : undefined,
-    token: options.token,
-  });
-  const target = useLocalSocket ? options.socket : options.url;
-  // Local sockets are explicit in D1-003; discovery and auto-start of the
-  // default daemon endpoint belong to D1-004.
-  const canAutoStart = !useLocalSocket && target === DEFAULT_URL;
-  const host = await ensureLocalHost(client, target, canAutoStart);
+  // Precedence: explicit --socket, then explicit --url, then their env
+  // equivalents, then default local discovery/auto-start. Only the default
+  // mode ever starts a Host; explicit targets stay explicit.
+  const mode = selectTransportMode(options);
+  let client;
+  let target;
+  let host;
+  if (mode === "socket") {
+    client = buildClientForEndpoint(
+      {
+        path: options.socket,
+        transport: process.platform === "win32" ? "pipe" : "unix",
+      },
+      options.token
+    );
+    target = options.socket;
+    host = await ensureExplicitHost(client, target);
+  } else if (mode === "url") {
+    client = buildClientForEndpoint(
+      { transport: "tcp", url: options.url },
+      options.token
+    );
+    target = options.url;
+    host = await ensureExplicitHost(client, target);
+  } else {
+    const {
+      client: localClient,
+      endpoint,
+      hostId,
+    } = await ensureLocalHost(options);
+    client = localClient;
+    target = endpointLabel(endpoint);
+    host = { hostId };
+  }
   if (options.command === "session-list") {
     const sessions = await client.listSessions(options.cwd);
     for (const session of sessions) {

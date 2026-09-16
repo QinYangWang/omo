@@ -39,7 +39,7 @@
 - [x] D1-001：实现 `omo serve` 生命周期与优雅关闭
 - [x] D1-002：实现 daemon discovery、PID、启动锁与 stale PID 清理
 - [x] D1-003：实现 Unix socket 与 Windows named pipe transport
-- [ ] D1-004：让 `omo` 默认发现或启动本机 Host 后进入 TUI
+- [x] D1-004：让 `omo` 默认发现或启动本机 Host 后进入 TUI
 - [ ] D1-GATE：验证重复启动、异常退出、重启与本机连接
 
 ## Stage M：多 Host
