@@ -169,14 +169,6 @@ importers:
         specifier: latest
         version: 9.1.0
 
-  apps/cli: {}
-
-  apps/desktop: {}
-
-  apps/host: {}
-
-  apps/web: {}
-
   packages/client-core:
     dependencies:
       '@omo/contracts':

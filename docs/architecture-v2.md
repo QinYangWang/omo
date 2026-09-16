@@ -104,7 +104,7 @@ packages/
   pi-runtime/     仅当前 Pi SDK adapter
 ```
 
-`apps/*` 只作为 pnpm 命令入口。首个 gate 前不进行大规模物理搬迁，也不为了目录纯度增加 root/workspace 转发层。
+首个 gate 前不创建 `apps/*` 转发 package、不进行大规模物理搬迁；根脚本直接运行现有目录。垂直切片稳定后，只有在代码真正迁移时才新增对应 workspace app。
 
 `host-core` 中尚未被 Server 使用的 ports、Session coordinator 和 attachment lifecycle 不作为当前架构。Project 等只有单一实现的简单逻辑可以留在 Server；出现第二个调用方或需要独立测试时再抽取。
 
