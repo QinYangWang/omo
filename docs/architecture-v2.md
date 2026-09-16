@@ -25,6 +25,7 @@ omo v2 只先解决一个问题：**一个 Host 内运行的 Pi Session，能够
 - exactly-once operation；现有 `requestId` 只提供 durable acceptance 去重，Host 在“记录接受”与“实际 dispatch”之间崩溃时仍可能需要人工重试；
 - 多 Host 聚合视图；M1-001 只定义 registry 条目语义，不做聚合；
 - 一个 Host 的多个 endpoint 自动合并；多个 endpoint 只能是互相独立的别名；
+- 多 Host 切换 UI、凭据持久化适配器、重试状态机、endpoint fallback 与聚合缓存；M1-002 只实现 credential reference、共享探测与每 entry 错误域，接入工作归 M1-003；
 - snapshot/revision 协议；当前只使用 HTTP 查询与 SSE sequence 重放；
 - 跨 Host Session 迁移；
 - Pi experimental server/client/protocol 的稳定兼容；
@@ -76,7 +77,7 @@ interface HostClient {
 
 HTTP/SSE、认证 header 和重连属于该实现。React state、localStorage、TUI component 和平台 credential storage 不进入这个包。
 
-Host registry 的稳定语义见 4.3；在其之上抽取 store、连接状态机和切换 UI 仍然延后。
+Host registry 的稳定语义见 4.3，连接/凭据模型见 4.4；在其之上抽取 store 与切换 UI 仍然延后。
 
 ### 4.3 Host registry 与多 endpoint 语义
 
@@ -95,7 +96,18 @@ M1-001 只定义客户端本地 registry 的稳定语义，不实现 store、切
   - 同一 Host 的多个 endpoint：各自独立条目、独立健康状态，不自动合并。
 - **默认与选中**：registry 使用显式版本化文档（`schema: "omo.host-registry"`、`version: 1`），包含 `entries` 和可选 `selectedEntryId`。没有全局单例：`selectedEntryId` 缺失或失效时，由客户端按自身规则解析默认（托管 Web 同源条目、CLI/Electron 首条或本机 daemon），并且不隐式改写其他条目。
 
-### 4.4 Pi adapter
+### 4.4 连接探测、凭据与每 Host 错误域（M1-002）
+
+M1-002 在 4.3 之上实现共享的每 entry 连接模型；持久化适配器、store 与切换 UI 仍属 M1-003。
+
+- **凭据边界**：Bearer Token 不进入 `HostRegistryEntry`/`HostRegistryDocument`、连接快照、错误消息、日志或任何序列化结果。条目只保存不透明 `credentialRef`。`CredentialResolver.resolve(ref)` 是平台适配器（Electron `safeStorage`、浏览器存储、CLI keychain）；无 `credentialRef` 表示匿名请求，存在 `credentialRef` 但解析失败或返回空值则是显式 `credential-error`。`createInMemoryCredentialResolver` 仅用于测试/fixture，不是生产凭据存储。
+- **工厂注入**：`HostConnectionManager` 接收 `createClient(entry, token)` 与 `credentialResolver`。Token 只作为该工厂参数传入，由平台适配器构造 `HttpHostClient`（浏览器用默认 fetch 并拒绝本机 transport，Node 用 Unix socket / named pipe 的 `fetch`）。`@omo/client-core` 不导入 localStorage、Electron、`node:http` 或文件系统。
+- **每 entry 状态**：`HostConnectionSnapshot` 以 `entryId` 为键（不是 `hostId` 或 endpoint），状态为 `idle`/`checking`/`online`/`offline`/`unauthorized`/`credential-error`/`identity-mismatch`，只携带安全元数据：归一化 endpoint、`observedHostId`、`latencyMs`、`checkedAt`、`errorCode`/`errorMessage`。没有全局 fatal 状态，一个 Host 的失败不会覆盖另一个 Host。
+- **身份协调**：health 成功后必须调用 `reconcileHostIdentity`。首次连接返回 `entryUpdate`（由调用方持久化 `expectedHostId`）；匹配成功且不产生更新；mismatch 是隔离的硬失败，状态为 `identity-mismatch`，绝不改写 registry 条目。Host 进程重启后 `hostId` 不变，仍为匹配。
+- **并行探测**：`probeAll` 对每个 entry 独立 settle，`probe` 对可预期失败返回快照而非 reject，因此 A 的 401、B 的不可达和 C 的健康各自产生独立快照。重复别名（同一 endpoint）保留独立 entry、独立 client 与独立状态。
+- **错误分类**：`HostRequestError` 暴露 `status` 与按 status 推导的 `code`（`unauthorized`/`forbidden`/`not-found`/`bad-request`/`server-error`/`unknown`），不解析服务端消息文本。连接层把 401/403 映射为 `unauthorized`，网络/未知错误映射为 `offline`，contract 校验失败映射为 `invalid-response`。
+
+### 4.5 Pi adapter
 
 `@omo/pi-runtime` 只包装当前实际使用的 `@earendil-works/pi-coding-agent` stable SDK：
 
@@ -189,7 +201,7 @@ Host 在步骤 2 与 3 之间崩溃时可能留下未 dispatch 的 acceptance。
 
 ### Stage M：多 Host
 
-只有 Web 与 CLI 的单 Host 模型稳定后才实现 Host registry store、多 endpoint 切换、credential reference 和独立错误域。M1-001 只落地 4.3 的语义和 `@omo/contracts` schema；持久化适配器、连接状态机、切换 UI、凭据存储和迁移框架都不在本任务内。
+只有 Web 与 CLI 的单 Host 模型稳定后才实现 Host registry store、多 endpoint 切换、credential reference 和独立错误域。M1-001 落地 4.3 的语义与 `@omo/contracts` schema；M1-002 落地 4.4 的凭据边界、工厂注入、每 entry 连接/探测模型与错误分类。M1-003 仍必须接入：平台凭据持久化（Electron `safeStorage` / 浏览器存储）、registry store、选中 entry、连接状态订阅与切换 UI。持久化适配器、重试状态机、endpoint fallback、聚合缓存和迁移框架都不在本任务内。
 
 ## 8. Gate
 

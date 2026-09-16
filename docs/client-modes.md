@@ -4,6 +4,8 @@
 
 M1-001 起，服务器列表的目标模型是客户端本地 Host registry（`@omo/contracts` 的 `HostRegistryEntry` / `HostRegistryDocument`）：条目只含 `id`、`label`、`endpoint`、可选 `expectedHostId` 与可选 `credentialRef`。条目 `id` 是客户端本地 registry 条目 id，与 Host health 的 `hostId`（持久化的 Host 安装/数据目录身份，Host 进程重启后不变）不是同一个概念；registry 本身不保存 Bearer Token，Token 仍由各客户端的凭据适配器（Electron `safeStorage`、Web localStorage）持有。CLI 与浏览器各自维护自己的 registry，不会自动互相同步。endpoint 支持 `http`/`https` URL 与 `unix`/`pipe` 本机 transport；浏览器只能使用前两者，托管或静态 Web 必须拒绝本机 socket/pipe。
 
+M1-002 在 `@omo/client-core` 落地共享的 `HostConnectionManager`：它接收 `CredentialResolver` 与 `createClient(entry, token)` 工厂，对每个 registry entry 独立做 health 探测并产出以 `entryId` 为键的 `HostConnectionSnapshot`（`idle`/`checking`/`online`/`offline`/`unauthorized`/`credential-error`/`identity-mismatch`）。Token 只经工厂传入，不进入快照、错误消息、日志或序列化；无 `credentialRef` 为匿名，存在但无法解析为显式 `credential-error`。首次成功 health 返回 `entryUpdate` 供调用方持久化 `expectedHostId`；mismatch 为隔离失败，绝不改写条目。Web 与 CLI 各自提供自己的 `createClient`（浏览器 HTTP、Node socket/pipe）与凭据解析器，`client-core` 不导入平台模块。M1-003 仍须接入：平台凭据持久化、registry store、选中 entry、状态订阅与切换 UI；在这些接入完成前，现有 `src/lib/servers.ts` 的 localStorage/`safeStorage` 行为保持不变。
+
 ## 本机服务器
 
 - **Electron**：preload 暴露 `window.omo`，Pi Agent 在本地主进程内运行，无需登录。

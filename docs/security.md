@@ -73,6 +73,8 @@ Browser 代理只接受 HTTP/HTTPS URL，不接受 URL 中的用户名和密码�
 
 M1-001 的 Host registry schema（`HostRegistryEntry`）只保存 `id`、`label`、`endpoint`、可选 `expectedHostId` 与可选 `credentialRef`，且拒绝任何未知字段。Bearer Token 或其他凭据材料不属于 registry；`credentialRef` 仅是不透明引用，由客户端凭据适配器负责解析（Electron `safeStorage` / Web localStorage）。因此 registry 文档即使被导出也不会携带长期 Token。浏览器只能使用 `http`/`https` endpoint，本机 `unix`/`pipe` transport 必须在浏览器客户端被拒绝。
 
+M1-002 的凭据与连接边界进一步约束：`CredentialResolver.resolve(ref)` 是唯一解析 `credentialRef` 的入口，返回的 Bearer Token 只作为 `createClient(entry, token)` 工厂参数传给平台适配器；`HostConnectionSnapshot`、`HostProbeResult`、`entryUpdate`、错误消息与日志均不包含 Token。无 `credentialRef` 表示匿名；存在但解析失败或返回空值抛出泛化的 `CredentialResolutionError`（message 不含 ref 内容），连接快照记为 `credential-error`。`createInMemoryCredentialResolver` 仅用于测试/fixture，生产持久化由 M1-003 接入平台凭据适配器。`HostRequestError` 只暴露 `status` 与按 status 推导的 `code`，不要求解析服务端错误文本，连接层也不把原始服务端消息写入快照。
+
 ## Electron 凭据
 
 Electron 将所有远程服务器的 Token 交给主进程的 `safeStorage`：

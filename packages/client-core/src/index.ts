@@ -7,6 +7,7 @@ import {
   AddProjectCommandSchema,
   type AgentEventEnvelope,
   AgentEventEnvelopeSchema,
+  ContractValidationError,
   HostApiContracts,
   type HostEndpoint,
   type HostHealth,
@@ -14,6 +15,7 @@ import {
   type HostId,
   HostIdSchema,
   type HostRegistryEntry,
+  type HostRegistryEntryId,
   OkResponseSchema,
   type OpenSessionCommand,
   OpenSessionCommandSchema,
@@ -54,9 +56,21 @@ export interface HttpHostClientOptions {
   token?: string;
 }
 
+/** Machine-readable class of an HTTP Host failure, derived from status only. */
+export type HostRequestErrorCode =
+  | "bad-request"
+  | "unauthorized"
+  | "forbidden"
+  | "not-found"
+  | "server-error"
+  | "unknown";
+
 const TRAILING_SLASH_PATTERN = /\/$/;
+const TRAILING_SLASHES_PATTERN = /\/+$/;
 const SSE_LINE_ENDINGS_PATTERN = /\r\n/g;
 const DEFAULT_RECONNECT_DELAY_MS = 1000;
+const UNIX_ABSOLUTE_PATH_PATTERN = /^\//;
+const WINDOWS_NAMED_PIPE_PATTERN = /^\\\\\.\\pipe\\[^\\/]+$/i;
 
 const normalizeBaseUrl = (value: string): string =>
   value.trim().replace(TRAILING_SLASH_PATTERN, "");
@@ -68,13 +82,41 @@ const eventData = (block: string): string =>
     .map((line) => line.slice(5).trimStart())
     .join("\n");
 
+/**
+ * Classifies an HTTP status without parsing server message text. Connection
+ * code uses this so a 401 is recognized as an auth failure even when the
+ * Host returns a custom error body.
+ */
+export function classifyHostRequestStatus(
+  status: number
+): HostRequestErrorCode {
+  if (status === 401) {
+    return "unauthorized";
+  }
+  if (status === 403) {
+    return "forbidden";
+  }
+  if (status === 404) {
+    return "not-found";
+  }
+  if (status >= 400 && status < 500) {
+    return "bad-request";
+  }
+  if (status >= 500) {
+    return "server-error";
+  }
+  return "unknown";
+}
+
 export class HostRequestError extends Error {
+  readonly code: HostRequestErrorCode;
   readonly status: number;
 
   constructor(status: number, message: string) {
     super(message);
     this.name = "HostRequestError";
     this.status = status;
+    this.code = classifyHostRequestStatus(status);
   }
 }
 
@@ -317,10 +359,6 @@ export class HttpHostClient implements HostClient {
   }
 }
 
-const TRAILING_SLASHES_PATTERN = /\/+$/;
-const UNIX_ABSOLUTE_PATH_PATTERN = /^\//;
-const WINDOWS_NAMED_PIPE_PATTERN = /^\\\\\.\\pipe\\[^\\/]+$/i;
-
 /**
  * Client-local Host registry semantics shared by the CLI and Web clients.
  *
@@ -489,5 +527,398 @@ export function assertBrowserHostEndpoint(endpoint: HostEndpoint): void {
     throw new Error(
       `Browser clients cannot use ${endpoint.transport} Host endpoints; configure an HTTP or HTTPS URL`
     );
+  }
+}
+
+/**
+ * Credential boundary for the client-local Host registry.
+ *
+ * Credential material never lives in `HostRegistryEntry`,
+ * `HostRegistryDocument`, connection snapshots or logs. Entries only store an
+ * opaque `credentialRef`; a `CredentialResolver` is the platform adapter that
+ * turns that reference into a bearer token (Electron `safeStorage`, browser
+ * storage, CLI keychain, ...). Keeping the resolver behind this small
+ * interface lets `@omo/client-core` stay free of localStorage, Electron,
+ * `node:http` and filesystem imports.
+ */
+
+/** Opaque pointer stored in `HostRegistryEntry.credentialRef`. */
+export type CredentialRef = string;
+
+/**
+ * A resolved credential is a bearer token, or `null`/`undefined` when the
+ * reference exists but has no stored secret. Callers treat an empty result as
+ * an unresolved reference, never as an anonymous entry: an entry without a
+ * `credentialRef` is the only anonymous case.
+ */
+export type ResolvedCredential = string | null | undefined;
+
+/**
+ * Resolves an entry's `credentialRef` to a bearer token. The returned value
+ * is a secret and must never be written to a registry, snapshot, thrown
+ * message, log or serialization.
+ */
+export interface CredentialResolver {
+  resolve: (
+    ref: CredentialRef
+  ) => ResolvedCredential | Promise<ResolvedCredential>;
+}
+
+/**
+ * Explicit failure for an entry that declares a `credentialRef` the resolver
+ * cannot resolve. The message is intentionally generic: it must not expose
+ * the reference contents or any token material.
+ */
+export class CredentialResolutionError extends Error {
+  readonly credentialRef: CredentialRef;
+
+  constructor(credentialRef: CredentialRef, options?: { cause?: unknown }) {
+    super("Credential reference could not be resolved", options);
+    this.name = "CredentialResolutionError";
+    this.credentialRef = credentialRef;
+  }
+}
+
+/**
+ * In-memory `CredentialResolver` for tests and local fixtures only. It holds
+ * a private snapshot of the supplied records so later mutation of the source
+ * object cannot change what has already been handed to the connection model.
+ * Production clients must persist credentials through a platform adapter
+ * instead (wired by M1-003).
+ */
+export function createInMemoryCredentialResolver(
+  records: Readonly<Record<CredentialRef, string>>
+): CredentialResolver {
+  const snapshot = new Map(Object.entries(records));
+  return {
+    resolve: (ref) => snapshot.get(ref),
+  };
+}
+
+/**
+ * Per-entry connection states. Every state belongs to exactly one registry
+ * entry id; there is intentionally no global "fatal" or aggregate state, so
+ * an auth, network or identity failure on one Host cannot mask another one.
+ */
+export type HostConnectionState =
+  | "idle"
+  | "checking"
+  | "online"
+  | "offline"
+  | "unauthorized"
+  | "credential-error"
+  | "identity-mismatch";
+
+/** Sanitized, machine-readable failure taxonomy. */
+export type HostConnectionErrorCode =
+  | "unreachable"
+  | "unauthorized"
+  | "credential-unresolved"
+  | "identity-mismatch"
+  | "invalid-response"
+  | "unsupported-endpoint";
+
+/**
+ * Safe, serializable observation of one registry entry. It never contains a
+ * bearer token or any other credential material, and it is keyed by the
+ * client-local `entryId` rather than by `hostId` or endpoint.
+ */
+export interface HostConnectionSnapshot {
+  /** Epoch milliseconds when the observation completed. */
+  readonly checkedAt?: number;
+  /** Best-effort normalized endpoint; raw endpoint when normalization fails. */
+  readonly endpoint: HostEndpoint;
+  readonly entryId: HostRegistryEntryId;
+  readonly errorCode?: HostConnectionErrorCode;
+  /** Sanitized message; never derived from token material. */
+  readonly errorMessage?: string;
+  readonly latencyMs?: number;
+  /** Durable Host identity reported by a successful health call. */
+  readonly observedHostId?: HostId;
+  readonly state: HostConnectionState;
+}
+
+/**
+ * Result of probing one registry entry. `entryUpdate` is the explicit pin
+ * request: it is only produced on a first successful connection and the
+ * caller is responsible for persisting it. Match, mismatch and every failure
+ * leave the registry entry untouched.
+ */
+export interface HostProbeResult {
+  readonly entryUpdate?: HostRegistryEntry;
+  readonly snapshot: HostConnectionSnapshot;
+}
+
+/**
+ * Platform adapter that turns a registry entry and its resolved token into a
+ * `HostClient`. Browser code passes a plain HTTP client and rejects local
+ * transports; Node passes a socket/pipe-backed `fetch`. Secrets only travel
+ * through this factory argument, never through a snapshot.
+ */
+export type HostClientFactory = (
+  entry: HostRegistryEntry,
+  token: string | undefined
+) => HostClient;
+
+export interface HostConnectionManagerOptions {
+  readonly createClient: HostClientFactory;
+  readonly credentialResolver: CredentialResolver;
+  readonly now?: () => number;
+}
+
+interface HostConnectionFailure {
+  readonly code: HostConnectionErrorCode;
+  readonly message: string;
+  readonly state: HostConnectionState;
+}
+
+/** Normalizes an endpoint without throwing on malformed input. */
+function safeEndpoint(endpoint: HostEndpoint): HostEndpoint {
+  try {
+    return normalizeHostEndpoint(endpoint);
+  } catch {
+    return endpoint;
+  }
+}
+
+/**
+ * Resolves an entry's token. A missing `credentialRef` is anonymous; a
+ * present reference that throws or resolves to an empty value is an explicit
+ * credential error.
+ */
+async function resolveEntryToken(
+  entry: HostRegistryEntry,
+  resolver: CredentialResolver
+): Promise<string | undefined> {
+  const { credentialRef } = entry;
+  if (!credentialRef) {
+    return undefined;
+  }
+  let resolved: string | null | undefined;
+  try {
+    resolved = await resolver.resolve(credentialRef);
+  } catch (error) {
+    if (error instanceof CredentialResolutionError) {
+      throw error;
+    }
+    throw new CredentialResolutionError(credentialRef, { cause: error });
+  }
+  if (typeof resolved !== "string" || resolved.length === 0) {
+    throw new CredentialResolutionError(credentialRef);
+  }
+  return resolved;
+}
+
+/** Maps an operational failure to a state and sanitized message. */
+function classifyConnectionFailure(error: unknown): HostConnectionFailure {
+  if (error instanceof CredentialResolutionError) {
+    return {
+      code: "credential-unresolved",
+      message: "Credential reference could not be resolved",
+      state: "credential-error",
+    };
+  }
+  if (error instanceof HostRequestError) {
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "unauthorized",
+        message: "Host rejected the credential",
+        state: "unauthorized",
+      };
+    }
+    return {
+      code: "unreachable",
+      message: `Host request failed (HTTP ${error.status})`,
+      state: "offline",
+    };
+  }
+  if (error instanceof ContractValidationError) {
+    return {
+      code: "invalid-response",
+      message: "Host returned an unexpected response",
+      state: "offline",
+    };
+  }
+  return {
+    code: "unreachable",
+    message: "Host is unreachable",
+    state: "offline",
+  };
+}
+
+/** Snapshot for an entry that has not been probed yet. */
+export function idleHostConnectionSnapshot(
+  entry: HostRegistryEntry
+): HostConnectionSnapshot {
+  return {
+    endpoint: safeEndpoint(entry.endpoint),
+    entryId: entry.id,
+    state: "idle",
+  };
+}
+
+/** Snapshot for an entry whose probe is in flight. */
+export function checkingHostConnectionSnapshot(
+  entry: HostRegistryEntry
+): HostConnectionSnapshot {
+  return {
+    endpoint: safeEndpoint(entry.endpoint),
+    entryId: entry.id,
+    state: "checking",
+  };
+}
+
+/**
+ * Keys snapshots by registry entry id. Duplicate aliases pointing at the same
+ * endpoint keep separate entries and separate observed states.
+ */
+export function hostConnectionSnapshotMap(
+  results: readonly HostProbeResult[]
+): Record<HostRegistryEntryId, HostConnectionSnapshot> {
+  const map: Record<string, HostConnectionSnapshot> = {};
+  for (const result of results) {
+    map[result.snapshot.entryId] = result.snapshot;
+  }
+  return map;
+}
+
+/**
+ * Shared connection/probe model for registry entries. Each call builds a
+ * fresh client through the injected factory, so one entry's credentials,
+ * transport or observed identity can never leak into another entry's client
+ * or state. The manager is stateless: callers own persistence and the
+ * selected entry, which keeps M1-002 free of an aggregate cache.
+ */
+export class HostConnectionManager {
+  readonly #createClient: HostClientFactory;
+  readonly #credentialResolver: CredentialResolver;
+  readonly #now: () => number;
+
+  constructor(options: HostConnectionManagerOptions) {
+    this.#createClient = options.createClient;
+    this.#credentialResolver = options.credentialResolver;
+    this.#now = options.now ?? Date.now;
+  }
+
+  /**
+   * Probes one entry. Operational failures resolve to a snapshot instead of
+   * rejecting, so callers always get an isolated per-entry observation.
+   */
+  async probe(entry: HostRegistryEntry): Promise<HostProbeResult> {
+    try {
+      return await this.#probeEntry(entry);
+    } catch {
+      return this.#failure(entry, safeEndpoint(entry.endpoint), {
+        code: "unreachable",
+        message: "Host probe failed unexpectedly",
+        state: "offline",
+      });
+    }
+  }
+
+  /**
+   * Probes every entry in parallel. `probe` never rejects for operational
+   * failures, so a 401 on one entry, an unreachable second entry and a
+   * healthy third entry all settle into independent results.
+   */
+  probeAll(entries: readonly HostRegistryEntry[]): Promise<HostProbeResult[]> {
+    return Promise.all(entries.map((entry) => this.probe(entry)));
+  }
+
+  async #probeEntry(entry: HostRegistryEntry): Promise<HostProbeResult> {
+    const endpoint = safeEndpoint(entry.endpoint);
+    let token: string | undefined;
+    try {
+      token = await resolveEntryToken(entry, this.#credentialResolver);
+    } catch (error) {
+      return this.#failure(entry, endpoint, classifyConnectionFailure(error));
+    }
+
+    let client: HostClient;
+    try {
+      client = this.#createClient(entry, token);
+    } catch {
+      return this.#failure(entry, endpoint, {
+        code: "unsupported-endpoint",
+        message: "Host endpoint is not supported by this client",
+        state: "offline",
+      });
+    }
+
+    const startedAt = this.#now();
+    let health: HostHealth;
+    try {
+      health = await client.health();
+    } catch (error) {
+      return this.#failure(
+        entry,
+        endpoint,
+        classifyConnectionFailure(error),
+        this.#now() - startedAt
+      );
+    }
+    const latencyMs = this.#now() - startedAt;
+
+    let reconciliation: HostIdentityReconciliation;
+    try {
+      reconciliation = reconcileHostIdentity(entry, health.hostId);
+    } catch (error) {
+      return this.#failure(
+        entry,
+        endpoint,
+        classifyConnectionFailure(error),
+        latencyMs
+      );
+    }
+
+    if (reconciliation.kind === "mismatch") {
+      return {
+        snapshot: {
+          checkedAt: this.#now(),
+          endpoint,
+          entryId: entry.id,
+          errorCode: "identity-mismatch",
+          errorMessage: "Host identity does not match the pinned identity",
+          latencyMs,
+          observedHostId: health.hostId,
+          state: "identity-mismatch",
+        },
+      };
+    }
+
+    const snapshot: HostConnectionSnapshot = {
+      checkedAt: this.#now(),
+      endpoint,
+      entryId: entry.id,
+      latencyMs,
+      observedHostId: health.hostId,
+      state: "online",
+    };
+    if (reconciliation.kind === "first-connection") {
+      return {
+        entryUpdate: { ...entry, expectedHostId: reconciliation.hostId },
+        snapshot,
+      };
+    }
+    return { snapshot };
+  }
+
+  #failure(
+    entry: HostRegistryEntry,
+    endpoint: HostEndpoint,
+    failure: HostConnectionFailure,
+    latencyMs?: number
+  ): HostProbeResult {
+    return {
+      snapshot: {
+        checkedAt: this.#now(),
+        endpoint,
+        entryId: entry.id,
+        errorCode: failure.code,
+        errorMessage: failure.message,
+        ...(latencyMs === undefined ? {} : { latencyMs }),
+        state: failure.state,
+      },
+    };
   }
 }
