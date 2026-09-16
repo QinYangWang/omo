@@ -1,62 +1,62 @@
 # Tasks
 
-## Baseline
+## 已完成基线
 
-- [x] BASE-001：定义 pnpm、多 Host、Host-only execution 与多端同步架构（`15fed1d`）
+- [x] BASE-001：定义 pnpm、Host-only execution 与多端同步方向（`15fed1d`）
 - [x] SPIKE-001：验证 Host identity、omo TUI、CLI/Web Session event mirror（`dca5577`）
+- [x] P0-001：建立 pnpm workspace 与应用命令入口（`92221df`）
+- [x] P0-002：建立当前 Host DTO 的运行时 contracts（`7f5047e`）
+- [x] P0-003-SPIKE：验证 Pi SDK adapter 与版本锁定（`e670f13`）
+- [x] P0-004-SPIKE：验证 Project、operation 与 Session ports（`9a52166`）
+- [x] P0-005-SPIKE：验证 Host registry 与 attachment state 模型（`bd77cf6`）
+- [x] P0-006-SPIKE：验证 Server 可经 adapter 调用 Project、operation 与 Pi SDK（`c1d292d`）
+- [x] RESET-001：将 v2 收缩为 CLI TUI ↔ Host ↔ Web HTTP/SSE 垂直切片
 
-## Phase 0：边界与兼容基线
+## Stage S：删除提前抽象
 
-- [x] P0-001：建立 pnpm monorepo 的 `apps/*`、`packages/*` workspace 与根级编排脚本
-- [x] P0-002：建立 `@omo/contracts`，定义并校验 Host、Project、Session、Agent command/event DTO
-- [x] P0-003：建立 `@omo/pi-runtime`，封装当前 `pi-coding-agent` SDK 与实验性 v2 能力
-- [x] P0-004：建立 `@omo/host-core`，抽离 Project、Session、operation、workspace 用例及 ports
-- [x] P0-005：建立 `@omo/client-core`，抽离 Host registry、Host identity、connection 与 Session attachment 状态
-- [x] P0-006：让现有 Server 只通过 `host-core` 与 `pi-runtime` 执行业务
-- [ ] P0-007：让 Web 与 CLI 只通过 `client-core` 访问 Host
-- [ ] P0-008：为 HTTP/SSE 兼容 API 建立 contracts、幂等、重放与双客户端测试
-- [ ] P0-009：建立 Linux、macOS、Windows 的 Node 22、`node-pty`、SQLite 与 Pi SDK CI smoke tests
-- [ ] P0-GATE：通过 `pnpm check`、`pnpm test`、`pnpm build` 与全部 contract/native smoke tests
+- [ ] S0-001：移除 `pi-runtime` 未使用的 experimental 依赖、capability 声明与公开类型泄漏
+- [ ] S0-002：删除未接入的 `host-core` Session coordinator、attachment lifecycle 与冗余 ports
+- [ ] S0-003：将 `client-core` 收缩为最小 `HostClient` 接口，暂不抽取 Host registry 和连接状态机
+- [ ] S0-004：清理 workspace 转发依赖，确保旧目录在垂直切片完成前可直接开发运行
+- [ ] S0-GATE：通过 `pnpm check`、`pnpm test`、`pnpm build`，且行为无回归
 
-## Phase 1：Host、CLI TUI 与 Web
+## Stage V：双客户端垂直切片
 
-- [ ] P1-001：实现 `omo serve`、本机 daemon discovery、启动锁、PID 与优雅关闭
-- [ ] P1-002：实现 omo TUI 的 Host、Project、Session 选择与远程连接状态
-- [ ] P1-003：实现一个 Session 一个权威 runtime、多 presentation attachment
-- [ ] P1-004：实现 CLI Prompt → Web 实时显示
-- [ ] P1-005：实现 Web follow-up → CLI TUI 实时显示
-- [ ] P1-006：实现手机浏览器切后台、断线、重连与 snapshot 恢复
-- [ ] P1-007：实现 Prompt、abort、branch、rename 的统一 `operationId` 幂等
-- [ ] P1-008：验证 Host 无客户端连接时 Session 继续运行
-- [ ] P1-GATE：完成 CLI TUI ↔ Host ↔ Web 首个垂直切片验收
+- [ ] V1-001：补齐 health、Project、Session list/open、Prompt、abort 与 SSE 的 contracts
+- [ ] V1-002：实现基于现有 `/api/v1` HTTP/SSE 的共享 `HostClient`
+- [ ] V1-003：让 CLI 只通过 `HostClient` 访问 Host
+- [ ] V1-004：让 Web 只通过 `HostClient` 访问 Host
+- [ ] V1-005：建立 CLI 与 Web 同时 attach 同一 Session 的集成测试
+- [ ] V1-006：验证 CLI Prompt → Web 实时显示
+- [ ] V1-007：验证 Web follow-up → CLI 实时显示
+- [ ] V1-008：验证 SSE 重复事件、断线与 sequence 重放
+- [ ] V1-009：验证重复 `requestId` 只 dispatch 一次，并记录崩溃窗口限制
+- [ ] V1-010：验证无客户端连接时 Session 继续运行
+- [ ] V1-GATE：完成 CLI TUI ↔ Host ↔ Web 首个可验收切片
 
-## Phase 2：统一实时协议
+## Stage D：本机 daemon
 
-- [ ] P2-001：实现 capability handshake、持久化 `hostId` 与协议版本协商
-- [ ] P2-002：实现一次性 WebSocket ticket 与认证连接上下文
-- [ ] P2-003：实现单连接 channel multiplexing
-- [ ] P2-004：实现 Session snapshot、revision 与 ordered delta
-- [ ] P2-005：实现 revision gap 检测与强制 rehydrate
-- [ ] P2-006：接入 Pi v2 client/server、Chord service 与 Transcript adapter
-- [ ] P2-007：保留 `/api/v1` 兼容层并提供迁移测试
-- [ ] P2-GATE：通过断网、重复命令、并发客户端、Host 重启与协议降级测试
+- [ ] D1-001：实现 `omo serve` 生命周期与优雅关闭
+- [ ] D1-002：实现 daemon discovery、PID、启动锁与 stale PID 清理
+- [ ] D1-003：实现 Unix socket 与 Windows named pipe transport
+- [ ] D1-004：让 `omo` 默认发现或启动本机 Host 后进入 TUI
+- [ ] D1-GATE：验证重复启动、异常退出、重启与本机连接
 
-## Phase 3：多 Host 与多端产品化
+## Stage M：多 Host
 
-- [ ] P3-001：实现 Web 多 Host registry、聚合视图与独立错误域
-- [ ] P3-002：实现 device credential、撤销与基础 RBAC
-- [ ] P3-003：实现 React Native iOS/Android client
-- [ ] P3-004：实现 HarmonyOS client adapter
-- [ ] P3-005：实现 push notification、深链与移动端后台恢复
-- [ ] P3-006：Desktop 恢复可用后实现 Host sidecar 与 keychain adapter
-- [ ] P3-GATE：完成 Web、iOS、Android、HarmonyOS 的多 Host 同步验收
+- [ ] M1-001：基于单 Host 使用结果设计 Host registry 与多 endpoint 语义
+- [ ] M1-002：实现 credential reference 与每 Host 独立错误域
+- [ ] M1-003：实现 Web 与 CLI 多 Host 切换
+- [ ] M1-GATE：验证一个 Host 离线不影响其他 Host
 
-## Phase 4：Extension migration
+## Backlog：不进入当前实施
 
-- [ ] P4-001：建立 `@omo/extension-migration` package 与 migration skill
-- [ ] P4-002：实现 Pi extension 静态扫描与兼容性分级
-- [ ] P4-003：实现 worker/session facet 与 presentation facet 拆分迁移
-- [ ] P4-004：生成 TypeBox contract、Chord service 与 replicated state
-- [ ] P4-005：实现 `omo migrate extension`、`--dry-run` 与 report
-- [ ] P4-006：建立原 Pi TUI 与 omo TUI 行为对照测试
-- [ ] P4-GATE：通过 tool、hook、command、TUI 与混合 extension 迁移样例
+- [ ] BACKLOG-001：统一 WebSocket channel multiplexing
+- [ ] BACKLOG-002：snapshot、revision 与 ordered delta
+- [ ] BACKLOG-003：Pi v2 server/client/protocol、Chord 与 presentation facet
+- [ ] BACKLOG-004：durable operation recovery queue
+- [ ] BACKLOG-005：Session worker 隔离
+- [ ] BACKLOG-006：device credential、RBAC 与审计
+- [ ] BACKLOG-007：React Native、HarmonyOS 与 push notification
+- [ ] BACKLOG-008：Desktop Host sidecar
+- [ ] BACKLOG-009：extension migration framework
