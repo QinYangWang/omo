@@ -110,6 +110,7 @@ test("Host operation ledger accepts a Prompt only once", async () => {
     const duplicate = await service.prompt(command);
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(duplicate, first);
+    assert.equal(first.operationId, command.requestId);
     assert.equal(promptCount, 1);
   } finally {
     fs.rmSync(dataDir, { force: true, recursive: true });

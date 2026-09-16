@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  AcceptedOperationSchema,
   AgentEventEnvelopeSchema,
   ContractValidationError,
+  HostApiContracts,
   HostHealthSchema,
   JsonValueSchema,
+  OpenSessionResponseSchema,
+  ProjectListSchema,
   PromptCommandSchema,
   parseContract,
+  SessionListSchema,
 } from "../dist/index.js";
 
 const HOST_ID = "e5f752f6-f3e6-4183-ba91-c14491db90f2";
@@ -70,6 +75,68 @@ test("Prompt commands reject empty messages and unknown properties", () => {
       ),
     ContractValidationError
   );
+});
+
+test("Project and Session list contracts match current HTTP responses", () => {
+  assert.deepEqual(
+    parseContract(
+      ProjectListSchema,
+      [{ cwd: "/workspace/project", id: "project-1", name: "project" }],
+      "ProjectList"
+    ),
+    [{ cwd: "/workspace/project", id: "project-1", name: "project" }]
+  );
+  const sessions = parseContract(
+    SessionListSchema,
+    [
+      {
+        allMessagesText: "hello",
+        created: 1,
+        cwd: "/workspace/project",
+        firstMessage: "hello",
+        id: "session-1",
+        messageCount: 2,
+        modified: 2,
+        path: "/sessions/session-1.jsonl",
+      },
+    ],
+    "SessionList"
+  );
+  assert.equal(sessions[0]?.messageCount, 2);
+});
+
+test("Session open and Prompt acceptance contracts match current responses", () => {
+  const opened = parseContract(
+    OpenSessionResponseSchema,
+    {
+      contextUsage: { contextWindow: 200_000, percent: 1, tokens: 2000 },
+      cursor: 0,
+      eventSequence: 3,
+      hasMore: false,
+      isStreaming: true,
+      messages: [{ id: "message-1", role: "user", text: "hello" }],
+      model: { id: "model-1", name: "Model", provider: "provider" },
+      outline: [{ absoluteIndex: 0, id: "message-1", userPreview: "hello" }],
+      replayFromSequence: 2,
+      sessionFile: "/sessions/session-1.jsonl",
+      sessionId: "session-1",
+      thinkingLevel: "medium",
+    },
+    "OpenSessionResponse"
+  );
+  assert.equal(opened.eventSequence, 3);
+
+  const accepted = parseContract(
+    AcceptedOperationSchema,
+    {
+      operationId: "operation-1",
+      sessionFile: "/sessions/session-1.jsonl",
+      sessionId: "session-1",
+    },
+    "AcceptedOperation"
+  );
+  assert.equal(accepted.operationId, "operation-1");
+  assert.equal(HostApiContracts.prompt.response, AcceptedOperationSchema);
 });
 
 test("JSON and Agent event contracts reject non-JSON values", () => {

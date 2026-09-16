@@ -34,6 +34,12 @@ export const HostHealthSchema = Type.Object(
 );
 export type HostHealth = Static<typeof HostHealthSchema>;
 
+export const OkResponseSchema = Type.Object(
+  { ok: Type.Literal(true) },
+  { additionalProperties: false }
+);
+export type OkResponse = Static<typeof OkResponseSchema>;
+
 export const ProjectSchema = Type.Object(
   {
     cwd: Type.String({ minLength: 1 }),
@@ -44,19 +50,43 @@ export const ProjectSchema = Type.Object(
 );
 export type Project = Static<typeof ProjectSchema>;
 
+export const ProjectListSchema = Type.Array(ProjectSchema);
+export type ProjectList = Static<typeof ProjectListSchema>;
+
+export const AddProjectCommandSchema = Type.Object(
+  {
+    cwd: Type.String({ minLength: 1 }),
+    name: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false }
+);
+export type AddProjectCommand = Static<typeof AddProjectCommandSchema>;
+
 export const SessionSummarySchema = Type.Object(
   {
+    allMessagesText: Type.String(),
     created: Type.Number(),
-    cwd: Type.String({ minLength: 1 }),
-    firstMessage: Type.Optional(Type.String()),
+    cwd: Type.String(),
+    firstMessage: Type.String(),
     id: Type.String({ minLength: 1 }),
+    messageCount: Type.Integer({ minimum: 0 }),
     modified: Type.Number(),
     name: Type.Optional(Type.String()),
+    parentSessionPath: Type.Optional(Type.String({ minLength: 1 })),
     path: Type.String({ minLength: 1 }),
   },
-  { additionalProperties: true }
+  { additionalProperties: false }
 );
 export type SessionSummary = Static<typeof SessionSummarySchema>;
+
+export const SessionListQuerySchema = Type.Object(
+  { cwd: Type.String({ minLength: 1 }) },
+  { additionalProperties: false }
+);
+export type SessionListQuery = Static<typeof SessionListQuerySchema>;
+
+export const SessionListSchema = Type.Array(SessionSummarySchema);
+export type SessionList = Static<typeof SessionListSchema>;
 
 export const OpenSessionCommandSchema = Type.Object(
   {
@@ -67,6 +97,55 @@ export const OpenSessionCommandSchema = Type.Object(
   { additionalProperties: false }
 );
 export type OpenSessionCommand = Static<typeof OpenSessionCommandSchema>;
+
+export const ContextUsageSchema = Type.Object(
+  {
+    contextWindow: Type.Number({ minimum: 0 }),
+    percent: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
+    tokens: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+export type ContextUsage = Static<typeof ContextUsageSchema>;
+
+export const SessionModelSchema = Type.Object(
+  {
+    id: Type.String({ minLength: 1 }),
+    name: Type.String({ minLength: 1 }),
+    provider: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false }
+);
+export type SessionModel = Static<typeof SessionModelSchema>;
+
+export const SessionOutlineItemSchema = Type.Object(
+  {
+    absoluteIndex: Type.Integer({ minimum: 0 }),
+    id: Type.String({ minLength: 1 }),
+    userPreview: Type.String(),
+  },
+  { additionalProperties: true }
+);
+export type SessionOutlineItem = Static<typeof SessionOutlineItemSchema>;
+
+export const OpenSessionResponseSchema = Type.Object(
+  {
+    contextUsage: Type.Union([ContextUsageSchema, Type.Null()]),
+    cursor: Type.Integer({ minimum: 0 }),
+    eventSequence: Type.Integer({ minimum: 0 }),
+    hasMore: Type.Boolean(),
+    isStreaming: Type.Boolean(),
+    messages: Type.Array(JsonValueSchema),
+    model: Type.Union([SessionModelSchema, Type.Null()]),
+    outline: Type.Optional(Type.Array(SessionOutlineItemSchema)),
+    replayFromSequence: Type.Optional(Type.Integer({ minimum: 0 })),
+    sessionFile: Type.Optional(Type.String({ minLength: 1 })),
+    sessionId: Type.String({ minLength: 1 }),
+    thinkingLevel: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false }
+);
+export type OpenSessionResponse = Static<typeof OpenSessionResponseSchema>;
 
 export const ImageAttachmentSchema = Type.Object(
   {
@@ -93,7 +172,6 @@ export type PromptCommand = Static<typeof PromptCommandSchema>;
 
 export const AbortCommandSchema = Type.Object(
   {
-    requestId: Type.Optional(Type.String({ minLength: 1 })),
     sessionId: Type.String({ minLength: 1 }),
   },
   { additionalProperties: false }
@@ -122,6 +200,64 @@ export const AgentEventEnvelopeSchema = Type.Object(
   { additionalProperties: false }
 );
 export type AgentEventEnvelope = Static<typeof AgentEventEnvelopeSchema>;
+
+export const EventStreamQuerySchema = Type.Object(
+  {
+    after: Type.Optional(Type.Integer({ minimum: 0 })),
+    sessionId: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false }
+);
+export type EventStreamQuery = Static<typeof EventStreamQuerySchema>;
+
+export const HostApiContracts = {
+  abortSession: {
+    body: AbortCommandSchema,
+    method: "POST",
+    path: "/api/v1/pi/abort",
+    response: OkResponseSchema,
+  },
+  addProject: {
+    body: AddProjectCommandSchema,
+    method: "POST",
+    path: "/api/v1/projects",
+    response: ProjectSchema,
+  },
+  health: {
+    method: "GET",
+    path: "/api/v1/health",
+    response: HostHealthSchema,
+  },
+  listProjects: {
+    method: "GET",
+    path: "/api/v1/projects",
+    response: ProjectListSchema,
+  },
+  listSessions: {
+    method: "GET",
+    path: "/api/v1/sessions",
+    query: SessionListQuerySchema,
+    response: SessionListSchema,
+  },
+  openSession: {
+    body: OpenSessionCommandSchema,
+    method: "POST",
+    path: "/api/v1/pi/open",
+    response: OpenSessionResponseSchema,
+  },
+  prompt: {
+    body: PromptCommandSchema,
+    method: "POST",
+    path: "/api/v1/pi/prompt",
+    response: AcceptedOperationSchema,
+  },
+  sessionEvents: {
+    event: AgentEventEnvelopeSchema,
+    method: "GET",
+    path: "/api/v1/events",
+    query: EventStreamQuerySchema,
+  },
+} as const;
 
 export class ContractValidationError extends Error {
   readonly contract: string;

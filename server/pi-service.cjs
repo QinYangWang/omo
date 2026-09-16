@@ -349,7 +349,9 @@ class PiService {
     if (session.sessionFile) {
       this.watchSessionFile(sessionId, session.sessionFile);
     }
+    const operationId = requestId || crypto.randomUUID();
     const result = {
+      operationId,
       sessionFile: session.sessionFile,
       sessionId: session.sessionId,
     };
@@ -385,11 +387,11 @@ class PiService {
           })
         );
     };
-    if (requestId && this.operationLedger) {
-      return this.operationLedger.accept(requestId, result, dispatch);
+    if (this.operationLedger) {
+      return this.operationLedger.accept(operationId, result, dispatch);
     }
     if (requestId) {
-      this.events.saveRequest(requestId, result);
+      this.events.saveRequest(operationId, result);
     }
     dispatch();
     return result;
