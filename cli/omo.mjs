@@ -2,6 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
   Container,
@@ -15,6 +16,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { HttpHostClient } from "@omo/client-core";
 
+const require = createRequire(import.meta.url);
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SERVER_ENTRY = fileURLToPath(
   new URL("../server/index.cjs", import.meta.url)
@@ -26,6 +28,7 @@ const SESSION_TITLE_WHITESPACE = /\s+/g;
 const TRAILING_SLASH = /\/$/;
 const VALUE_OPTIONS = new Map([
   ["--cwd", "cwd"],
+  ["--data-dir", "dataDir"],
   ["--host", "host"],
   ["--port", "port"],
   ["--session", "sessionPath"],
@@ -56,6 +59,7 @@ function parseArguments(argv) {
   const options = {
     command: "tui",
     cwd: process.cwd(),
+    dataDir: process.env.OMO_DATA_DIR,
     host: process.env.OMO_HOST || "127.0.0.1",
     port: process.env.OMO_PORT || "5189",
     sessionPath: undefined,
@@ -397,15 +401,71 @@ async function runTui(client, baseUrl, host, options) {
   await app.run();
 }
 
+/**
+ * Starts the local Host in-process while holding the exclusive daemon lease
+ * for the resolved data directory. A second concurrent `omo serve` for the
+ * same directory is rejected before any listener is created.
+ */
+async function serveHost(options) {
+  process.env.OMO_HOST = options.host;
+  process.env.OMO_PORT = options.port;
+  if (options.dataDir) {
+    process.env.OMO_DATA_DIR = options.dataDir;
+  }
+  if (options.token) {
+    process.env.OMO_TOKEN = options.token;
+  }
+  const config = require("../server/config.cjs");
+  const {
+    acquireDaemonLease,
+    tcpEndpoint,
+  } = require("../server/daemon-state.cjs");
+  const { startHost } = require("../server/host.cjs");
+  const lease = acquireDaemonLease({
+    dataDir: config.dataDir,
+    endpoint: tcpEndpoint({
+      host: config.host,
+      port: config.port,
+      tls: Boolean(config.tlsCert),
+    }),
+  });
+  // Normal shutdown removes owned runtime state. SIGKILL skips this handler;
+  // the next startup reclaims the stale state instead.
+  process.once("exit", () => {
+    try {
+      lease.release();
+    } catch {
+      // Best effort: stale state is recovered by the next acquisition.
+    }
+  });
+  let running;
+  try {
+    running = await startHost();
+  } catch (error) {
+    lease.release();
+    throw error;
+  }
+  try {
+    lease.update({
+      endpoint: tcpEndpoint({
+        host: config.host,
+        port: running.port,
+        tls: Boolean(config.tlsCert),
+      }),
+      hostId: running.hostId,
+    });
+  } catch (error) {
+    // The lock stays held even if discovery metadata cannot be refreshed.
+    console.error(
+      `omo: unable to persist daemon discovery state: ${error.message}`
+    );
+  }
+}
+
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   if (options.command === "serve") {
-    process.env.OMO_HOST = options.host;
-    process.env.OMO_PORT = options.port;
-    if (options.token) {
-      process.env.OMO_TOKEN = options.token;
-    }
-    await import(SERVER_ENTRY);
+    await serveHost(options);
     return;
   }
 
