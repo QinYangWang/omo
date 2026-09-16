@@ -1,5 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { errorMessage, toJsonSafe } from "./daemon-channel.mjs";
+import {
+  buildDetachRequest,
+  buildEventBatch,
+  buildHeartbeatRequest,
+  buildNativeEvent,
+  buildRegisterRequest,
+  checkPiPeerVersion,
+  DAEMON_SOCKET_ENV,
+  DaemonChannel,
+  errorMessage,
+  PI_VERSION_ENV,
+  readExtensionVersion,
+  toJsonSafe,
+} from "./daemon-channel.mjs";
 
 const EVENTS_URL_ENV = "OMO_EXTENSION_EVENTS_URL";
 const COMMANDS_URL_ENV = "OMO_EXTENSION_COMMANDS_URL";
@@ -10,10 +23,16 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 const MAX_SEEN_REQUEST_IDS = 1024;
 const COMMAND_RECONNECT_ATTEMPTS = 3;
 const COMMAND_RECONNECT_BASE_MS = 500;
+const DAEMON_PATH_PREFIX = "/api/v1/extension";
+const DAEMON_DETACH_TIMEOUT_MS = 1500;
+const DAEMON_REREGISTER_ATTEMPTS = 3;
+const DAEMON_REREGISTER_BASE_MS = 500;
+const DAEMON_HEARTBEAT_FAILURE_LIMIT = 3;
+const DAEMON_DEFAULT_HEARTBEAT_MS = 5000;
 
 /**
- * Native Pi events forwarded to the omo test receiver. Keeping this list
- * explicit makes the spike contract auditable against Pi 0.85.0.
+ * Native Pi events forwarded to the omo test receiver (E0-002 spike). Keeping
+ * this list explicit makes the spike contract auditable against Pi 0.85.0.
  */
 const STREAM_EVENTS = [
   "agent_start",
@@ -21,6 +40,31 @@ const STREAM_EVENTS = [
   "message_end",
   "message_start",
   "message_update",
+  "tool_execution_end",
+  "tool_execution_start",
+  "tool_execution_update",
+  "turn_end",
+  "turn_start",
+];
+
+/**
+ * Native Pi events forwarded to the daemon (design §3.1/§7). `session_start`
+ * and `session_shutdown` are forwarded explicitly around registration and
+ * detach, so they are not part of this loop.
+ */
+const DAEMON_STREAM_EVENTS = [
+  "agent_start",
+  "agent_end",
+  "agent_settled",
+  "message_end",
+  "message_start",
+  "message_update",
+  "model_select",
+  "session_before_compact",
+  "session_compact",
+  "session_compact_failed",
+  "session_info_changed",
+  "thinking_level_select",
   "tool_execution_end",
   "tool_execution_start",
   "tool_execution_update",
@@ -58,6 +102,7 @@ class SerialDeliveryQueue {
     this.maxPending = maxPending;
     this.pending = [];
     this.draining = false;
+    this.idleWaiters = [];
   }
 
   enqueue(item) {
@@ -82,16 +127,35 @@ class SerialDeliveryQueue {
     }
   }
 
+  /** Resolves once the queue has no in-flight or pending deliveries. */
+  idle() {
+    if (!this.draining) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.idleWaiters.push(resolve);
+    });
+  }
+
+  #finishDrain() {
+    this.draining = false;
+    const waiters = this.idleWaiters;
+    this.idleWaiters = [];
+    for (const resolve of waiters) {
+      resolve();
+    }
+  }
+
   async #drain() {
     const entry = this.pending.shift();
     if (entry === undefined) {
-      this.draining = false;
+      this.#finishDrain();
       return;
     }
     if (this.isDropped?.()) {
       entry.resolve(false);
       this.dropAll();
-      this.draining = false;
+      this.#finishDrain();
       return;
     }
     let delivered = false;
@@ -539,21 +603,373 @@ function createSpikeSession({
   };
 }
 
+/**
+ * Per-session daemon attachment (E2-002). Owns the register/heartbeat/event
+ * forwarding lifecycle. All resources (timer, queue, channel state) are
+ * created in `start` and released in `dispose`. The extension never opens a
+ * listening socket: every request goes OUT over the daemon's socketPath.
+ */
+function createDaemonAttachment({
+  cwd,
+  extensionVersion,
+  instanceId,
+  log,
+  nextSequence,
+  peerCheck,
+  piVersion,
+  sessionFile,
+  sessionId,
+  socketPath,
+}) {
+  const channel = new DaemonChannel({ log, socketPath });
+  let active = false;
+  let attached = false;
+  let credential;
+  let disposing = false;
+  let disposed = false;
+  let generation;
+  let heartbeatFailures = 0;
+  let heartbeatInFlight = false;
+  let heartbeatIntervalMs = DAEMON_DEFAULT_HEARTBEAT_MS;
+  let heartbeatTimer;
+  let recovering = false;
+  let recoveryAttempts = 0;
+  let recoveryTimer;
+  let currentSessionFile = sessionFile;
+  let currentSessionId = sessionId;
+
+  function registerBody() {
+    return buildRegisterRequest({
+      cwd,
+      extensionVersion,
+      instanceId,
+      piVersion,
+      sessionFile: currentSessionFile,
+      sessionId: currentSessionId,
+    });
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
+    }
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    if (disposed || disposing) {
+      return;
+    }
+    heartbeatTimer = setInterval(() => {
+      heartbeatTick();
+    }, heartbeatIntervalMs);
+    heartbeatTimer.unref?.();
+  }
+
+  function noteHeartbeatFailure() {
+    heartbeatFailures += 1;
+    if (heartbeatFailures >= DAEMON_HEARTBEAT_FAILURE_LIMIT) {
+      beginRecovery();
+    }
+  }
+
+  async function heartbeatTick() {
+    if (
+      disposed ||
+      disposing ||
+      !(attached && generation !== undefined && credential !== undefined) ||
+      heartbeatInFlight
+    ) {
+      return;
+    }
+    heartbeatInFlight = true;
+    try {
+      const response = await channel.request(
+        `${DAEMON_PATH_PREFIX}/heartbeat`,
+        {
+          body: buildHeartbeatRequest({ generation, instanceId }),
+          credential,
+        }
+      );
+      if (
+        response.status >= 200 &&
+        response.status < 300 &&
+        response.value?.ok === true
+      ) {
+        heartbeatFailures = 0;
+        return;
+      }
+      if (
+        response.status === 401 ||
+        response.status === 404 ||
+        response.status === 409
+      ) {
+        beginRecovery();
+        return;
+      }
+      noteHeartbeatFailure();
+    } catch {
+      noteHeartbeatFailure();
+    } finally {
+      heartbeatInFlight = false;
+    }
+  }
+
+  function beginRecovery() {
+    if (disposed || disposing || recovering) {
+      return;
+    }
+    recovering = true;
+    attached = false;
+    stopHeartbeat();
+    generation = undefined;
+    credential = undefined;
+    // Events queued for the old generation are dropped: the daemon would
+    // reject them anyway, and nothing may be replayed without a new lease.
+    queue.dropAll();
+    recoveryAttempts = 0;
+    scheduleReregister();
+  }
+
+  function scheduleReregister() {
+    if (disposed || disposing || recoveryTimer) {
+      return;
+    }
+    if (recoveryAttempts >= DAEMON_REREGISTER_ATTEMPTS) {
+      log("re-register gave up after 3 attempts");
+      recovering = false;
+      return;
+    }
+    recoveryAttempts += 1;
+    const delayMs = DAEMON_REREGISTER_BASE_MS * 2 ** (recoveryAttempts - 1);
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = undefined;
+      attemptReregister();
+    }, delayMs);
+    recoveryTimer.unref?.();
+  }
+
+  function applyRegistration(value) {
+    const {
+      credential: nextCredential,
+      generation: nextGeneration,
+      heartbeatIntervalMs: reportedIntervalMs,
+    } = value;
+    generation = nextGeneration;
+    credential = nextCredential;
+    const interval = Number(reportedIntervalMs);
+    heartbeatIntervalMs =
+      Number.isFinite(interval) && interval > 0
+        ? interval
+        : DAEMON_DEFAULT_HEARTBEAT_MS;
+    attached = true;
+    recovering = false;
+    recoveryAttempts = 0;
+    heartbeatFailures = 0;
+    channel.reset();
+    startHeartbeat();
+  }
+
+  async function register() {
+    let response;
+    try {
+      response = await channel.request(`${DAEMON_PATH_PREFIX}/register`, {
+        body: registerBody(),
+      });
+    } catch (error) {
+      log(`register failed: ${errorMessage(error)}`);
+      return false;
+    }
+    const { status, value } = response;
+    if (!(status >= 200 && status < 300) || value?.ok !== true) {
+      log(`register rejected: ${value?.reason ?? `http_${status}`}`);
+      return false;
+    }
+    applyRegistration(value);
+    return true;
+  }
+
+  async function attemptReregister() {
+    if (disposed || disposing) {
+      return;
+    }
+    let response;
+    try {
+      response = await channel.request(`${DAEMON_PATH_PREFIX}/register`, {
+        body: registerBody(),
+      });
+    } catch {
+      scheduleReregister();
+      return;
+    }
+    const { status, value } = response;
+    if (status >= 200 && status < 300) {
+      if (value?.ok === true) {
+        applyRegistration(value);
+      } else {
+        // The daemon is reachable but refused the new lease; retrying cannot
+        // help (for example another owner attached first).
+        log(`re-register rejected: ${value?.reason ?? "unknown"}`);
+        recovering = false;
+      }
+      return;
+    }
+    scheduleReregister();
+  }
+
+  async function sendBatch(item) {
+    if (item.generation !== generation || credential === undefined) {
+      return false;
+    }
+    const result = await channel.send(`${DAEMON_PATH_PREFIX}/events`, {
+      body: item.body,
+      credential,
+    });
+    if (result.status === 409) {
+      beginRecovery();
+    }
+    return result.delivered;
+  }
+
+  const queue = new SerialDeliveryQueue({
+    deliver: sendBatch,
+    isDropped: () => disposed,
+  });
+
+  function forward(eventName, payload, ctx) {
+    if (!(active && attached) || generation === undefined) {
+      // Never buffer events while registration is pending, failed or
+      // recovering: the forwarded set is bounded to the live attachment.
+      return;
+    }
+    const sid = readSessionId(ctx) ?? currentSessionId;
+    if (typeof sid !== "string" || sid.length === 0) {
+      return;
+    }
+    const sfile = readSessionFile(ctx) ?? currentSessionFile;
+    currentSessionId = sid;
+    currentSessionFile = sfile;
+    const capturedGeneration = generation;
+    queue.enqueue({
+      body: buildEventBatch({
+        events: [
+          buildNativeEvent({
+            event: eventName,
+            nativeSequence: nextSequence(),
+            payload: toJsonSafe(payload),
+            sessionFile: sfile,
+            sessionId: sid,
+            timestamp: Date.now(),
+          }),
+        ],
+        generation: capturedGeneration,
+        instanceId,
+      }),
+      generation: capturedGeneration,
+    });
+  }
+
+  function flushQueue(timeoutMs) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      timer.unref?.();
+      queue.idle().then(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  async function detach() {
+    const detachGeneration = generation;
+    const detachCredential = credential;
+    generation = undefined;
+    credential = undefined;
+    if (detachGeneration === undefined || detachCredential === undefined) {
+      return;
+    }
+    try {
+      await channel.request(`${DAEMON_PATH_PREFIX}/detach`, {
+        body: buildDetachRequest({
+          generation: detachGeneration,
+          instanceId,
+          reason: "session_shutdown",
+        }),
+        credential: detachCredential,
+        timeoutMs: DAEMON_DETACH_TIMEOUT_MS,
+      });
+    } catch {
+      // Best effort: heartbeat expiry releases the attachment on the daemon.
+    }
+  }
+
+  return {
+    async dispose() {
+      if (disposed || disposing) {
+        return;
+      }
+      disposing = true;
+      active = false;
+      stopHeartbeat();
+      if (recoveryTimer) {
+        clearTimeout(recoveryTimer);
+        recoveryTimer = undefined;
+      }
+      // Deliver the queued session_shutdown before releasing the lease.
+      await flushQueue(DAEMON_DETACH_TIMEOUT_MS);
+      await detach();
+      disposed = true;
+      disposing = false;
+      queue.dropAll();
+    },
+    forward,
+    async start() {
+      if (disposed) {
+        return;
+      }
+      active = true;
+      if (!peerCheck.ok) {
+        log(peerCheck.reason);
+        return;
+      }
+      if (
+        typeof currentSessionId !== "string" ||
+        currentSessionId.length === 0
+      ) {
+        log("register skipped: session id unavailable");
+        return;
+      }
+      await register();
+    },
+  };
+}
+
 export default function omoEventForwarder(pi) {
   const eventsUrl = process.env[EVENTS_URL_ENV]?.trim();
-  if (!eventsUrl) {
-    // No receiver configured: stay completely inert (no network, no timers).
+  const daemonSocket = process.env[DAEMON_SOCKET_ENV]?.trim();
+  if (!(eventsUrl || daemonSocket)) {
+    // No receiver and no daemon configured: completely inert (no network, no
+    // timers). Daemon mode is inert unless OMO_DAEMON_SOCKET is set.
     return;
   }
-  // The command channel is only meaningful when acks have somewhere to go.
-  // Without OMO_EXTENSION_COMMANDS_URL the E0-002 forwarding behavior is
-  // unchanged.
+  // The spike command channel is only meaningful when acks have somewhere to
+  // go. Without OMO_EXTENSION_COMMANDS_URL the E0-002 behavior is unchanged.
   const commandsUrl = process.env[COMMANDS_URL_ENV]?.trim();
 
   const instanceId = randomUUID();
+  // The launcher gates the real Pi version (E0-004); E3 passes OMO_PI_VERSION
+  // through. A missing value is recorded as "unknown" rather than guessed.
+  const piVersion = process.env[PI_VERSION_ENV]?.trim() || "unknown";
+  const peerCheck =
+    piVersion === "unknown"
+      ? { majorMinor: null, ok: true }
+      : checkPiPeerVersion(piVersion);
+  const extensionVersion = readExtensionVersion();
   let nativeSequence = 0;
   let errorLogs = 0;
-  let session;
+  let spikeSession;
+  let daemonSession;
 
   // Process-scoped monotonic sequence shared by events and acks.
   const nextSequence = () => {
@@ -573,50 +989,90 @@ export default function omoEventForwarder(pi) {
     }
   };
 
-  pi.on("session_start", (event, ctx) => {
-    const previous = session;
-    session = undefined;
-    previous?.dispose();
-    const next = createSpikeSession({
-      commandsUrl,
-      eventsUrl,
-      instanceId,
-      log,
-      nextSequence,
-      pi,
-    });
-    session = next;
-    next.start(ctx);
-    next.forward("session_start", event, ctx);
+  const forwardToSessions = (eventName, event, ctx) => {
+    spikeSession?.forward(eventName, event, ctx);
+    daemonSession?.forward(eventName, event, ctx);
+  };
+
+  const disposeSessions = async () => {
+    const spike = spikeSession;
+    spikeSession = undefined;
+    spike?.dispose();
+    const daemon = daemonSession;
+    daemonSession = undefined;
+    await daemon?.dispose();
+  };
+
+  pi.on("session_start", async (event, ctx) => {
+    // Defensive: a start without a preceding shutdown must not leak the old
+    // session's timers or lease.
+    await disposeSessions();
+    if (eventsUrl) {
+      const next = createSpikeSession({
+        commandsUrl,
+        eventsUrl,
+        instanceId,
+        log,
+        nextSequence,
+        pi,
+      });
+      spikeSession = next;
+      next.start(ctx);
+    }
+    if (daemonSocket) {
+      daemonSession = createDaemonAttachment({
+        cwd: typeof ctx?.cwd === "string" ? ctx.cwd : undefined,
+        extensionVersion,
+        instanceId,
+        log,
+        nextSequence,
+        peerCheck,
+        piVersion,
+        sessionFile: readSessionFile(ctx),
+        sessionId: readSessionId(ctx),
+        socketPath: daemonSocket,
+      });
+      await daemonSession.start();
+    }
+    forwardToSessions("session_start", event, ctx);
   });
 
-  pi.on("session_shutdown", (event, ctx) => {
-    const current = session;
-    if (!current) {
+  pi.on("session_shutdown", async (event, ctx) => {
+    if (!(spikeSession || daemonSession)) {
       return;
     }
-    current.forward("session_shutdown", event, ctx);
-    session = undefined;
-    current.dispose();
+    forwardToSessions("session_shutdown", event, ctx);
+    await disposeSessions();
   });
 
-  // Only registered when the command channel is configured. These handlers
-  // turn native lifecycle events into truthful `started` / `completed` acks.
+  // Only registered when the spike command channel is configured. These
+  // handlers turn native lifecycle events into truthful `started` /
+  // `completed` acks.
   if (commandsUrl) {
     pi.on("agent_start", () => {
-      session?.onAgentStart();
+      spikeSession?.onAgentStart();
     });
     pi.on("message_end", (event) => {
-      session?.onMessageEnd(event);
+      spikeSession?.onMessageEnd(event);
     });
     pi.on("agent_settled", () => {
-      session?.onAgentSettled();
+      spikeSession?.onAgentSettled();
     });
   }
 
-  for (const eventName of STREAM_EVENTS) {
-    pi.on(eventName, (event, ctx) => {
-      session?.forward(eventName, event, ctx);
-    });
+  if (eventsUrl) {
+    for (const eventName of STREAM_EVENTS) {
+      pi.on(eventName, (event, ctx) => {
+        spikeSession?.forward(eventName, event, ctx);
+      });
+    }
+  }
+
+  if (daemonSocket) {
+    for (const eventName of DAEMON_STREAM_EVENTS) {
+      pi.on(eventName, (event, ctx) => {
+        daemonSession?.forward(eventName, event, ctx);
+      });
+    }
   }
 }
