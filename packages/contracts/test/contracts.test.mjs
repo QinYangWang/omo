@@ -6,6 +6,8 @@ import {
   ContractValidationError,
   HostApiContracts,
   HostHealthSchema,
+  HostRegistryDocumentSchema,
+  HostRegistryEntrySchema,
   JsonValueSchema,
   OpenSessionResponseSchema,
   ProjectListSchema,
@@ -175,4 +177,148 @@ test("JSON and Agent event contracts reject non-JSON values", () => {
     "AgentEventEnvelope"
   );
   assert.equal(event.sequence, 1);
+});
+
+test("Host registry entries accept URL and local endpoints", () => {
+  const urlEntry = {
+    credentialRef: "keychain:omo/team",
+    endpoint: { transport: "https", url: "https://host.example:5189" },
+    expectedHostId: HOST_ID,
+    id: "entry-1",
+    label: "Team Host",
+  };
+  assert.deepEqual(
+    parseContract(HostRegistryEntrySchema, urlEntry, "HostRegistryEntry"),
+    urlEntry
+  );
+  for (const endpoint of [
+    { path: "/run/omo.sock", transport: "unix" },
+    { path: "\\\\.\\pipe\\omo-abc", transport: "pipe" },
+  ]) {
+    const parsed = parseContract(
+      HostRegistryEntrySchema,
+      { endpoint, id: "entry-local", label: "Local daemon" },
+      "HostRegistryEntry"
+    );
+    assert.deepEqual(parsed.endpoint, endpoint);
+  }
+});
+
+test("Host registry rejects malformed or unknown transports", () => {
+  const base = { id: "entry-1", label: "Host" };
+  for (const endpoint of [
+    { transport: "tcp", url: "http://127.0.0.1:5189" },
+    { transport: "ftp", url: "ftp://host.example" },
+    { transport: "unix" },
+    { transport: "pipe" },
+    { path: "", transport: "unix" },
+    { transport: "http" },
+  ]) {
+    assert.throws(
+      () =>
+        parseContract(
+          HostRegistryEntrySchema,
+          { ...base, endpoint },
+          "HostRegistryEntry"
+        ),
+      ContractValidationError
+    );
+  }
+});
+
+test("Host registry rejects credential material and unknown fields", () => {
+  const entry = {
+    endpoint: { transport: "http", url: "http://127.0.0.1:5189" },
+    id: "entry-1",
+    label: "Host",
+  };
+  for (const leaked of ["token", "bearerToken", "secret", "password"]) {
+    assert.throws(
+      () =>
+        parseContract(
+          HostRegistryEntrySchema,
+          { ...entry, [leaked]: "credential-material" },
+          "HostRegistryEntry"
+        ),
+      ContractValidationError
+    );
+  }
+  const withRef = { ...entry, credentialRef: "keychain:omo/team" };
+  assert.equal(
+    parseContract(HostRegistryEntrySchema, withRef, "HostRegistryEntry")
+      .credentialRef,
+    "keychain:omo/team"
+  );
+});
+
+test("Host registry entry id and expected Host identity are independent fields", () => {
+  const entry = {
+    endpoint: { transport: "https", url: "https://host.example" },
+    expectedHostId: HOST_ID,
+    id: HOST_ID,
+    label: "Host",
+  };
+  const parsed = parseContract(
+    HostRegistryEntrySchema,
+    entry,
+    "HostRegistryEntry"
+  );
+  assert.equal(parsed.id, HOST_ID);
+  assert.equal(parsed.expectedHostId, HOST_ID);
+  assert.throws(
+    () =>
+      parseContract(
+        HostRegistryEntrySchema,
+        { ...entry, expectedHostId: "not-a-host-id" },
+        "HostRegistryEntry"
+      ),
+    ContractValidationError
+  );
+  assert.throws(
+    () =>
+      parseContract(
+        HostRegistryEntrySchema,
+        { ...entry, id: "" },
+        "HostRegistryEntry"
+      ),
+    ContractValidationError
+  );
+});
+
+test("Host registry documents are explicitly versioned and reject unknown fields", () => {
+  const document = {
+    entries: [
+      {
+        endpoint: { transport: "http", url: "http://127.0.0.1:5189" },
+        id: "entry-1",
+        label: "Local daemon",
+      },
+    ],
+    schema: "omo.host-registry",
+    selectedEntryId: "entry-1",
+    version: 1,
+  };
+  assert.equal(
+    parseContract(HostRegistryDocumentSchema, document, "HostRegistryDocument")
+      .version,
+    1
+  );
+  assert.throws(
+    () =>
+      parseContract(
+        HostRegistryDocumentSchema,
+        { ...document, version: 2 },
+        "HostRegistryDocument"
+      ),
+    ContractValidationError
+  );
+  assert.throws(
+    () =>
+      parseContract(
+        HostRegistryDocumentSchema,
+        { ...document, extra: true },
+        "HostRegistryDocument"
+      ),
+    ContractValidationError
+  );
 });

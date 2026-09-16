@@ -23,8 +23,8 @@ omo v2 只先解决一个问题：**一个 Host 内运行的 Pi Session，能够
 当前阶段明确不承诺：
 
 - exactly-once operation；现有 `requestId` 只提供 durable acceptance 去重，Host 在“记录接受”与“实际 dispatch”之间崩溃时仍可能需要人工重试；
-- 多 Host 聚合视图；
-- 一个 Host 的多个 endpoint 自动合并；
+- 多 Host 聚合视图；M1-001 只定义 registry 条目语义，不做聚合；
+- 一个 Host 的多个 endpoint 自动合并；多个 endpoint 只能是互相独立的别名；
 - snapshot/revision 协议；当前只使用 HTTP 查询与 SSE sequence 重放；
 - 跨 Host Session 迁移；
 - Pi experimental server/client/protocol 的稳定兼容；
@@ -76,9 +76,26 @@ interface HostClient {
 
 HTTP/SSE、认证 header 和重连属于该实现。React state、localStorage、TUI component 和平台 credential storage 不进入这个包。
 
-Host registry 暂时沿用 Web 现有实现；等 CLI 与 Web 都出现同样需求后再抽取。一个 Host 多 endpoint、设备凭据和聚合缓存全部延后。
+Host registry 的稳定语义见 4.3；在其之上抽取 store、连接状态机和切换 UI 仍然延后。
 
-### 4.3 Pi adapter
+### 4.3 Host registry 与多 endpoint 语义
+
+M1-001 只定义客户端本地 registry 的稳定语义，不实现 store、切换 UI、凭据存储、重试或迁移框架。
+
+- **所有权**：Host 是唯一的执行所有者，永远不知道客户端 registry。registry 是客户端本地配置；CLI（profile/数据目录）与浏览器（localStorage/托管凭据）可以使用不同持久化实现，二者不会自动同步。一个 registry 只描述“这个客户端如何到达若干 Host”。
+- **条目身份**：`HostRegistryEntry.id` 是客户端本地 registry 条目 id，由客户端生成且稳定；健康检查返回的 `hostId` 则是 Host 安装/数据目录的持久身份（由 `server/host-identity.cjs` 持久化在数据目录的 `host.json`，Host 进程重启后保持不变），二者是不同概念，不要求相等。`expectedHostId` 可选，只在成功 health 后固定，用于检测同一 endpoint 后续被另一个 Host 安装替换；Host 重启后 `hostId` 不变，属于匹配而非 mismatch。
+- **endpoint**：使用 discriminated union。`http`/`https` 是 URL（trim、host 小写、去默认端口、剥离 fragment/query 与末尾 `/`，并拒绝带 userinfo 的 URL）；`unix`/`pipe` 是本机路径（Unix 绝对路径，Windows 完整 `\\.\pipe\<name>`）。浏览器只能使用 `http`/`https`，不得使用 socket/pipe；纯静态或托管 Web 必须拒绝本机 transport。
+- **条目字段**：`id`、`label`、`endpoint`、可选 `expectedHostId`、可选 `credentialRef`。registry 永远不保存 Bearer Token 或其他凭据材料；`credentialRef` 只是指向平台 keystore/safeStorage 的不透明引用。
+- **重复语义**：同一 registry 内以“归一化后的 endpoint”判重，一个 endpoint 只应存在一个条目；不同条目可以指向同一个 `hostId`，它们保持为独立别名，除非客户端显式合并。endpoint 变更必须走显式 update，清除 `expectedHostId` 并重新 health 验证。
+- **身份协调**：
+  - 首次连接：`expectedHostId` 为空，health 成功后固定；
+  - 匹配：health 的 `hostId` 与 `expectedHostId` 相同；
+  - 不匹配：视为 endpoint 身份被替换，必须报错并要求用户显式更新或移除，绝不自动改写；
+  - 移除/重加：移除只删除本地条目，不触碰 Host；重加生成新的 `id`，重新走首次连接；
+  - 同一 Host 的多个 endpoint：各自独立条目、独立健康状态，不自动合并。
+- **默认与选中**：registry 使用显式版本化文档（`schema: "omo.host-registry"`、`version: 1`），包含 `entries` 和可选 `selectedEntryId`。没有全局单例：`selectedEntryId` 缺失或失效时，由客户端按自身规则解析默认（托管 Web 同源条目、CLI/Electron 首条或本机 daemon），并且不隐式改写其他条目。
+
+### 4.4 Pi adapter
 
 `@omo/pi-runtime` 只包装当前实际使用的 `@earendil-works/pi-coding-agent` stable SDK：
 
@@ -172,7 +189,7 @@ Host 在步骤 2 与 3 之间崩溃时可能留下未 dispatch 的 acceptance。
 
 ### Stage M：多 Host
 
-只有 Web 与 CLI 的单 Host 模型稳定后才实现 Host registry、多个 endpoint、credential reference 和独立错误域。
+只有 Web 与 CLI 的单 Host 模型稳定后才实现 Host registry store、多 endpoint 切换、credential reference 和独立错误域。M1-001 只落地 4.3 的语义和 `@omo/contracts` schema；持久化适配器、连接状态机、切换 UI、凭据存储和迁移框架都不在本任务内。
 
 ## 8. Gate
 
@@ -203,7 +220,7 @@ pnpm build
 - Pi v2 server/client/protocol、Chord 与 presentation facet；
 - durable operation recovery queue；
 - Session worker 隔离；
-- 多 Host 聚合、device credential 与 RBAC；
+- 多 Host 聚合（M1-001 只定义本地 registry 条目语义，不实现聚合缓存）、device credential 与 RBAC；
 - React Native、HarmonyOS 与 push notification；
 - Desktop sidecar；
 - extension migration framework。

@@ -2,6 +2,8 @@
 
 客户端通过 `src/lib/servers.ts` 管理服务器列表。每个服务器（本机或远程）都有独立的 `omoApi` 实例，Project、Session、文件、Git、Provider、Pi Agent 和终端调用按所属服务器路由。
 
+M1-001 起，服务器列表的目标模型是客户端本地 Host registry（`@omo/contracts` 的 `HostRegistryEntry` / `HostRegistryDocument`）：条目只含 `id`、`label`、`endpoint`、可选 `expectedHostId` 与可选 `credentialRef`。条目 `id` 是客户端本地 registry 条目 id，与 Host health 的 `hostId`（持久化的 Host 安装/数据目录身份，Host 进程重启后不变）不是同一个概念；registry 本身不保存 Bearer Token，Token 仍由各客户端的凭据适配器（Electron `safeStorage`、Web localStorage）持有。CLI 与浏览器各自维护自己的 registry，不会自动互相同步。endpoint 支持 `http`/`https` URL 与 `unix`/`pipe` 本机 transport；浏览器只能使用前两者，托管或静态 Web 必须拒绝本机 socket/pipe。
+
 ## 本机服务器
 
 - **Electron**：preload 暴露 `window.omo`，Pi Agent 在本地主进程内运行，无需登录。

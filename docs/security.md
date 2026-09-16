@@ -69,6 +69,10 @@ Browser 代理只接受 HTTP/HTTPS URL，不接受 URL 中的用户名和密码�
 
 `POST /pi/context-details` 返回当前有效系统提示、工具定义、上下文文件内容和扩展注入的隐藏消息，可能包含项目内部指令或其他敏感上下文。该接口不使用 Browser 能力 URL 例外，始终要求 Server Bearer Token；前端不会将快照写入 localStorage。
 
+## Host registry 凭据边界
+
+M1-001 的 Host registry schema（`HostRegistryEntry`）只保存 `id`、`label`、`endpoint`、可选 `expectedHostId` 与可选 `credentialRef`，且拒绝任何未知字段。Bearer Token 或其他凭据材料不属于 registry；`credentialRef` 仅是不透明引用，由客户端凭据适配器负责解析（Electron `safeStorage` / Web localStorage）。因此 registry 文档即使被导出也不会携带长期 Token。浏览器只能使用 `http`/`https` endpoint，本机 `unix`/`pipe` transport 必须在浏览器客户端被拒绝。
+
 ## Electron 凭据
 
 Electron 将所有远程服务器的 Token 交给主进程的 `safeStorage`：

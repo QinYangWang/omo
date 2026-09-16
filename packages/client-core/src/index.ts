@@ -8,8 +8,12 @@ import {
   type AgentEventEnvelope,
   AgentEventEnvelopeSchema,
   HostApiContracts,
+  type HostEndpoint,
   type HostHealth,
   HostHealthSchema,
+  type HostId,
+  HostIdSchema,
+  type HostRegistryEntry,
   OkResponseSchema,
   type OpenSessionCommand,
   OpenSessionCommandSchema,
@@ -310,5 +314,180 @@ export class HttpHostClient implements HostClient {
       }
     }
     return cursor;
+  }
+}
+
+const TRAILING_SLASHES_PATTERN = /\/+$/;
+const UNIX_ABSOLUTE_PATH_PATTERN = /^\//;
+const WINDOWS_NAMED_PIPE_PATTERN = /^\\\\\.\\pipe\\[^\\/]+$/i;
+
+/**
+ * Client-local Host registry semantics shared by the CLI and Web clients.
+ *
+ * These helpers are deliberately pure: no persistence, no connection state
+ * and no `HostRegistry` class. A client owns its own store and uses the
+ * helpers to normalize endpoints, detect duplicate entries, reconcile the
+ * discovered `hostId` with an entry's pinned identity and decide what a
+ * browser is allowed to reach.
+ */
+export function isLocalHostTransport(
+  transport: HostEndpoint["transport"]
+): boolean {
+  return transport === "unix" || transport === "pipe";
+}
+
+export function isBrowserHostTransport(
+  transport: HostEndpoint["transport"]
+): boolean {
+  return transport === "http" || transport === "https";
+}
+
+/**
+ * Normalizes an HTTP/HTTPS base URL: trims whitespace, lowercases the host,
+ * drops the default port, strips the fragment, query and trailing slash and
+ * rejects URLs that contain userinfo, so equivalent endpoints produce one
+ * identity. Userinfo is rejected rather than silently dropped so embedded
+ * credentials surface as a configuration error.
+ */
+export function normalizeHttpHostUrl(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch (error) {
+    throw new Error(`Invalid Host URL: ${value}`, { cause: error });
+  }
+  if (!(parsed.protocol === "http:" || parsed.protocol === "https:")) {
+    throw new Error(`Host URL must use HTTP or HTTPS: ${value}`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(`Host URL must not contain credentials: ${value}`);
+  }
+  parsed.hash = "";
+  parsed.search = "";
+  parsed.pathname = parsed.pathname.replace(TRAILING_SLASHES_PATTERN, "");
+  return parsed.toString().replace(TRAILING_SLASHES_PATTERN, "");
+}
+
+/**
+ * Normalizes one endpoint to the canonical form stored in a registry. URL
+ * transports must match their declared scheme; local transports keep an
+ * absolute Unix path or a full Windows named pipe path.
+ */
+export function normalizeHostEndpoint(endpoint: HostEndpoint): HostEndpoint {
+  if (endpoint.transport === "http" || endpoint.transport === "https") {
+    const url = normalizeHttpHostUrl(endpoint.url);
+    if (!url.startsWith(`${endpoint.transport}://`)) {
+      throw new Error(
+        `Host endpoint transport ${endpoint.transport} does not match URL ${endpoint.url}`
+      );
+    }
+    return { transport: endpoint.transport, url };
+  }
+  const path = endpoint.path.trim();
+  if (endpoint.transport === "unix") {
+    const normalized = path.replace(TRAILING_SLASHES_PATTERN, "");
+    if (!UNIX_ABSOLUTE_PATH_PATTERN.test(normalized)) {
+      throw new Error(
+        `Unix Host endpoint path must be absolute: ${endpoint.path}`
+      );
+    }
+    return { path: normalized, transport: "unix" };
+  }
+  if (!WINDOWS_NAMED_PIPE_PATTERN.test(path)) {
+    throw new Error(
+      `Windows Host named pipe endpoint must use \\\\.\\pipe\\<name>: ${endpoint.path}`
+    );
+  }
+  return { path, transport: "pipe" };
+}
+
+/**
+ * Canonical identity used for duplicate detection inside one registry. Two
+ * entries are duplicates when their endpoints normalize to the same key.
+ */
+export function hostEndpointKey(endpoint: HostEndpoint): string {
+  const normalized = normalizeHostEndpoint(endpoint);
+  if (normalized.transport === "http" || normalized.transport === "https") {
+    return normalized.url;
+  }
+  return `${normalized.transport}:${normalized.path}`;
+}
+
+/** Human-readable form of a normalized endpoint. */
+export function hostEndpointLabel(endpoint: HostEndpoint): string {
+  return hostEndpointKey(endpoint);
+}
+
+/**
+ * Finds the entry already using this endpoint within one registry. Duplicate
+ * semantics are endpoint-based; two different entries resolving to the same
+ * `hostId` remain independent aliases and are intentionally not merged here.
+ */
+export function findHostRegistryEntryByEndpoint(
+  entries: readonly HostRegistryEntry[],
+  endpoint: HostEndpoint
+): HostRegistryEntry | undefined {
+  const key = hostEndpointKey(endpoint);
+  return entries.find((entry) => hostEndpointKey(entry.endpoint) === key);
+}
+
+export type HostIdentityReconciliation =
+  | { readonly hostId: HostId; readonly kind: "first-connection" }
+  | { readonly hostId: HostId; readonly kind: "matching" }
+  | {
+      readonly expectedHostId: HostId;
+      readonly kind: "mismatch";
+      readonly observedHostId: HostId;
+    };
+
+/**
+ * Compares the `hostId` reported by health with the entry's pinned identity.
+ * `hostId` is the persistent Host installation/data-directory identity and
+ * survives process restarts, so a restarted Host still matches. The caller
+ * decides what to do: pin on first connection, accept a match, and surface a
+ * mismatch (a different Host now owns the endpoint) instead of silently
+ * rewriting the endpoint identity.
+ */
+export function reconcileHostIdentity(
+  entry: HostRegistryEntry,
+  observedHostId: string
+): HostIdentityReconciliation {
+  const hostId = parseContract(HostIdSchema, observedHostId, "HostId");
+  if (!entry.expectedHostId) {
+    return { hostId, kind: "first-connection" };
+  }
+  if (entry.expectedHostId === hostId) {
+    return { hostId, kind: "matching" };
+  }
+  return {
+    expectedHostId: entry.expectedHostId,
+    kind: "mismatch",
+    observedHostId: hostId,
+  };
+}
+
+/**
+ * Explicitly reassigns an entry's endpoint. The pinned identity is cleared
+ * because a different endpoint must be health-verified again before it is
+ * trusted; the caller persists the returned entry.
+ */
+export function reassignHostEndpoint(
+  entry: HostRegistryEntry,
+  endpoint: HostEndpoint
+): HostRegistryEntry {
+  return {
+    ...(entry.credentialRef ? { credentialRef: entry.credentialRef } : {}),
+    endpoint: normalizeHostEndpoint(endpoint),
+    id: entry.id,
+    label: entry.label,
+  };
+}
+
+/** Remote browsers can only reach HTTP/HTTPS URLs, never sockets or pipes. */
+export function assertBrowserHostEndpoint(endpoint: HostEndpoint): void {
+  if (isLocalHostTransport(endpoint.transport)) {
+    throw new Error(
+      `Browser clients cannot use ${endpoint.transport} Host endpoints; configure an HTTP or HTTPS URL`
+    );
   }
 }
