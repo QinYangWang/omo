@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.build.json --noEmit",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test"
   },
   "dependencies": {
     "@omo/contracts": "workspace:*"
