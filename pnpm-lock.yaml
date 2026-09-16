@@ -38,6 +38,9 @@ importers:
       '@omo/client-core':
         specifier: workspace:*
         version: link:packages/client-core
+      '@omo/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
       '@omo/host-core':
         specifier: workspace:*
         version: link:packages/host-core
