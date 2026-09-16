@@ -4,8 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("omoSecure", {
   clearRemoteConfig: () => ipcRenderer.invoke("remote-config:clear"),
   loadRemoteConfig: () => ipcRenderer.invoke("remote-config:load"),
-  saveRemoteConfig: (servers) =>
-    ipcRenderer.invoke("remote-config:save", { servers }),
+  saveRemoteConfig: (state) => ipcRenderer.invoke("remote-config:save", state),
 });
 
 contextBridge.exposeInMainWorld("omo", {

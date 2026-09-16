@@ -8,14 +8,19 @@ import {
   type AgentEventEnvelope,
   AgentEventEnvelopeSchema,
   ContractValidationError,
+  HOST_REGISTRY_SCHEMA,
+  HOST_REGISTRY_VERSION,
   HostApiContracts,
   type HostEndpoint,
   type HostHealth,
   HostHealthSchema,
   type HostId,
   HostIdSchema,
+  type HostRegistryDocument,
   type HostRegistryEntry,
   type HostRegistryEntryId,
+  type HttpHostEndpoint,
+  type HttpsHostEndpoint,
   OkResponseSchema,
   type OpenSessionCommand,
   OpenSessionCommandSchema,
@@ -28,6 +33,25 @@ import {
   parseContract,
   SessionListSchema,
   type SessionSummary,
+} from "@omo/contracts";
+
+export type {
+  HostEndpoint,
+  HostId,
+  HostRegistryDocument,
+  HostRegistryEntry,
+  HostRegistryEntryId,
+  HttpHostEndpoint,
+  HttpsHostEndpoint,
+} from "@omo/contracts";
+// biome-ignore lint/performance/noBarrelFile: platform clients import the registry contracts through this package.
+export {
+  ContractValidationError,
+  HOST_REGISTRY_SCHEMA,
+  HOST_REGISTRY_VERSION,
+  HostRegistryDocumentSchema,
+  HostRegistryEntrySchema,
+  parseContract,
 } from "@omo/contracts";
 
 export interface SessionEventSubscription {
@@ -505,6 +529,58 @@ export function reconcileHostIdentity(
 }
 
 /**
+ * Applies a first-connection identity pin to the latest registry document.
+ *
+ * A probe result is captured before network I/O, so by the time a connection
+ * succeeds the user may have edited the entry (URL, label, credential) or
+ * added/removed/selected other entries. Applying the stale snapshot would
+ * revert those edits, so this helper only writes `expectedHostId` onto the
+ * entry that is still present in the latest document when:
+ *
+ * - the entry id still exists,
+ * - its current normalized endpoint is the one that was probed, and
+ * - it is not already pinned.
+ *
+ * Every other field and every other entry (including `selectedEntryId`) is
+ * preserved. A changed or removed endpoint means the observed identity no
+ * longer belongs to the current entry, so the stale pin is ignored.
+ */
+export function applyHostIdentityPin(
+  document: HostRegistryDocument,
+  pin: {
+    readonly endpoint: HostEndpoint;
+    readonly entryId: HostRegistryEntryId;
+    readonly expectedHostId: HostId;
+  }
+): { applied: boolean; document: HostRegistryDocument } {
+  const current = findHostRegistryEntry(document, pin.entryId);
+  if (!current || current.expectedHostId) {
+    return { applied: false, document };
+  }
+  let matches: boolean;
+  try {
+    matches =
+      hostEndpointKey(current.endpoint) === hostEndpointKey(pin.endpoint);
+  } catch {
+    matches = false;
+  }
+  if (!matches) {
+    return { applied: false, document };
+  }
+  return {
+    applied: true,
+    document: {
+      ...document,
+      entries: document.entries.map((candidate) =>
+        candidate.id === pin.entryId
+          ? { ...candidate, expectedHostId: pin.expectedHostId }
+          : candidate
+      ),
+    },
+  };
+}
+
+/**
  * Explicitly reassigns an entry's endpoint. The pinned identity is cleared
  * because a different endpoint must be health-verified again before it is
  * trusted; the caller persists the returned entry.
@@ -522,12 +598,173 @@ export function reassignHostEndpoint(
 }
 
 /** Remote browsers can only reach HTTP/HTTPS URLs, never sockets or pipes. */
-export function assertBrowserHostEndpoint(endpoint: HostEndpoint): void {
+export function assertBrowserHostEndpoint(
+  endpoint: HostEndpoint
+): asserts endpoint is HttpHostEndpoint | HttpsHostEndpoint {
   if (isLocalHostTransport(endpoint.transport)) {
     throw new Error(
       `Browser clients cannot use ${endpoint.transport} Host endpoints; configure an HTTP or HTTPS URL`
     );
   }
+}
+
+/** Creates the empty versioned registry document every client starts from. */
+export function createEmptyHostRegistryDocument(): HostRegistryDocument {
+  return {
+    entries: [],
+    schema: HOST_REGISTRY_SCHEMA,
+    version: HOST_REGISTRY_VERSION,
+  };
+}
+
+/** Looks up one entry by its client-local registry id. */
+export function findHostRegistryEntry(
+  document: HostRegistryDocument,
+  id: HostRegistryEntryId
+): HostRegistryEntry | undefined {
+  return document.entries.find((entry) => entry.id === id);
+}
+
+/**
+ * Adds one entry, rejecting duplicate normalized endpoints. Entry ids are
+ * client-local and stable; a caller may inject one for deterministic tests.
+ */
+export function addHostRegistryEntry(
+  document: HostRegistryDocument,
+  input: {
+    credentialRef?: CredentialRef;
+    endpoint: HostEndpoint;
+    id?: HostRegistryEntryId;
+    label: string;
+  }
+): { document: HostRegistryDocument; entry: HostRegistryEntry } {
+  const endpoint = normalizeHostEndpoint(input.endpoint);
+  const duplicate = findHostRegistryEntryByEndpoint(document.entries, endpoint);
+  if (duplicate) {
+    throw new Error(
+      `A Host with endpoint ${hostEndpointLabel(endpoint)} is already configured as ${duplicate.id}`
+    );
+  }
+  const entry: HostRegistryEntry = {
+    ...(input.credentialRef ? { credentialRef: input.credentialRef } : {}),
+    endpoint,
+    id: input.id ?? globalThis.crypto.randomUUID(),
+    label: input.label,
+  };
+  return {
+    document: { ...document, entries: [...document.entries, entry] },
+    entry,
+  };
+}
+
+/**
+ * Removes one entry. Removing the selected entry clears `selectedEntryId`
+ * instead of leaving a dangling pointer; unknown ids are a hard error.
+ */
+export function removeHostRegistryEntry(
+  document: HostRegistryDocument,
+  id: HostRegistryEntryId
+): { document: HostRegistryDocument; entry: HostRegistryEntry } {
+  const entry = findHostRegistryEntry(document, id);
+  if (!entry) {
+    throw new Error(`Unknown Host entry: ${id}`);
+  }
+  const next: HostRegistryDocument = {
+    entries: document.entries.filter((candidate) => candidate.id !== id),
+    schema: document.schema,
+    version: document.version,
+  };
+  if (document.selectedEntryId && document.selectedEntryId !== id) {
+    next.selectedEntryId = document.selectedEntryId;
+  }
+  return { document: next, entry };
+}
+
+/**
+ * Updates one entry in place. Reassigning the endpoint clears the pinned
+ * `expectedHostId` so the new endpoint is health-verified again; a label or
+ * credential rotation keeps the entry id and its pinned identity.
+ */
+export function updateHostRegistryEntry(
+  document: HostRegistryDocument,
+  id: HostRegistryEntryId,
+  patch: {
+    credentialRef?: CredentialRef | null;
+    endpoint?: HostEndpoint;
+    label?: string;
+  }
+): { document: HostRegistryDocument; entry: HostRegistryEntry } {
+  const existing = findHostRegistryEntry(document, id);
+  if (!existing) {
+    throw new Error(`Unknown Host entry: ${id}`);
+  }
+  const endpoint =
+    patch.endpoint === undefined
+      ? existing.endpoint
+      : normalizeHostEndpoint(patch.endpoint);
+  const duplicate =
+    patch.endpoint === undefined
+      ? undefined
+      : document.entries.find(
+          (candidate) =>
+            candidate.id !== id &&
+            hostEndpointKey(candidate.endpoint) === hostEndpointKey(endpoint)
+        );
+  if (duplicate) {
+    throw new Error(
+      `A Host with endpoint ${hostEndpointLabel(endpoint)} is already configured as ${duplicate.id}`
+    );
+  }
+  const credentialRef =
+    patch.credentialRef === undefined
+      ? existing.credentialRef
+      : patch.credentialRef;
+  const entry: HostRegistryEntry = {
+    ...(credentialRef ? { credentialRef } : {}),
+    endpoint,
+    ...(existing.expectedHostId && patch.endpoint === undefined
+      ? { expectedHostId: existing.expectedHostId }
+      : {}),
+    id: existing.id,
+    label: patch.label ?? existing.label,
+  };
+  return {
+    document: {
+      ...document,
+      entries: document.entries.map((candidate) =>
+        candidate.id === id ? entry : candidate
+      ),
+    },
+    entry,
+  };
+}
+
+/**
+ * Sets the selected entry, or clears it when `id` is null. `null` means the
+ * client falls back to its own default (local daemon / hosted same-origin).
+ */
+export function selectHostRegistryEntry(
+  document: HostRegistryDocument,
+  id: HostRegistryEntryId | null
+): HostRegistryDocument {
+  if (id === null) {
+    const { selectedEntryId: _ignored, ...rest } = document;
+    return rest;
+  }
+  if (!findHostRegistryEntry(document, id)) {
+    throw new Error(`Unknown Host entry: ${id}`);
+  }
+  return { ...document, selectedEntryId: id };
+}
+
+/** Resolves the selected entry, or undefined when nothing valid is selected. */
+export function resolveSelectedHostRegistryEntry(
+  document: HostRegistryDocument
+): HostRegistryEntry | undefined {
+  if (!document.selectedEntryId) {
+    return undefined;
+  }
+  return findHostRegistryEntry(document, document.selectedEntryId);
 }
 
 /**

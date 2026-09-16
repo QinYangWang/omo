@@ -69,9 +69,9 @@ Browser 代理只接受 HTTP/HTTPS URL，不接受 URL 中的用户名和密码�
 
 `POST /pi/context-details` 返回当前有效系统提示、工具定义、上下文文件内容和扩展注入的隐藏消息，可能包含项目内部指令或其他敏感上下文。该接口不使用 Browser 能力 URL 例外，始终要求 Server Bearer Token；前端不会将快照写入 localStorage。
 
-## Host registry 凭据边界
+## 客户端 registry 凭据边界
 
-M1-001 的 Host registry schema（`HostRegistryEntry`）只保存 `id`、`label`、`endpoint`、可选 `expectedHostId` 与可选 `credentialRef`，且拒绝任何未知字段。Bearer Token 或其他凭据材料不属于 registry；`credentialRef` 仅是不透明引用，由客户端凭据适配器负责解析（Electron `safeStorage` / Web localStorage）。因此 registry 文档即使被导出也不会携带长期 Token。浏览器只能使用 `http`/`https` endpoint，本机 `unix`/`pipe` transport 必须在浏览器客户端被拒绝。
+M1-001 的 Host registry schema（`HostRegistryEntry`）只保存 `id`、`label`、`endpoint`、可选 `expectedHostId` 与可选 `credentialRef`，且拒绝任何未知字段。Bearer Token 或其他凭据材料不属于 registry；`credentialRef` 仅是不透明引用，由客户端凭据适配器负责解析（Electron `safeStorage` / Web localStorage vault）。因此 registry 文档即使被导出也不会携带长期 Token。浏览器只能使用 `http`/`https` endpoint，本机 `unix`/`pipe` transport 必须在浏览器客户端被拒绝。
 
 M1-002 的凭据与连接边界进一步约束：`CredentialResolver.resolve(ref)` 是唯一解析 `credentialRef` 的入口，返回的 Bearer Token 只作为 `createClient(entry, token)` 工厂参数传给平台适配器；`HostConnectionSnapshot`、`HostProbeResult`、`entryUpdate`、错误消息与日志均不包含 Token。无 `credentialRef` 表示匿名；存在但解析失败或返回空值抛出泛化的 `CredentialResolutionError`（message 不含 ref 内容），连接快照记为 `credential-error`。`createInMemoryCredentialResolver` 仅用于测试/fixture，生产持久化由 M1-003 接入平台凭据适配器。`HostRequestError` 只暴露 `status` 与按 status 推导的 `code`，不要求解析服务端错误文本，连接层也不把原始服务端消息写入快照。
 
@@ -83,8 +83,10 @@ Electron 将所有远程服务器的 Token 交给主进程的 `safeStorage`：
 Renderer → preload IPC → safeStorage.encryptString → remote-server.json
 ```
 
-`remote-server.json` 保存服务器列表 `{ servers: [{ id, name, url, encryptedToken }] }`；旧版单服务器格式在读取时自动迁移。渲染层不能直接读取加密文件。操作系统加密服务不可用时，不写入明文 Token。
+`remote-server.json` 保存 registry 文档与加密凭据映射 `{ document, credentials: { [ref]: encryptedToken } }`；registry 文档本身不含 Token，凭据在逻辑上独立。旧版 `{ servers: [{ id, name, url, encryptedToken }] }` 或单服务器格式返回给渲染层后一次性迁移为新结构。渲染层不能直接读取加密文件。操作系统加密服务不可用时，不写入明文 Token。
 
 ## Web 凭据
 
-静态 Web 将远程服务器列表（含 Token）保存于当前 Origin 的 localStorage（`omo:servers`）；Server 托管的 Web 登录当前服务器的 Token 也以保留 id `local` 存于同一列表。跨域访问由 `OMO_CORS_ORIGINS` 控制。Server 对允许的 Origin返回对应的 `Access-Control-Allow-Origin`，并允许 Authorization、Content-Type 和 Last-Event-ID 请求头。
+CLI 的 `OMO_DATA_DIR/host-registry.json` 只保存 `id`/`label`/`endpoint`/`expectedHostId`/`credentialRef`，权限 `0600`，原子写入；`credentialRef` 为 `env:<NAME>`，Token 在连接时从进程环境读取，从不持久化。
+
+静态 Web 将 registry 文档（不含 Token）保存于当前 Origin 的 localStorage key `omo:host-registry`，Token 存于独立的 `omo:credentials` vault key；Server 托管的 Web 登录当前服务器的 Token 也存于同一 vault（合成引用 `vault:local`）。旧版 `omo:servers` 与 `omo:server-url`/`omo:server-token` 首次读取时单向迁移。注意：浏览器 vault 本质上仍是同源 localStorage，任何同源脚本都可读取，不具备密钥保护；这只是迁移/隔离边界，不是安全存储。浏览器只能配置 HTTP/HTTPS endpoint，`unix`/`pipe` 会被拒绝。跨域访问由 `OMO_CORS_ORIGINS` 控制。Server 对允许的 Origin 返回对应的 `Access-Control-Allow-Origin`，并允许 Authorization、Content-Type 和 Last-Event-ID 请求头。

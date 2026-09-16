@@ -2,7 +2,18 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { HttpHostClient } from "@omo/client-core";
+import {
+  applyHostIdentityPin,
+  findHostRegistryEntry,
+  HostConnectionManager,
+  HttpHostClient,
+} from "@omo/client-core";
+import {
+  createEnvCredentialResolver,
+  readHostRegistry,
+  resolveDataDir,
+  writeHostRegistry,
+} from "./host-registry.mjs";
 import { createLocalEndpointFetch } from "./local-transport.mjs";
 
 const require = createRequire(import.meta.url);
@@ -22,6 +33,9 @@ const VALUE_OPTIONS = new Map([
   ["--socket", "socket"],
   ["--token", "token"],
   ["--url", "url"],
+  ["--name", "name"],
+  ["--credential-env", "credentialEnv"],
+  ["--server", "server"],
 ]);
 
 function markExplicitSource(options, option) {
@@ -29,6 +43,8 @@ function markExplicitSource(options, option) {
     options.socketSource = "cli";
   } else if (option === "url") {
     options.urlSource = "cli";
+  } else if (option === "server") {
+    options.serverSource = "cli";
   }
 }
 
@@ -41,6 +57,21 @@ function commandFromPositional(positional) {
   }
   if (positional[0] === "session" && positional[1] === "new") {
     return "session-new";
+  }
+  if (positional[0] === "host") {
+    if (positional[1] === "list") {
+      return "host-list";
+    }
+    if (positional[1] === "add") {
+      return "host-add";
+    }
+    if (positional[1] === "remove") {
+      return "host-remove";
+    }
+    if (positional[1] === "use") {
+      return "host-use";
+    }
+    return "host-usage";
   }
   return "tui";
 }
@@ -58,6 +89,8 @@ export function parseArguments(argv, env = process.env) {
     dataDir: env.OMO_DATA_DIR,
     host: env.OMO_HOST || "127.0.0.1",
     port: env.OMO_PORT || "5189",
+    server: undefined,
+    serverSource: null,
     sessionPath: undefined,
     socket: env.OMO_LOCAL_SOCKET || "",
     socketSource: env.OMO_LOCAL_SOCKET ? "env" : null,
@@ -86,6 +119,7 @@ export function parseArguments(argv, env = process.env) {
   }
   options.url = options.url.replace(TRAILING_SLASH, "");
   options.command = commandFromPositional(positional);
+  options.positional = positional;
   return options;
 }
 
@@ -114,24 +148,35 @@ export function selectTransportMode(options) {
   if (options.urlSource === "env") {
     return "url";
   }
+  if (options.serverSource === "cli") {
+    return "server";
+  }
   return "local";
 }
 
 /** Human-readable target used in status output and errors. */
 export function endpointLabel(endpoint) {
-  if (endpoint.transport === "tcp") {
+  if (
+    endpoint.transport === "tcp" ||
+    endpoint.transport === "http" ||
+    endpoint.transport === "https"
+  ) {
     return endpoint.url;
   }
   return `${endpoint.transport}:${endpoint.path}`;
 }
 
 /**
- * Builds the shared `HttpHostClient` for a discovery or explicit endpoint.
- * Unix sockets and Windows named pipes reuse `createLocalEndpointFetch`;
- * TCP keeps the platform fetch. No HTTP or SSE protocol code is duplicated.
+ * Builds the shared `HttpHostClient` for a discovery, explicit or registry
+ * endpoint. HTTP/HTTPS (TCP) reuse the platform fetch; Unix sockets and
+ * Windows named pipes reuse `createLocalEndpointFetch`. No HTTP or SSE
+ * protocol code is duplicated.
  */
 export function buildClientForEndpoint(endpoint, token) {
   if (endpoint.transport === "tcp") {
+    return new HttpHostClient({ baseUrl: endpoint.url, token });
+  }
+  if (endpoint.transport === "http" || endpoint.transport === "https") {
     return new HttpHostClient({ baseUrl: endpoint.url, token });
   }
   if (!(typeof endpoint.path === "string" && endpoint.path.length > 0)) {
@@ -282,4 +327,101 @@ export async function ensureExplicitHost(client, target) {
       cause: error,
     });
   }
+}
+
+/** Maps an isolated probe failure to an actionable, token-free message. */
+function describeProbeFailure(entry, snapshot) {
+  const target = endpointLabel(entry.endpoint);
+  if (snapshot.errorCode === "identity-mismatch") {
+    return `identity mismatch at ${target}: entry ${entry.id} expected ${entry.expectedHostId} but the endpoint reports ${snapshot.observedHostId}`;
+  }
+  if (snapshot.errorCode === "credential-unresolved") {
+    const ref = entry.credentialRef ? ` (${entry.credentialRef})` : "";
+    return `credential could not be resolved for ${target}${ref}`;
+  }
+  if (snapshot.state === "unauthorized") {
+    return `the Host at ${target} rejected the credential`;
+  }
+  if (snapshot.errorCode === "invalid-response") {
+    return `the Host at ${target} returned an unexpected response`;
+  }
+  if (snapshot.errorCode === "unsupported-endpoint") {
+    return `endpoint ${target} is not supported on this platform`;
+  }
+  return `the Host at ${target} is unreachable`;
+}
+
+/**
+ * Probes one registry entry with the shared `HostConnectionManager`, pins the
+ * identity on a first successful health, and returns the already-created
+ * client. A failure is isolated: selection and other entries are untouched.
+ */
+async function connectRegistryEntry(entry, dataDir, env) {
+  let client;
+  const manager = new HostConnectionManager({
+    createClient: (candidate, token) => {
+      client = buildClientForEndpoint(candidate.endpoint, token);
+      return client;
+    },
+    credentialResolver: createEnvCredentialResolver(env),
+  });
+  const result = await manager.probe(entry);
+  if (result.snapshot.state !== "online") {
+    throw new Error(
+      `Unable to connect to registry Host ${entry.id}: ${describeProbeFailure(entry, result.snapshot)}`
+    );
+  }
+  if (result.entryUpdate) {
+    // Re-read immediately before pinning: the document captured before the
+    // network probe may be stale, and writing it back would delete concurrent
+    // host additions/selections. Only `expectedHostId` on the same id is
+    // applied, and only while the current endpoint still matches the probed
+    // one; a URL/label/credential edit made during the probe wins.
+    const latest = readHostRegistry(dataDir).document;
+    const { applied, document: next } = applyHostIdentityPin(latest, {
+      endpoint: entry.endpoint,
+      entryId: entry.id,
+      expectedHostId: result.entryUpdate.expectedHostId,
+    });
+    if (applied) {
+      writeHostRegistry(dataDir, next);
+    }
+  }
+  return {
+    client,
+    endpoint: entry.endpoint,
+    entryId: entry.id,
+    hostId: result.snapshot.observedHostId,
+    label: endpointLabel(entry.endpoint),
+  };
+}
+
+/** Explicit `--server <entryId>` selection. Unknown ids are a hard error. */
+export async function connectRegistryHost(entryId, options, env = process.env) {
+  const dataDir = resolveDataDir(options, env);
+  const { document } = readHostRegistry(dataDir);
+  const entry = findHostRegistryEntry(document, entryId);
+  if (!entry) {
+    throw new Error(`Unknown Host entry: ${entryId}`);
+  }
+  return await connectRegistryEntry(entry, dataDir, env);
+}
+
+/**
+ * Default selection. Returns null when nothing valid is selected so the
+ * caller can fall back to the local daemon; a selected entry failure rejects
+ * and never falls back. An invalid `selectedEntryId` is ignored without
+ * deleting the entry.
+ */
+export async function connectSelectedRegistryHost(options, env = process.env) {
+  const dataDir = resolveDataDir(options, env);
+  const { document } = readHostRegistry(dataDir);
+  if (!document.selectedEntryId) {
+    return null;
+  }
+  const entry = findHostRegistryEntry(document, document.selectedEntryId);
+  if (!entry) {
+    return null;
+  }
+  return await connectRegistryEntry(entry, dataDir, env);
 }

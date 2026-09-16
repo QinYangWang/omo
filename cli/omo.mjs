@@ -12,8 +12,11 @@ import {
   Text,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
+import { resolveDataDir, runHostCommand } from "./host-registry.mjs";
 import {
   buildClientForEndpoint,
+  connectRegistryHost,
+  connectSelectedRegistryHost,
   endpointLabel,
   ensureExplicitHost,
   ensureLocalHost,
@@ -409,10 +412,19 @@ async function main() {
     await serveHost(options);
     return;
   }
+  if (options.command.startsWith("host-")) {
+    if (options.command === "host-usage") {
+      throw new Error("Usage: omo host <list|add|remove|use>");
+    }
+    // Registry metadata commands never discover, start or connect to a Host.
+    runHostCommand(options.command, options, resolveDataDir(options));
+    return;
+  }
 
-  // Precedence: explicit --socket, then explicit --url, then their env
-  // equivalents, then default local discovery/auto-start. Only the default
-  // mode ever starts a Host; explicit targets stay explicit.
+  // Precedence: explicit --socket, explicit --url, their env equivalents,
+  // explicit --server, then the selected registry entry, then default local
+  // discovery/auto-start. Only local modes ever start a Host, and a selected
+  // remote failure never falls back to local.
   const mode = selectTransportMode(options);
   let client;
   let target;
@@ -434,15 +446,33 @@ async function main() {
     );
     target = options.url;
     host = await ensureExplicitHost(client, target);
-  } else {
+  } else if (mode === "server" && options.server !== "local") {
     const {
-      client: localClient,
-      endpoint,
+      client: registryClient,
       hostId,
-    } = await ensureLocalHost(options);
-    client = localClient;
-    target = endpointLabel(endpoint);
+      label,
+    } = await connectRegistryHost(options.server, options);
+    client = registryClient;
+    target = label;
     host = { hostId };
+  } else {
+    const selected =
+      mode === "server" ? null : await connectSelectedRegistryHost(options);
+    if (selected) {
+      const { client: selectedClient, hostId, label } = selected;
+      client = selectedClient;
+      target = label;
+      host = { hostId };
+    } else {
+      const {
+        client: localClient,
+        endpoint,
+        hostId,
+      } = await ensureLocalHost(options);
+      client = localClient;
+      target = endpointLabel(endpoint);
+      host = { hostId };
+    }
   }
   if (options.command === "session-list") {
     const sessions = await client.listSessions(options.cwd);

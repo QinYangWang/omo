@@ -1,12 +1,42 @@
+import {
+  applyHostIdentityPin,
+  assertBrowserHostEndpoint,
+  createEmptyHostRegistryDocument,
+  type HostConnectionErrorCode,
+  HostConnectionManager,
+  type HostConnectionSnapshot,
+  type HostConnectionState,
+  type HostEndpoint,
+  type HostRegistryDocument,
+  type HostRegistryEntry,
+  HttpHostClient,
+  hostEndpointLabel,
+  resolveSelectedHostRegistryEntry,
+} from "@omo/client-core";
 import { useEffect, useSyncExternalStore } from "react";
+import {
+  addRemoteHost,
+  removeRemoteHost,
+  resolveServerTarget,
+  selectDefaultHost,
+  setLocalCredential,
+  updateRemoteHost,
+} from "@/lib/host-registry-model";
+import {
+  createBrowserHostRegistryStorage,
+  createSecureHostRegistryStorage,
+  type HostRegistryState,
+  type HostRegistryStorage,
+  LEGACY_SERVERS_KEY,
+  LEGACY_TOKEN_KEY,
+  LEGACY_URL_KEY,
+  LOCAL_CREDENTIAL_REF,
+  LOCAL_SERVER_ID,
+  readLegacyBrowserState,
+} from "@/lib/host-registry-storage";
 import { createRemoteApi, normalizeBaseUrl } from "@/lib/remote-api";
-import { randomUUID } from "@/lib/utils";
 import { installWebPreviewApi } from "@/lib/web-preview";
 
-export const LOCAL_SERVER_ID = "local";
-const REMOTES_STORAGE_KEY = "omo:servers";
-const LEGACY_URL_KEY = "omo:server-url";
-const LEGACY_TOKEN_KEY = "omo:server-token";
 const STATUS_POLL_MS = 15_000;
 const STATUS_TIMEOUT_MS = 8000;
 
@@ -19,19 +49,31 @@ export interface OmoServer {
   url: string;
 }
 
-export type ServerStatusState = "checking" | "offline" | "online";
+export type ServerStatusState =
+  | "checking"
+  | "offline"
+  | "online"
+  | "unauthorized"
+  | "credential-error"
+  | "identity-mismatch";
 
 export interface ServerStatus {
   error?: string;
+  /** Machine-readable code preserved for callers; never contains a token. */
+  errorCode?: HostConnectionErrorCode;
   latencyMs?: number;
   state: ServerStatusState;
 }
 
-let remotes: OmoStoredRemoteServer[] = [];
+let storage: HostRegistryStorage | null = null;
+let registry: HostRegistryDocument = createEmptyHostRegistryDocument();
+let credentials: Record<string, string> = {};
 let serversSnapshot: OmoServer[] = [];
 let statusSnapshot: Record<string, ServerStatus> = {};
 const serverListeners = new Set<() => void>();
 const statusListeners = new Set<() => void>();
+const statusMap = new Map<string, ServerStatus>();
+let refreshPromise: Promise<void> | null = null;
 
 function notifyServers() {
   serversSnapshot = buildServerList();
@@ -47,19 +89,45 @@ function notifyStatuses() {
   }
 }
 
-const statusMap = new Map<string, ServerStatus>();
+function createDefaultStorage(): HostRegistryStorage {
+  if (window.omoSecure) {
+    return createSecureHostRegistryStorage(window.omoSecure);
+  }
+  return createBrowserHostRegistryStorage(localStorage);
+}
+
+function getStorage(): HostRegistryStorage {
+  storage ??= createDefaultStorage();
+  return storage;
+}
+
+function clearLegacyBrowserKeys() {
+  localStorage.removeItem(LEGACY_SERVERS_KEY);
+  localStorage.removeItem(LEGACY_URL_KEY);
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+}
+
+function applyState(state: HostRegistryState | null) {
+  registry = state?.document ?? createEmptyHostRegistryDocument();
+  credentials = state?.credentials ?? {};
+  statusMap.clear();
+}
+
+function applyModelState(state: HostRegistryState) {
+  const { credentials: nextCredentials, document } = state;
+  registry = document;
+  credentials = nextCredentials;
+}
 
 function detectLocalServer(): OmoServer | null {
   if (window.__OMO_SERVER_URL__) {
     // Web client hosted by an omo Server: same-origin API is the local agent.
-    // The access token is stored as a regular entry with the reserved id.
-    const stored = remotes.find((remote) => remote.id === LOCAL_SERVER_ID);
     return {
       id: LOCAL_SERVER_ID,
       kind: "local",
       name: "This server",
       removable: false,
-      token: stored?.token ?? "",
+      token: credentials[LOCAL_CREDENTIAL_REF] ?? "",
       url: normalizeBaseUrl(window.__OMO_SERVER_URL__),
     };
   }
@@ -77,106 +145,61 @@ function detectLocalServer(): OmoServer | null {
   return null;
 }
 
+function tokenForEntry(entry: HostRegistryEntry): string {
+  return entry.credentialRef ? (credentials[entry.credentialRef] ?? "") : "";
+}
+
+function endpointUrl(endpoint: HostEndpoint): string {
+  return endpoint.transport === "http" || endpoint.transport === "https"
+    ? endpoint.url
+    : hostEndpointLabel(endpoint);
+}
+
 function buildServerList(): OmoServer[] {
   const local = detectLocalServer();
-  const remoteServers: OmoServer[] = remotes
-    .filter((remote) => remote.id !== LOCAL_SERVER_ID)
-    .map((remote) => ({
-      id: remote.id,
-      kind: "remote",
-      name: remote.name || remote.url,
-      removable: true,
-      token: remote.token,
-      url: remote.url,
-    }));
+  const remoteServers: OmoServer[] = registry.entries.map((entry) => ({
+    id: entry.id,
+    kind: "remote",
+    name: entry.label || hostEndpointLabel(entry.endpoint),
+    removable: true,
+    token: tokenForEntry(entry),
+    url: endpointUrl(entry.endpoint),
+  }));
   return local ? [local, ...remoteServers] : remoteServers;
 }
 
-function readWebRemotes(): OmoStoredRemoteServer[] {
-  try {
-    const raw = localStorage.getItem(REMOTES_STORAGE_KEY);
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (item): item is OmoStoredRemoteServer =>
-            typeof item === "object" &&
-            item !== null &&
-            typeof (item as OmoStoredRemoteServer).url === "string"
-        );
-      }
-    }
-  } catch (error) {
-    console.error("Unable to parse stored remote servers", error);
-  }
-  // Migrate the legacy single-server configuration.
-  const legacyUrl = normalizeBaseUrl(
-    localStorage.getItem(LEGACY_URL_KEY) || ""
-  );
-  if (legacyUrl) {
-    return [
-      {
-        id: randomUUID(),
-        name: legacyUrl,
-        token: localStorage.getItem(LEGACY_TOKEN_KEY) || "",
-        url: legacyUrl,
-      },
-    ];
-  }
-  return [];
-}
-
-function persistWebRemotes() {
-  if (remotes.length) {
-    localStorage.setItem(REMOTES_STORAGE_KEY, JSON.stringify(remotes));
-  } else {
-    localStorage.removeItem(REMOTES_STORAGE_KEY);
-  }
-  localStorage.removeItem(LEGACY_URL_KEY);
-  localStorage.removeItem(LEGACY_TOKEN_KEY);
-}
-
-async function persistRemotes() {
-  if (window.omoSecure) {
-    await window.omoSecure.saveRemoteConfig(remotes);
-    localStorage.removeItem(REMOTES_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_URL_KEY);
-    localStorage.removeItem(LEGACY_TOKEN_KEY);
-    return;
-  }
-  persistWebRemotes();
+async function persist() {
+  await getStorage().save({ credentials, document: registry });
 }
 
 export async function initializeServers() {
-  if (window.omoSecure) {
-    try {
-      const stored = await window.omoSecure.loadRemoteConfig();
-      const legacyWeb = readWebRemotes();
-      // The reserved "local" id is only meaningful for server-hosted web.
-      const migrateId = (remote: OmoStoredRemoteServer) =>
-        remote.id === LOCAL_SERVER_ID
-          ? { ...remote, id: randomUUID() }
-          : remote;
-      remotes = (stored.length ? stored : legacyWeb).map(migrateId);
-      if (!stored.length && legacyWeb.length) {
-        await window.omoSecure.saveRemoteConfig(remotes);
+  storage = createDefaultStorage();
+  try {
+    let state = await storage.load();
+    if (!state && window.omoSecure) {
+      // First Electron run: migrate legacy browser-local config to safeStorage.
+      const legacy = readLegacyBrowserState(localStorage);
+      if (legacy) {
+        await storage.save(legacy);
+        state = legacy;
       }
-      localStorage.removeItem(REMOTES_STORAGE_KEY);
-      localStorage.removeItem(LEGACY_URL_KEY);
-      localStorage.removeItem(LEGACY_TOKEN_KEY);
-    } catch (error) {
-      console.error("Unable to load secure remote servers", error);
-      remotes = readWebRemotes();
     }
-  } else {
-    remotes = readWebRemotes();
-    persistWebRemotes();
+    if (window.omoSecure) {
+      clearLegacyBrowserKeys();
+    }
+    applyState(state);
+  } catch (error) {
+    console.error("Unable to load Host registry", error);
+    applyState(null);
   }
   notifyServers();
 }
 
 export function listServers(): OmoServer[] {
-  if (!serversSnapshot.length && (remotes.length || detectLocalServer())) {
+  if (
+    !serversSnapshot.length &&
+    (registry.entries.length || detectLocalServer())
+  ) {
     serversSnapshot = buildServerList();
   }
   return serversSnapshot;
@@ -215,7 +238,7 @@ export async function needsOnboarding(): Promise<boolean> {
       return true;
     }
   }
-  if (remotes.length > 0) {
+  if (registry.entries.length > 0) {
     return false;
   }
   // The localhost Vite preview remains accessible without onboarding.
@@ -224,8 +247,24 @@ export async function needsOnboarding(): Promise<boolean> {
   );
 }
 
+/**
+ * Default/global surface selection. A valid `selectedEntryId` wins; otherwise
+ * the client falls back to its first server (local when present). Invalid
+ * selections are ignored without deleting the entry.
+ */
 export function getDefaultServerId(): string {
+  const selected = resolveSelectedHostRegistryEntry(registry);
+  if (selected) {
+    return selected.id;
+  }
   return listServers()[0]?.id ?? LOCAL_SERVER_ID;
+}
+
+/** Persists the default Host selection; `null`/`local` selects the local one. */
+export async function setSelectedServerId(id: string | null): Promise<void> {
+  applyModelState(selectDefaultHost({ credentials, document: registry }, id));
+  await persist();
+  notifyServers();
 }
 
 /** AbortSignal.timeout is missing on Safari < 16.4 and older Chromium. */
@@ -241,25 +280,28 @@ function timeoutSignal(ms: number): AbortSignal {
   return controller.signal;
 }
 
+/** Adds a remote Host and its vault credential. */
 export async function addRemoteServer(input: {
   name: string;
   token: string;
   url: string;
 }): Promise<OmoServer> {
-  const remote: OmoStoredRemoteServer = {
-    id: randomUUID(),
-    name: input.name.trim(),
-    token: input.token,
-    url: normalizeBaseUrl(input.url),
-  };
-  if (!remote.url) {
-    throw new Error("Server URL is required");
-  }
-  remotes = [...remotes, remote];
-  await persistRemotes();
+  const { state, entry } = addRemoteHost(
+    { credentials, document: registry },
+    input
+  );
+  applyModelState(state);
+  await persist();
   notifyServers();
   refreshServerStatuses().catch(() => undefined);
-  return { ...remote, kind: "remote", removable: true };
+  return {
+    id: entry.id,
+    kind: "remote",
+    name: entry.label,
+    removable: true,
+    token: input.token,
+    url: endpointUrl(entry.endpoint),
+  };
 }
 
 export async function updateRemoteServer(
@@ -270,17 +312,13 @@ export async function updateRemoteServer(
     await setLocalServerToken(patch.token);
     return;
   }
-  remotes = remotes.map((remote) =>
-    remote.id === id
-      ? {
-          ...remote,
-          name: patch.name.trim(),
-          token: patch.token,
-          url: normalizeBaseUrl(patch.url),
-        }
-      : remote
+  const { state } = updateRemoteHost(
+    { credentials, document: registry },
+    id,
+    patch
   );
-  await persistRemotes();
+  applyModelState(state);
+  await persist();
   apiCache.delete(id);
   notifyServers();
   refreshServerStatuses().catch(() => undefined);
@@ -288,30 +326,31 @@ export async function updateRemoteServer(
 
 /** Stores the access token for the server hosting this web client. */
 export async function setLocalServerToken(token: string) {
-  const url = normalizeBaseUrl(window.__OMO_SERVER_URL__ || "");
-  if (!url) {
+  const base = normalizeBaseUrl(window.__OMO_SERVER_URL__ || "");
+  if (!base) {
     throw new Error("No hosting server detected");
   }
-  const entry: OmoStoredRemoteServer = {
-    id: LOCAL_SERVER_ID,
-    name: "This server",
-    token,
-    url,
-  };
-  remotes = remotes.some((remote) => remote.id === LOCAL_SERVER_ID)
-    ? remotes.map((remote) => (remote.id === LOCAL_SERVER_ID ? entry : remote))
-    : [...remotes, entry];
+  applyModelState(
+    setLocalCredential({ credentials, document: registry }, token)
+  );
   apiCache.delete(LOCAL_SERVER_ID);
-  await persistRemotes();
+  await persist();
   notifyServers();
   refreshServerStatuses().catch(() => undefined);
 }
 
 export async function removeRemoteServer(id: string) {
-  remotes = remotes.filter((remote) => remote.id !== id);
+  const { state, removed } = removeRemoteHost(
+    { credentials, document: registry },
+    id
+  );
+  if (!removed) {
+    return;
+  }
+  applyModelState(state);
   apiCache.delete(id);
   statusMap.delete(id);
-  await persistRemotes();
+  await persist();
   notifyServers();
   notifyStatuses();
 }
@@ -320,8 +359,10 @@ const apiCache = new Map<string, { api: omoApi; key: string }>();
 
 export function getServerApi(serverId?: string): omoApi {
   const servers = listServers();
-  const server =
-    servers.find((item) => item.id === serverId) ?? servers[0] ?? undefined;
+  // An explicit id is strict: an unknown/removed Host throws instead of
+  // routing the operation to a different Host. Only the default path may
+  // fall back to the first configured server (or the preview API).
+  const server = resolveServerTarget(servers, serverId, getDefaultServerId());
   if (!server) {
     // Pure static web without any configured server: fall back to preview data.
     installWebPreviewApi();
@@ -359,7 +400,38 @@ export async function testServerConnection(
   return { latencyMs: Math.round(performance.now() - started) };
 }
 
-async function checkServer(server: OmoServer): Promise<ServerStatus> {
+function mapConnectionState(state: HostConnectionState): ServerStatusState {
+  switch (state) {
+    case "unauthorized":
+      return "unauthorized";
+    case "credential-error":
+      return "credential-error";
+    case "identity-mismatch":
+      return "identity-mismatch";
+    case "online":
+      return "online";
+    case "offline":
+      return "offline";
+    default:
+      return "checking";
+  }
+}
+
+function snapshotToStatus(snapshot: HostConnectionSnapshot): ServerStatus {
+  const status: ServerStatus = { state: mapConnectionState(snapshot.state) };
+  if (typeof snapshot.latencyMs === "number") {
+    status.latencyMs = snapshot.latencyMs;
+  }
+  if (snapshot.errorCode) {
+    status.errorCode = snapshot.errorCode;
+  }
+  if (snapshot.errorMessage) {
+    status.error = snapshot.errorMessage;
+  }
+  return status;
+}
+
+async function checkLocalServer(server: OmoServer): Promise<ServerStatus> {
   if (server.kind === "local" && !server.url) {
     return { state: "online" };
   }
@@ -374,7 +446,21 @@ async function checkServer(server: OmoServer): Promise<ServerStatus> {
   }
 }
 
-export async function refreshServerStatuses() {
+/** Builds the shared per-entry connection manager for the browser client. */
+function createConnectionManager(): HostConnectionManager {
+  return new HostConnectionManager({
+    createClient: (entry, token) => {
+      assertBrowserHostEndpoint(entry.endpoint);
+      return new HttpHostClient({ baseUrl: entry.endpoint.url, token });
+    },
+    // A present reference missing from the vault resolves to undefined, which
+    // the manager reports as credential-error rather than pretending to be
+    // anonymous.
+    credentialResolver: { resolve: (ref) => credentials[ref] },
+  });
+}
+
+async function runRefresh() {
   const servers = listServers();
   for (const server of servers) {
     if (!statusMap.has(server.id)) {
@@ -387,14 +473,57 @@ export async function refreshServerStatuses() {
     }
   }
   notifyStatuses();
+
+  const localServers = servers.filter((server) => server.kind === "local");
+  for (const server of localServers) {
+    statusMap.set(server.id, { state: "checking" });
+  }
+  notifyStatuses();
+
+  const manager = createConnectionManager();
+  const results = await manager.probeAll(registry.entries);
+  let pinned = false;
+  for (const result of results) {
+    statusMap.set(result.snapshot.entryId, snapshotToStatus(result.snapshot));
+    const update = result.entryUpdate;
+    if (update?.expectedHostId) {
+      // Apply the pin against the latest registry, not the pre-probe entry:
+      // a concurrent URL/label/credential edit or selection must survive.
+      const next = applyHostIdentityPin(registry, {
+        endpoint: result.snapshot.endpoint,
+        entryId: update.id,
+        expectedHostId: update.expectedHostId,
+      });
+      if (next.applied) {
+        registry = next.document;
+        pinned = true;
+      }
+    }
+  }
+  notifyStatuses();
+
+  if (pinned) {
+    try {
+      await persist();
+    } catch (error) {
+      // Identity pinning is best effort; a failed write must not break status.
+      console.error("Unable to persist Host identity", error);
+    }
+  }
+
   await Promise.all(
-    servers.map(async (server) => {
-      statusMap.set(server.id, { state: "checking" });
-      notifyStatuses();
-      statusMap.set(server.id, await checkServer(server));
+    localServers.map(async (server) => {
+      statusMap.set(server.id, await checkLocalServer(server));
       notifyStatuses();
     })
   );
+}
+
+export function refreshServerStatuses(): Promise<void> {
+  refreshPromise ??= runRefresh().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
 }
 
 export function subscribeServerStatuses(listener: () => void) {

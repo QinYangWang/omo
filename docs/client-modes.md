@@ -4,7 +4,27 @@
 
 M1-001 起，服务器列表的目标模型是客户端本地 Host registry（`@omo/contracts` 的 `HostRegistryEntry` / `HostRegistryDocument`）：条目只含 `id`、`label`、`endpoint`、可选 `expectedHostId` 与可选 `credentialRef`。条目 `id` 是客户端本地 registry 条目 id，与 Host health 的 `hostId`（持久化的 Host 安装/数据目录身份，Host 进程重启后不变）不是同一个概念；registry 本身不保存 Bearer Token，Token 仍由各客户端的凭据适配器（Electron `safeStorage`、Web localStorage）持有。CLI 与浏览器各自维护自己的 registry，不会自动互相同步。endpoint 支持 `http`/`https` URL 与 `unix`/`pipe` 本机 transport；浏览器只能使用前两者，托管或静态 Web 必须拒绝本机 socket/pipe。
 
-M1-002 在 `@omo/client-core` 落地共享的 `HostConnectionManager`：它接收 `CredentialResolver` 与 `createClient(entry, token)` 工厂，对每个 registry entry 独立做 health 探测并产出以 `entryId` 为键的 `HostConnectionSnapshot`（`idle`/`checking`/`online`/`offline`/`unauthorized`/`credential-error`/`identity-mismatch`）。Token 只经工厂传入，不进入快照、错误消息、日志或序列化；无 `credentialRef` 为匿名，存在但无法解析为显式 `credential-error`。首次成功 health 返回 `entryUpdate` 供调用方持久化 `expectedHostId`；mismatch 为隔离失败，绝不改写条目。Web 与 CLI 各自提供自己的 `createClient`（浏览器 HTTP、Node socket/pipe）与凭据解析器，`client-core` 不导入平台模块。M1-003 仍须接入：平台凭据持久化、registry store、选中 entry、状态订阅与切换 UI；在这些接入完成前，现有 `src/lib/servers.ts` 的 localStorage/`safeStorage` 行为保持不变。
+M1-002 在 `@omo/client-core` 落地共享的 `HostConnectionManager`：它接收 `CredentialResolver` 与 `createClient(entry, token)` 工厂，对每个 registry entry 独立做 health 探测并产出以 `entryId` 为键的 `HostConnectionSnapshot`（`idle`/`checking`/`online`/`offline`/`unauthorized`/`credential-error`/`identity-mismatch`）。Token 只经工厂传入，不进入快照、错误消息、日志或序列化；无 `credentialRef` 为匿名，存在但无法解析为显式 `credential-error`。首次成功 health 返回 `entryUpdate` 供调用方持久化 `expectedHostId`；mismatch 为隔离失败，绝不改写条目。Web 与 CLI 各自提供自己的 `createClient`（浏览器 HTTP、Node socket/pipe）与凭据解析器，`client-core` 不导入平台模块。
+
+M1-003 已接入平台凭据持久化、registry store、选中 entry、状态订阅与切换 UI：CLI 使用 `OMO_DATA_DIR/host-registry.json` 与 `env:<NAME>` 凭据引用；Web/Electron 使用 registry 文档加独立凭据 vault（Electron 经 `safeStorage`，浏览器为 localStorage 且不声称安全）。两个客户端都把 `HostConnectionManager` 用于远端 health/身份固定与每 Host 独立状态，一个 Host 离线/401/身份不匹配不会阻断其他 Host。
+
+## CLI Host registry
+
+CLI 在 `OMO_DATA_DIR/host-registry.json` 维护独立的版本化 registry（`schema: "omo.host-registry"`、`version: 1`），与 `daemon.json` 分离，使用临时文件 + rename 原子写入且权限 `0600`。registry 只含 `id`、`label`、`endpoint`、可选 `expectedHostId`、可选 `credentialRef`，不含 Token。命令：
+
+```bash
+omo host list
+omo host add --name <label> --url <http(s)://...> [--credential-env <ENV_NAME>]
+omo host remove <entryId>
+omo host use <entryId|local>
+omo --server <entryId> [session list | TUI]
+```
+
+- `--url` 只接受 HTTP/HTTPS；同一归一化 endpoint 不允许重复；未知 entryId、非法环境变量名、损坏/非法 registry 文件都是硬错误，损坏文件不会被静默重置。
+- `--credential-env` 只持久化不透明引用 `env:<NAME>`；Token 在连接时从进程环境解析，不写入 registry。
+- 连接优先级（高到低）：显式 `--socket`/`--url`/`OMO_LOCAL_SOCKET`/`OMO_URL` > `--server <entryId>` > registry 的 `selectedEntryId` > 本机 daemon 发现/自动启动。`--server local` 是一次性本机覆盖。显式 transport 完全不读写 registry。
+- 只有本地模式会启动 Host；`omo host ...` 元数据命令不连接也不启动 Host；选中的远端失败不会回退到本机。
+- 连接 registry entry 时使用 `HostConnectionManager` 做 health 与身份校验；首次成功会原子写入 `expectedHostId`，身份不匹配/凭据缺失/离线分别为可操作的错误，且不改写选择或其他条目。
 
 ## 本机服务器
 
@@ -24,10 +44,11 @@ M1-002 在 `@omo/client-core` 落地共享的 `HostConnectionManager`：它接�
 
 ## 远程服务器
 
-Settings → Servers 支持添加、编辑、删除多个远程服务器，并周期性检测各服务器状态（在线/离线/延迟）。
+Settings → Servers 支持添加、编辑、删除多个远程服务器，并周期性检测各服务器状态（在线/离线/需要认证/凭据错误/身份不匹配/延迟）。列表使用 `selectedEntryId` 标记全局默认 Host，"Use" 按钮写入该选择；`getServerApi()` 不传 `serverId` 时解析到默认 Host。项目仍通过显式 `Project.serverId` 路由，切换默认 Host 不会给已有项目或 Session 重新打标。选择失效时按列表首项确定性回退且不删除条目。
 
-- Electron：服务器列表经 `window.omoSecure` IPC 存入 userData 的 `remote-server.json`，Token 由 `safeStorage.encryptString()` 加密。旧版单服务器配置在读取时自动迁移为列表。
-- Web：服务器列表保存在当前 Origin 的 localStorage（`omo:servers`），旧版 `omo:server-url` / `omo:server-token` 自动迁移。
+- Electron：registry 文档与凭据 vault 经 `window.omoSecure` IPC 存入 userData 的 `remote-server.json`。Token 由 `safeStorage.encryptString()` 加密在独立的 `credentials` 字段中，registry 文档本身不含 Token。旧版 `{ servers: [...] }` 与单服务器格式在渲染层一次性迁移为新结构。
+- Web：registry 存于当前 Origin 的 localStorage key `omo:host-registry`，Token 存于独立的 `omo:credentials` vault key；旧版 `omo:servers` 与 `omo:server-url`/`omo:server-token` 在首次读取时单向迁移并删除。浏览器只能配置 HTTP/HTTPS endpoint，`unix`/`pipe` 会被拒绝。注意：静态 Web 的 vault 只是同源 localStorage，同源脚本可读取，不具备密钥保护；Electron 才使用 `safeStorage`。
+- 迁移是单向且幂等的；同一 endpoint 只保留一个条目，保留的托管 Web `local` 记录会变成合成本地凭据而不是 registry 条目。
 
 跨域部署需要在 Server 设置 `OMO_CORS_ORIGINS`。HTTPS 页面连接远程服务时，远程服务也必须使用 HTTPS/WSS，避免浏览器混合内容限制。远程 Workspace 的 Browser 由 omo Server 代理目标网站；代理会话的短期随机 URL 可被 iframe 加载，不会暴露 Server Token。
 

@@ -23,9 +23,9 @@ omo v2 只先解决一个问题：**一个 Host 内运行的 Pi Session，能够
 当前阶段明确不承诺：
 
 - exactly-once operation；现有 `requestId` 只提供 durable acceptance 去重，Host 在“记录接受”与“实际 dispatch”之间崩溃时仍可能需要人工重试；
-- 多 Host 聚合视图；M1-001 只定义 registry 条目语义，不做聚合；
+- 多 Host 聚合视图；M1-001 只定义 registry 条目语义，M1-003 只做客户端本地切换，不做聚合；
 - 一个 Host 的多个 endpoint 自动合并；多个 endpoint 只能是互相独立的别名；
-- 多 Host 切换 UI、凭据持久化适配器、重试状态机、endpoint fallback 与聚合缓存；M1-002 只实现 credential reference、共享探测与每 entry 错误域，接入工作归 M1-003；
+- endpoint fallback、聚合缓存与重试状态机；M1-002 只实现 credential reference、共享探测与每 entry 错误域；M1-003 接入持久化、选中与切换；
 - snapshot/revision 协议；当前只使用 HTTP 查询与 SSE sequence 重放；
 - 跨 Host Session 迁移；
 - Pi experimental server/client/protocol 的稳定兼容；
@@ -201,7 +201,7 @@ Host 在步骤 2 与 3 之间崩溃时可能留下未 dispatch 的 acceptance。
 
 ### Stage M：多 Host
 
-只有 Web 与 CLI 的单 Host 模型稳定后才实现 Host registry store、多 endpoint 切换、credential reference 和独立错误域。M1-001 落地 4.3 的语义与 `@omo/contracts` schema；M1-002 落地 4.4 的凭据边界、工厂注入、每 entry 连接/探测模型与错误分类。M1-003 仍必须接入：平台凭据持久化（Electron `safeStorage` / 浏览器存储）、registry store、选中 entry、连接状态订阅与切换 UI。持久化适配器、重试状态机、endpoint fallback、聚合缓存和迁移框架都不在本任务内。
+只有 Web 与 CLI 的单 Host 模型稳定后才实现 Host registry store、多 endpoint 切换、credential reference 和独立错误域。M1-001 落地 4.3 的语义与 `@omo/contracts` schema；M1-002 落地 4.4 的凭据边界、工厂注入、每 entry 连接/探测模型与错误分类。M1-003 已接入：CLI/Web registry store 与持久化、`selectedEntryId` 选中与切换、平台凭据适配器（Electron `safeStorage` / 浏览器 vault）、连接状态订阅与身份固定。重试状态机、endpoint fallback 与聚合缓存仍不在本任务内。
 
 ## 8. Gate
 
