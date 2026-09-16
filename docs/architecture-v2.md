@@ -1,6 +1,6 @@
 # omo v2：精简执行架构
 
-> 状态：执行基线。本文只描述当前垂直切片需要的架构；远期设想统一放入末尾 Backlog，不作为当前实现前置条件。
+> 状态：当前已实现执行基线。Pi Extension + daemon 的下一阶段目标、所有权状态机与任务 Gate 见 [`extension-daemon-hybrid.md`](extension-daemon-hybrid.md)；在对应 Gate 通过前，本文描述的 Host-owned runtime 仍是生产行为。
 
 ## 1. 当前目标
 
@@ -202,6 +202,10 @@ Host 在步骤 2 与 3 之间崩溃时可能留下未 dispatch 的 acceptance。
 ### Stage M：多 Host
 
 只有 Web 与 CLI 的单 Host 模型稳定后才实现 Host registry store、多 endpoint 切换、credential reference 和独立错误域。M1-001 落地 4.3 的语义与 `@omo/contracts` schema；M1-002 落地 4.4 的凭据边界、工厂注入、每 entry 连接/探测模型与错误分类。M1-003 已接入：CLI/Web registry store 与持久化、`selectedEntryId` 选中与切换、平台凭据适配器（Electron `safeStorage` / 浏览器 vault）、连接状态订阅与身份固定。重试状态机、endpoint fallback 与聚合缓存仍不在本任务内。
+
+### Stage E：Pi Extension + daemon
+
+Stage E 不把 daemon 塞进 Extension，而是让 Extension 成为原生 Pi runtime 的 bridge，由长期运行的 daemon 继续持有公共 API、认证、事件日志和 headless fallback。实施必须先完成 event/command/launcher 三个 stable API spike，再引入 Session execution lease；完整顺序和 Gate 以 [`extension-daemon-hybrid.md`](extension-daemon-hybrid.md) 与 `task.md` 为准。
 
 ## 8. Gate
 

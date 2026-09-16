@@ -54,6 +54,56 @@
 - [x] M1-003：实现 Web 与 CLI 多 Host 切换
 - [x] M1-GATE：验证一个 Host 离线不影响其他 Host
 
+## Stage E：Pi Extension + daemon 混合架构
+
+详细设计与所有权规则见 `docs/extension-daemon-hybrid.md`。每个任务单独提交；只有前一 Gate 通过后才进入下一阶段。
+
+### E0：可行性与稳定 API Spike
+
+- [x] E0-001：定义 Extension/daemon 边界、Session 执行所有权、私有通道与分阶段任务
+- [ ] E0-002：Spike：Extension 从原生 Pi TUI 转发 message/turn/tool/agent 事件到测试接收端
+- [ ] E0-003：Spike：通过 Extension command bridge 将外部 Prompt 与 Abort 注入同一个原生 AgentSession
+- [ ] E0-004：Spike：`omo` 使用项目锁定的 Pi 依赖启动原生 TUI并显式加载 Extension，无需全局安装 Pi
+- [ ] E0-GATE：真实 Pi TUI Prompt 可在测试客户端 token 级显示，外部 Prompt 可由同一 runtime 执行，退出后无残留资源
+
+### E1：Attachment contract 与执行租约
+
+- [ ] E1-001：为 register、heartbeat、detach、native event batch、command stream 与 ack 定义运行时 contracts
+- [ ] E1-002：实现仅限本机 socket/pipe 的 Extension 私有 HTTP/SSE 通道与短期 instance credential
+- [ ] E1-003：实现 `headless-owned` / `native-attached` / `detached` SessionExecutionBroker 与 generation lease
+- [ ] E1-004：将 native sequence 去重后映射为现有 Host event sequence，并抑制 attachment 活跃时的文件 watcher 重复事件
+- [ ] E1-GATE：验证 attach 竞争、stale generation、heartbeat 超时、daemon 重启与单 Session 单执行者
+
+### E2：omo Pi Extension package
+
+- [ ] E2-001：建立版本锁定的 omo Pi package；只在 `session_start` 启动资源并在 `session_shutdown` 幂等清理
+- [ ] E2-002：实现 Session 注册、heartbeat 及 message/turn/tool/agent/retry/compaction/model lifecycle 转发
+- [ ] E2-003：实现私有 command stream 的 Prompt/Abort dispatch、结构化 ack 与 requestId 关联
+- [ ] E2-004：正确处理 `/new`、`/resume`、`/fork`、`/reload` 和异常退出，不复用 stale SessionContext
+- [ ] E2-GATE：验证 Extension reload/switch/crash 不泄漏 watcher、timer、socket 或旧 generation 事件
+
+### E3：原生本机 CLI
+
+- [ ] E3-001：让本机 `omo` 发现/启动 daemon 后进入带 omo Extension 的 Pi 原生 TUI
+- [ ] E3-002：保留现有 omo TUI 作为远程 `--server` 与显式 fallback，定义清晰的选择优先级
+- [ ] E3-003：实现原生 TUI 启动失败、daemon 不可达与版本不兼容的可操作错误和安全回退
+- [ ] E3-GATE：验证本机无需全局 Pi、原生 TUI 功能无降级、远程 Host 路径无回归
+
+### E4：Web/Desktop 双向控制
+
+- [ ] E4-001：在现有 Session API 中暴露安全的 execution owner/attachment 状态，不泄漏 process credential
+- [ ] E4-002：通过 broker 将 Web Prompt/Abort 路由到 native owner，禁止 selected native 失败时隐式创建 headless runtime
+- [ ] E4-003：验证 native event 的 SQLite replay、客户端 SSE 重连与 Extension 重连去重
+- [ ] E4-004：保留无 Extension 外部 Pi 的 JSONL 校准路径，并验证不会与 native event 双重渲染
+- [ ] E4-GATE：完成 Pi native TUI ↔ daemon ↔ Web/Desktop 双向实时 E2E，一个客户端断线不影响执行
+
+### E5：故障恢复与默认切换
+
+- [ ] E5-001：实现 idle 边界上的显式 native detach → headless resume；运行中崩溃只标记 interrupted，不自动重复 dispatch
+- [ ] E5-002：在所有 Gate 通过后将本机 `omo` 默认切换为 Pi 原生 TUI，保留一个发布周期的 legacy fallback
+- [ ] E5-003：完成 Pi package 安装/升级、版本兼容、运维与故障排查文档
+- [ ] E5-GATE：通过单执行者竞争、Pi/daemon 异常退出、重启重连、事件去重和真实浏览器验收矩阵
+
 ## Backlog：不进入当前实施
 
 - [ ] BACKLOG-001：统一 WebSocket channel multiplexing
