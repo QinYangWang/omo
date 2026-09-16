@@ -4,6 +4,12 @@ import {
   AcceptedOperationSchema,
   AgentEventEnvelopeSchema,
   ContractValidationError,
+  EXTENSION_EVENT_BATCH_MAX_ITEMS,
+  ExtensionAckSchema,
+  ExtensionChannelContracts,
+  ExtensionCommandSchema,
+  ExtensionEventBatchSchema,
+  ExtensionRegisterRequestSchema,
   HostApiContracts,
   HostHealthSchema,
   HostRegistryDocumentSchema,
@@ -13,6 +19,7 @@ import {
   ProjectListSchema,
   PromptCommandSchema,
   parseContract,
+  SessionExecutionStateSchema,
   SessionListSchema,
 } from "../dist/index.js";
 
@@ -321,4 +328,200 @@ test("Host registry documents are explicitly versioned and reject unknown fields
       ),
     ContractValidationError
   );
+});
+
+const INSTANCE_ID = "3f6b1c2e-7c3a-4d5e-9f0a-1b2c3d4e5f6a";
+
+test("Extension register pins the channel version and instance identity", () => {
+  const request = {
+    capabilities: ["events", "commands"],
+    channelVersion: 1,
+    extensionVersion: "0.1.0",
+    instanceId: INSTANCE_ID,
+    piVersion: "0.85.0",
+    sessionId: "session-1",
+  };
+  const parsed = parseContract(
+    ExtensionRegisterRequestSchema,
+    request,
+    "ExtensionRegisterRequest"
+  );
+  assert.equal(parsed.instanceId, INSTANCE_ID);
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionRegisterRequestSchema,
+        { ...request, channelVersion: 2 },
+        "ExtensionRegisterRequest"
+      ),
+    ContractValidationError
+  );
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionRegisterRequestSchema,
+        { ...request, instanceId: "not-a-uuid" },
+        "ExtensionRegisterRequest"
+      ),
+    ContractValidationError
+  );
+  // Credentials never appear in the register body: they are only ever
+  // returned by the daemon and transported as an Authorization header.
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionRegisterRequestSchema,
+        { ...request, credential: "secret" },
+        "ExtensionRegisterRequest"
+      ),
+    ContractValidationError
+  );
+});
+
+test("Extension event batches require generation scope and bounded size", () => {
+  const event = {
+    event: "message_update",
+    nativeSequence: 1,
+    payload: { delta: "he" },
+    sessionId: "session-1",
+    timestamp: Date.now(),
+  };
+  const batch = { events: [event], generation: 3, instanceId: INSTANCE_ID };
+  const parsed = parseContract(
+    ExtensionEventBatchSchema,
+    batch,
+    "ExtensionEventBatch"
+  );
+  assert.equal(parsed.events[0].nativeSequence, 1);
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionEventBatchSchema,
+        { ...batch, generation: 0 },
+        "ExtensionEventBatch"
+      ),
+    ContractValidationError
+  );
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionEventBatchSchema,
+        { ...batch, events: [{ ...event, nativeSequence: 0 }] },
+        "ExtensionEventBatch"
+      ),
+    ContractValidationError
+  );
+  const oversized = {
+    ...batch,
+    events: Array.from({ length: EXTENSION_EVENT_BATCH_MAX_ITEMS + 1 }, () => ({
+      ...event,
+    })),
+  };
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionEventBatchSchema,
+        oversized,
+        "ExtensionEventBatch"
+      ),
+    ContractValidationError
+  );
+});
+
+test("Extension commands are a closed union and prompts require text", () => {
+  const prompt = {
+    commandSequence: 7,
+    requestId: "req-1",
+    text: "Continue",
+    type: "prompt",
+  };
+  assert.equal(
+    parseContract(ExtensionCommandSchema, prompt, "ExtensionCommand").type,
+    "prompt"
+  );
+  const abort = { commandSequence: 8, requestId: "req-2", type: "abort" };
+  assert.equal(
+    parseContract(ExtensionCommandSchema, abort, "ExtensionCommand").type,
+    "abort"
+  );
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionCommandSchema,
+        { commandSequence: 9, requestId: "req-3", type: "prompt" },
+        "ExtensionCommand"
+      ),
+    ContractValidationError
+  );
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionCommandSchema,
+        { ...abort, type: "eval" },
+        "ExtensionCommand"
+      ),
+    ContractValidationError
+  );
+});
+
+test("Extension acks carry the fenced status set and echo correlation ids", () => {
+  const ack = {
+    commandSequence: 7,
+    generation: 3,
+    instanceId: INSTANCE_ID,
+    requestId: "req-1",
+    status: "completed",
+  };
+  for (const status of ["accepted", "started", "rejected", "completed"]) {
+    assert.equal(
+      parseContract(ExtensionAckSchema, { ...ack, status }, "ExtensionAck")
+        .status,
+      status
+    );
+  }
+  assert.throws(
+    () =>
+      parseContract(
+        ExtensionAckSchema,
+        { ...ack, status: "unknown" },
+        "ExtensionAck"
+      ),
+    ContractValidationError
+  );
+});
+
+test("Session execution state is a closed three-state owner view", () => {
+  for (const state of ["headless-owned", "native-attached", "detached"]) {
+    assert.equal(
+      parseContract(
+        SessionExecutionStateSchema,
+        { state },
+        "SessionExecutionState"
+      ).state,
+      state
+    );
+  }
+  assert.throws(
+    () =>
+      parseContract(
+        SessionExecutionStateSchema,
+        { state: "attaching" },
+        "SessionExecutionState"
+      ),
+    ContractValidationError
+  );
+});
+
+test("Extension channel endpoints stay on the private namespace", () => {
+  const paths = Object.values(ExtensionChannelContracts).map(
+    (contract) => contract.path
+  );
+  assert.deepEqual(paths.sort(), [
+    "/api/v1/extension/ack",
+    "/api/v1/extension/commands",
+    "/api/v1/extension/detach",
+    "/api/v1/extension/events",
+    "/api/v1/extension/heartbeat",
+    "/api/v1/extension/register",
+  ]);
 });

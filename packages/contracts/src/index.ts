@@ -342,6 +342,290 @@ export const HostApiContracts = {
   },
 } as const;
 
+/**
+ * Extension private channel contracts (docs/extension-daemon-hybrid.md §5).
+ *
+ * These endpoints are mounted ONLY on the daemon's loopback Unix socket /
+ * Windows named pipe listener, never on the public TCP/TLS listener. Every
+ * request except `register` authenticates with the short-lived instance
+ * credential returned by `register`, transported as an
+ * `Authorization: Bearer <credential>` header. The credential is never part
+ * of any JSON body, event payload, log line, or Session JSONL, and the
+ * public Bearer Token is never written into Extension configuration.
+ *
+ * Fencing rules (design §4/§5):
+ *
+ * - A daemon issues a monotonically increasing `generation` per accepted
+ *   attachment of one Session. Only the latest generation is valid; requests
+ *   carrying a stale `(instanceId, generation)` pair are rejected.
+ * - Native events are deduplicated on `(instanceId, generation,
+ *   nativeSequence)` before being mapped onto the existing Host event
+ *   `sequence`; clients only ever observe the Host sequence.
+ * - Commands are deduplicated on `(instanceId, generation, commandSequence)`
+ *   and by `requestId`; an ack is correlated by `requestId` and echoes the
+ *   command's `commandSequence`.
+ * - `nativeSequence` is monotonic per Extension process and restarts at 1 on
+ *   every process start; it is meaningless without its `(instanceId,
+ *   generation)` scope.
+ */
+export const EXTENSION_CHANNEL_VERSION = 1;
+
+export const ExtensionInstanceIdSchema = Type.String({
+  pattern: HOST_ID_PATTERN,
+});
+export type ExtensionInstanceId = Static<typeof ExtensionInstanceIdSchema>;
+
+export const ExtensionGenerationSchema = Type.Integer({ minimum: 1 });
+export type ExtensionGeneration = Static<typeof ExtensionGenerationSchema>;
+
+export const ExtensionNativeSequenceSchema = Type.Integer({ minimum: 1 });
+export type ExtensionNativeSequence = Static<
+  typeof ExtensionNativeSequenceSchema
+>;
+
+export const ExtensionCommandSequenceSchema = Type.Integer({ minimum: 1 });
+export type ExtensionCommandSequence = Static<
+  typeof ExtensionCommandSequenceSchema
+>;
+
+export const ExtensionCapabilitySchema = Type.Union([
+  Type.Literal("commands"),
+  Type.Literal("events"),
+]);
+export type ExtensionCapability = Static<typeof ExtensionCapabilitySchema>;
+
+export const ExtensionRegisterRequestSchema = Type.Object(
+  {
+    capabilities: Type.Array(ExtensionCapabilitySchema, { maxItems: 8 }),
+    channelVersion: Type.Literal(EXTENSION_CHANNEL_VERSION),
+    cwd: Type.Optional(Type.String({ minLength: 1 })),
+    extensionVersion: Type.String({ minLength: 1 }),
+    instanceId: ExtensionInstanceIdSchema,
+    piVersion: Type.String({ minLength: 1 }),
+    sessionFile: Type.Optional(Type.String({ minLength: 1 })),
+    sessionId: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionRegisterRequest = Static<
+  typeof ExtensionRegisterRequestSchema
+>;
+
+export const ExtensionRegisterAcceptedSchema = Type.Object(
+  {
+    credential: Type.String({ minLength: 1 }),
+    generation: ExtensionGenerationSchema,
+    heartbeatIntervalMs: Type.Integer({ minimum: 1000 }),
+    heartbeatTimeoutMs: Type.Integer({ minimum: 1000 }),
+    hostId: HostIdSchema,
+    ok: Type.Literal(true),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionRegisterAccepted = Static<
+  typeof ExtensionRegisterAcceptedSchema
+>;
+
+export const ExtensionRegisterRejectedSchema = Type.Object(
+  {
+    ok: Type.Literal(false),
+    reason: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionRegisterRejected = Static<
+  typeof ExtensionRegisterRejectedSchema
+>;
+
+export const ExtensionRegisterResponseSchema = Type.Union([
+  ExtensionRegisterAcceptedSchema,
+  ExtensionRegisterRejectedSchema,
+]);
+export type ExtensionRegisterResponse = Static<
+  typeof ExtensionRegisterResponseSchema
+>;
+
+export const ExtensionHeartbeatRequestSchema = Type.Object(
+  {
+    generation: ExtensionGenerationSchema,
+    instanceId: ExtensionInstanceIdSchema,
+  },
+  { additionalProperties: false }
+);
+export type ExtensionHeartbeatRequest = Static<
+  typeof ExtensionHeartbeatRequestSchema
+>;
+
+export const ExtensionHeartbeatResponseSchema = Type.Object(
+  {
+    expiresAt: Type.Number(),
+    generation: ExtensionGenerationSchema,
+    ok: Type.Literal(true),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionHeartbeatResponse = Static<
+  typeof ExtensionHeartbeatResponseSchema
+>;
+
+export const ExtensionNativeEventSchema = Type.Object(
+  {
+    event: Type.String({ minLength: 1 }),
+    nativeSequence: ExtensionNativeSequenceSchema,
+    payload: JsonValueSchema,
+    sessionFile: Type.Optional(Type.String({ minLength: 1 })),
+    sessionId: Type.String({ minLength: 1 }),
+    timestamp: Type.Number(),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionNativeEvent = Static<typeof ExtensionNativeEventSchema>;
+
+export const EXTENSION_EVENT_BATCH_MAX_ITEMS = 256;
+
+export const ExtensionEventBatchSchema = Type.Object(
+  {
+    events: Type.Array(ExtensionNativeEventSchema, {
+      maxItems: EXTENSION_EVENT_BATCH_MAX_ITEMS,
+    }),
+    generation: ExtensionGenerationSchema,
+    instanceId: ExtensionInstanceIdSchema,
+  },
+  { additionalProperties: false }
+);
+export type ExtensionEventBatch = Static<typeof ExtensionEventBatchSchema>;
+
+export const ExtensionEventBatchResultSchema = Type.Object(
+  {
+    accepted: Type.Integer({ minimum: 0 }),
+    duplicates: Type.Integer({ minimum: 0 }),
+    ok: Type.Literal(true),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionEventBatchResult = Static<
+  typeof ExtensionEventBatchResultSchema
+>;
+
+export const ExtensionAckStatusSchema = Type.Union([
+  Type.Literal("accepted"),
+  Type.Literal("started"),
+  Type.Literal("rejected"),
+  Type.Literal("completed"),
+]);
+export type ExtensionAckStatus = Static<typeof ExtensionAckStatusSchema>;
+
+export const ExtensionAckSchema = Type.Object(
+  {
+    commandSequence: ExtensionCommandSequenceSchema,
+    generation: ExtensionGenerationSchema,
+    instanceId: ExtensionInstanceIdSchema,
+    reason: Type.Optional(Type.String({ minLength: 1 })),
+    requestId: Type.String({ minLength: 1 }),
+    status: ExtensionAckStatusSchema,
+  },
+  { additionalProperties: false }
+);
+export type ExtensionAck = Static<typeof ExtensionAckSchema>;
+
+export const ExtensionPromptCommandSchema = Type.Object(
+  {
+    commandSequence: ExtensionCommandSequenceSchema,
+    requestId: Type.String({ minLength: 1 }),
+    text: Type.String({ minLength: 1 }),
+    type: Type.Literal("prompt"),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionPromptCommand = Static<
+  typeof ExtensionPromptCommandSchema
+>;
+
+export const ExtensionAbortCommandSchema = Type.Object(
+  {
+    commandSequence: ExtensionCommandSequenceSchema,
+    requestId: Type.String({ minLength: 1 }),
+    type: Type.Literal("abort"),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionAbortCommand = Static<typeof ExtensionAbortCommandSchema>;
+
+export const ExtensionCommandSchema = Type.Union([
+  ExtensionPromptCommandSchema,
+  ExtensionAbortCommandSchema,
+]);
+export type ExtensionCommand = Static<typeof ExtensionCommandSchema>;
+
+export const ExtensionDetachRequestSchema = Type.Object(
+  {
+    generation: ExtensionGenerationSchema,
+    instanceId: ExtensionInstanceIdSchema,
+    reason: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false }
+);
+export type ExtensionDetachRequest = Static<
+  typeof ExtensionDetachRequestSchema
+>;
+
+/**
+ * Public, credential-free view of who currently executes a Session (design
+ * §4). Exposed to Web/Desktop later (E4-001); never carries the instance
+ * credential or other process secrets.
+ */
+export const SessionExecutionStateSchema = Type.Object(
+  {
+    generation: Type.Optional(ExtensionGenerationSchema),
+    ownerInstanceId: Type.Optional(ExtensionInstanceIdSchema),
+    state: Type.Union([
+      Type.Literal("headless-owned"),
+      Type.Literal("native-attached"),
+      Type.Literal("detached"),
+    ]),
+  },
+  { additionalProperties: false }
+);
+export type SessionExecutionState = Static<typeof SessionExecutionStateSchema>;
+
+export const ExtensionChannelContracts = {
+  ack: {
+    body: ExtensionAckSchema,
+    method: "POST",
+    path: "/api/v1/extension/ack",
+    response: OkResponseSchema,
+  },
+  commands: {
+    event: ExtensionCommandSchema,
+    method: "GET",
+    path: "/api/v1/extension/commands",
+  },
+  detach: {
+    body: ExtensionDetachRequestSchema,
+    method: "POST",
+    path: "/api/v1/extension/detach",
+    response: OkResponseSchema,
+  },
+  events: {
+    body: ExtensionEventBatchSchema,
+    method: "POST",
+    path: "/api/v1/extension/events",
+    response: ExtensionEventBatchResultSchema,
+  },
+  heartbeat: {
+    body: ExtensionHeartbeatRequestSchema,
+    method: "POST",
+    path: "/api/v1/extension/heartbeat",
+    response: ExtensionHeartbeatResponseSchema,
+  },
+  register: {
+    body: ExtensionRegisterRequestSchema,
+    method: "POST",
+    path: "/api/v1/extension/register",
+    response: ExtensionRegisterResponseSchema,
+  },
+} as const;
+
 export class ContractValidationError extends Error {
   readonly contract: string;
   readonly issues: readonly string[];
