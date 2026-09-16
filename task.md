@@ -14,7 +14,7 @@
 
 ## Stage S：删除提前抽象
 
-- [ ] S0-001：移除 `pi-runtime` 未使用的 experimental 依赖、capability 声明与公开类型泄漏
+- [x] S0-001：移除 `pi-runtime` 未使用的 experimental 依赖、capability 声明与公开类型泄漏
 - [ ] S0-002：删除未接入的 `host-core` Session coordinator、attachment lifecycle 与冗余 ports
 - [ ] S0-003：将 `client-core` 收缩为最小 `HostClient` 接口，暂不抽取 Host registry 和连接状态机
 - [ ] S0-004：清理 workspace 转发依赖，确保旧目录在垂直切片完成前可直接开发运行
