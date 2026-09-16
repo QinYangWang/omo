@@ -152,7 +152,9 @@ export class HttpHostClient implements HostClient {
 
   constructor(options: HttpHostClientOptions) {
     this.#baseUrl = normalizeBaseUrl(options.baseUrl);
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    const fetchImplementation = options.fetch ?? globalThis.fetch;
+    this.#fetch = (input, init) =>
+      fetchImplementation.call(globalThis, input, init);
     this.#reconnectDelayMs =
       options.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
     this.#token = options.token ?? "";

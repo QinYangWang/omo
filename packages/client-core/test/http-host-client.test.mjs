@@ -59,6 +59,27 @@ test("HTTP Host client authenticates and validates commands and responses", asyn
   assert.equal(JSON.parse(requests[1]?.init?.body).requestId, "operation-1");
 });
 
+test("HTTP Host client invokes fetch with the browser global receiver", async () => {
+  function browserFetch() {
+    assert.equal(this, globalThis);
+    return Promise.resolve(
+      jsonResponse({
+        capabilities: [],
+        hostId: HOST_ID,
+        ok: true,
+        protocolVersion: 1,
+        version: 1,
+      })
+    );
+  }
+  const client = new HttpHostClient({
+    baseUrl: "https://host.example",
+    fetch: browserFetch,
+  });
+
+  assert.equal((await client.health()).hostId, HOST_ID);
+});
+
 test("HTTP Host client surfaces structured Host errors", async () => {
   const client = new HttpHostClient({
     baseUrl: "https://host.example",
