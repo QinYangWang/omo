@@ -9,6 +9,7 @@ const { WebSocketServer } = require("ws");
 const config = require("./config.cjs");
 const { createWorkspaceGuard, inside } = require("./workspace.cjs");
 const { EventStore } = require("./event-store.cjs");
+const { ExecutionBroker } = require("./execution-broker.cjs");
 const { ExtensionService } = require("./extension-service.cjs");
 const { loadHostIdentity } = require("./host-identity.cjs");
 const {
@@ -50,6 +51,7 @@ let server;
 let webSockets;
 let localEndpoint;
 let extensionService;
+let executionBroker;
 
 const mime = {
   ".css": "text/css; charset=utf-8",
@@ -872,9 +874,12 @@ function installSignalHandlers() {
 async function initializeHost() {
   hostId = loadHostIdentity(config.dataDir);
   extensionService = new ExtensionService({
+    canAttach: (sessionId) =>
+      executionBroker ? executionBroker.canAttach(sessionId) : { ok: true },
     heartbeatIntervalMs: config.extensionHeartbeatIntervalMs,
     heartbeatTimeoutMs: config.extensionHeartbeatTimeoutMs,
     hostId,
+    onAttachConfirm: (sessionId) => executionBroker?.onAttachConfirm(sessionId),
     sweepIntervalMs: Math.min(
       config.extensionHeartbeatIntervalMs,
       config.extensionHeartbeatTimeoutMs,
@@ -890,6 +895,13 @@ async function initializeHost() {
   await fs.mkdir(config.dataDir, { recursive: true });
   try {
     await initializeCore();
+    executionBroker = new ExecutionBroker({
+      extensionService,
+      hasHeadlessRuntime: (sessionId) => pi.hasRuntime(sessionId),
+      isHeadlessStreaming: (sessionId) => pi.isRuntimeStreaming(sessionId),
+      releaseIdleRuntime: (sessionId) => pi.releaseIdleRuntime(sessionId),
+    });
+    pi.setExecutionBroker(executionBroker);
     if (config.transport === "socket") {
       localEndpoint = resolveLocalEndpoint({
         dataDir: config.dataDir,
@@ -966,6 +978,7 @@ async function shutdownHost() {
   }
   terminals?.dispose();
   browsers?.dispose();
+  executionBroker?.dispose();
   extensionService?.dispose();
   await piRuntime?.close();
   pi?.dispose();

@@ -159,12 +159,14 @@ function respondError(res, error) {
 class ExtensionService {
   constructor(options = {}) {
     const {
+      canAttach,
       credentialBytes = CREDENTIAL_BYTES,
       heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS,
       heartbeatTimeoutMs = DEFAULT_HEARTBEAT_TIMEOUT_MS,
       hostId,
       now = Date.now,
       onAck,
+      onAttachConfirm,
       onDetach,
       onNativeEvent,
       sseHeartbeatMs = SSE_HEARTBEAT_MS,
@@ -193,6 +195,13 @@ class ExtensionService {
     this.onDetach = typeof onDetach === "function" ? onDetach : noop;
     this.onNativeEvent =
       typeof onNativeEvent === "function" ? onNativeEvent : noop;
+    // Execution-ownership hooks (design §4). Both are synchronous so the
+    // gate -> idle release -> attach-confirm sequence never yields the event
+    // loop; see `register`.
+    this.canAttach =
+      typeof canAttach === "function" ? canAttach : () => ({ ok: true });
+    this.onAttachConfirm =
+      typeof onAttachConfirm === "function" ? onAttachConfirm : noop;
 
     // key -> live attachment, sessionId -> current attachment, instanceId ->
     // highest generation seen in this process. Credentials are never kept
@@ -315,6 +324,21 @@ class ExtensionService {
     }
     if (current && !current.released) {
       this.release(current, "heartbeat-timeout");
+    }
+    // Ownership gate: reject before minting a generation. The hook is
+    // synchronous and side-effect free so a streaming headless runtime is
+    // never disturbed.
+    const gate = this.canAttach(parsed.sessionId);
+    if (gate && gate.ok === false) {
+      return { ok: false, reason: gate.reason };
+    }
+    // Idle handoff: `onAttachConfirm` synchronously releases an idle headless
+    // runtime. There is no `await` between the gate and the confirm below, so
+    // a Prompt dispatch cannot interleave and start a second executor.
+    try {
+      this.onAttachConfirm(parsed.sessionId);
+    } catch {
+      return { ok: false, reason: "headless_streaming" };
     }
     const generation = (this.generations.get(parsed.sessionId) ?? 0) + 1;
     this.generations.set(parsed.sessionId, generation);

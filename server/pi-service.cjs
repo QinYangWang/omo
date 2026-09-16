@@ -9,6 +9,27 @@ const { contextDetails } = require("./pi-context.cjs");
 
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 
+/** Native ownership conflicts are reported with a stable, matchable code. */
+function nativeAttachedError() {
+  const error = new Error("session_native_attached");
+  error.code = "session_native_attached";
+  return error;
+}
+
+/** Latest thinking level persisted in the Session branch, if any. */
+function thinkingLevelFromBranch(manager) {
+  let thinkingLevel = "off";
+  const branch =
+    typeof manager?.getBranch === "function" ? manager.getBranch() : [];
+  for (const entry of branch) {
+    const { thinkingLevel: level, type } = entry ?? {};
+    if (type === "thinking_level_change" && level) {
+      thinkingLevel = level;
+    }
+  }
+  return thinkingLevel;
+}
+
 class PiService {
   constructor(
     eventStore,
@@ -21,10 +42,16 @@ class PiService {
     this.workspace = workspace;
     this.sessionWorkspace = sessionWorkspace;
     this.sessions = new Map();
+    this.sessionHandles = new Map();
     this.sessionEventIds = new WeakMap();
     this.history = new Map();
     this.fileWatchers = new Map();
     this.authPrompts = new Map();
+    this.executionBroker = null;
+    // sessionId -> in-flight Prompt count. Set synchronously when a Prompt is
+    // accepted and cleared once its dispatch settles, so attach gating fails
+    // closed even while `isStreaming` is still false (design §4 rule 3).
+    this.pendingPrompts = new Map();
     this.runtimeAdapter = runtimeAdapter
       ? Promise.resolve(runtimeAdapter)
       : import("@omo/pi-runtime").then(
@@ -37,6 +64,122 @@ class PiService {
     return this.runtimeAdapter;
   }
 
+  /**
+   * Wires the Session execution broker (design §4). Kept as a setter because
+   * the broker needs both this service and ExtensionService, and this service
+   * is constructed first.
+   */
+  setExecutionBroker(broker) {
+    this.executionBroker = broker;
+  }
+
+  nativeAttached(sessionId) {
+    return this.executionBroker?.nativeAttached(sessionId) === true;
+  }
+
+  /** Fails closed when a native Extension currently owns the Session. */
+  assertHeadlessOwned(sessionId) {
+    if (this.nativeAttached(sessionId)) {
+      throw nativeAttachedError();
+    }
+  }
+
+  /** True while a headless runtime exists or is being created. */
+  hasRuntime(sessionId) {
+    return this.sessionHandles.has(sessionId) || this.sessions.has(sessionId);
+  }
+
+  /**
+   * Whether the headless runtime for `sessionId` is busy. A runtime that is
+   * still being created counts as streaming, and an accepted Prompt that has
+   * not yet settled its dispatch counts too: the broker must fail closed for
+   * the whole acceptance -> dispatch window, even while `isStreaming` is still
+   * false (design §4 rule 3).
+   */
+  isRuntimeStreaming(sessionId) {
+    if (this.hasPendingPrompt(sessionId)) {
+      return true;
+    }
+    const handle = this.sessionHandles.get(sessionId);
+    if (handle) {
+      return handle.session.isStreaming === true;
+    }
+    return this.sessions.has(sessionId);
+  }
+
+  /** Marks a Session busy from Prompt acceptance until its dispatch settles. */
+  markPromptPending(sessionId) {
+    this.pendingPrompts.set(
+      sessionId,
+      (this.pendingPrompts.get(sessionId) ?? 0) + 1
+    );
+  }
+
+  /** Clears one pending Prompt mark; safe against underflow. */
+  clearPromptPending(sessionId) {
+    const count = this.pendingPrompts.get(sessionId);
+    if (count === undefined) {
+      return;
+    }
+    if (count <= 1) {
+      this.pendingPrompts.delete(sessionId);
+      return;
+    }
+    this.pendingPrompts.set(sessionId, count - 1);
+  }
+
+  /** True while an accepted Prompt has not yet settled its dispatch. */
+  hasPendingPrompt(sessionId) {
+    return (this.pendingPrompts.get(sessionId) ?? 0) > 0;
+  }
+
+  /**
+   * Releases an idle headless runtime before a native attach takes over.
+   *
+   * The check and the in-memory teardown run synchronously: by the time this
+   * method returns, the runtime is no longer reachable through `sessions`,
+   * `sessionHandles` or `history` and its event listener is unsubscribed, so
+   * no Prompt dispatch can interleave. Actual adapter/session disposal is
+   * scheduled afterwards because it may be asynchronous.
+   *
+   * Throws when the runtime is streaming; returns undefined when absent.
+   */
+  releaseIdleRuntime(sessionId) {
+    const handle = this.sessionHandles.get(sessionId);
+    if (!handle) {
+      return;
+    }
+    if (handle.session.isStreaming || this.hasPendingPrompt(sessionId)) {
+      const error = new Error("session_headless_streaming");
+      error.code = "session_headless_streaming";
+      throw error;
+    }
+    for (const id of handle.sessionIds) {
+      this.sessions.delete(id);
+      this.sessionHandles.delete(id);
+      this.history.delete(id);
+    }
+    this.sessionEventIds.delete(handle.session);
+    handle.unsubscribe?.();
+    handle.unsubscribe = undefined;
+    return this.disposeHandle(handle);
+  }
+
+  /** Best-effort release of the adapter lease / session; never rejects. */
+  async disposeHandle(handle) {
+    try {
+      if (typeof handle.lease?.release === "function") {
+        await handle.lease.release();
+        return;
+      }
+      if (typeof handle.session?.dispose === "function") {
+        handle.session.dispose();
+      }
+    } catch {
+      // Ownership has already moved on; disposal failures are not fatal.
+    }
+  }
+
   async runtime() {
     return (await this.adapter()).getModelRuntime();
   }
@@ -45,21 +188,29 @@ class PiService {
     if (this.sessions.has(sessionId)) {
       return this.sessions.get(sessionId);
     }
+    this.assertHeadlessOwned(sessionId);
     const creating = (async () => {
       const resolvedCwd = await this.workspace.resolveExisting(cwd);
       const resolvedSessionPath = sessionPath
         ? await this.sessionWorkspace.resolveExisting(sessionPath)
         : undefined;
-      const { session } = await (await this.adapter()).openSession({
+      const lease = await (await this.adapter()).openSession({
         cwd: resolvedCwd,
         sessionPath: resolvedSessionPath,
       });
+      const { session } = lease;
       const eventSessionIds = new Set([sessionId]);
       this.sessionEventIds.set(session, eventSessionIds);
-      session.subscribe((event) => {
+      const unsubscribe = session.subscribe((event) => {
         for (const eventSessionId of eventSessionIds) {
           this.events.append(eventSessionId, event);
         }
+      });
+      this.sessionHandles.set(sessionId, {
+        lease,
+        session,
+        sessionIds: new Set([sessionId]),
+        unsubscribe,
       });
       return session;
     })();
@@ -70,6 +221,11 @@ class PiService {
       if (durableSessionId && durableSessionId !== sessionId) {
         this.sessions.set(durableSessionId, creating);
         this.sessionEventIds.get(session)?.add(durableSessionId);
+        const handle = this.sessionHandles.get(sessionId);
+        if (handle) {
+          handle.sessionIds.add(durableSessionId);
+          this.sessionHandles.set(durableSessionId, handle);
+        }
       }
       return session;
     } catch (error) {
@@ -87,6 +243,26 @@ class PiService {
       const manager = (await this.adapter()).openSessionDocument(
         resolvedSessionPath
       );
+      // A native owner must not be shadowed by a second headless runtime.
+      // History is still served from the Session file; live model/context
+      // state arrives with native event ingestion (E1-004).
+      if (this.nativeAttached(sessionId)) {
+        const history = createHistorySnapshot(sessionHistoryMessages(manager), {
+          running: false,
+        });
+        this.history.set(sessionId, history);
+        return {
+          ...historyPage(history),
+          contextUsage: null,
+          eventSequence: this.events.latestSequence(sessionId),
+          isStreaming: false,
+          model: null,
+          outline: history.metas,
+          sessionFile: resolvedSessionPath,
+          sessionId: manager.getSessionId(),
+          thinkingLevel: thinkingLevelFromBranch(manager),
+        };
+      }
       const session = await this.ensure(
         sessionId,
         resolvedCwd,
@@ -247,9 +423,17 @@ class PiService {
       watcher.close();
     }
     this.fileWatchers.clear();
+    for (const handle of new Set(this.sessionHandles.values())) {
+      handle.unsubscribe?.();
+      handle.unsubscribe = undefined;
+      this.disposeHandle(handle);
+    }
+    this.sessionHandles.clear();
     this.sessions.clear();
     this.history.clear();
     this.authPrompts.clear();
+    this.pendingPrompts.clear();
+    this.executionBroker = null;
   }
 
   async models() {
@@ -295,6 +479,7 @@ class PiService {
   }
 
   async setModel(sessionId, provider, modelId) {
+    this.assertHeadlessOwned(sessionId);
     const session = await this.sessions.get(sessionId);
     const model = (await this.runtime()).getModel(provider, modelId);
     if (!(session && model)) {
@@ -304,6 +489,7 @@ class PiService {
   }
 
   async setThinking(sessionId, level) {
+    this.assertHeadlessOwned(sessionId);
     const session = await this.sessions.get(sessionId);
     if (!session) {
       throw new Error("Open a session first");
@@ -312,6 +498,7 @@ class PiService {
   }
 
   async branch(sessionId, entryId) {
+    this.assertHeadlessOwned(sessionId);
     const session = await this.sessions.get(sessionId);
     if (!session) {
       throw new Error("Open a session first");
@@ -355,59 +542,101 @@ class PiService {
   }
 
   async prompt({ sessionId, message, cwd, sessionPath, requestId, images }) {
-    const session = await this.ensure(sessionId, cwd, sessionPath);
-    if (session.sessionFile) {
-      this.watchSessionFile(sessionId, session.sessionFile);
-    }
-    const operationId = requestId || crypto.randomUUID();
-    const result = {
-      operationId,
-      sessionFile: session.sessionFile,
-      sessionId: session.sessionId,
-    };
-    if (images !== undefined && !Array.isArray(images)) {
-      throw new Error("Invalid image attachments");
-    }
-    if (images && images.length > 8) {
-      throw new Error("Too many image attachments");
-    }
-    const validImages = images?.map((image) => {
-      if (
-        image?.type !== "image" ||
-        typeof image.data !== "string" ||
-        typeof image.mimeType !== "string" ||
-        !image.mimeType.startsWith("image/") ||
-        image.data.length > MAX_IMAGE_DATA_LENGTH
-      ) {
-        throw new Error("Invalid image attachment");
+    // Mark the Session busy synchronously, before the first `await`: from
+    // durable acceptance until the dispatch settles, attach gating must fail
+    // closed even while `isStreaming` is still false. Every exit path below
+    // clears exactly one mark, so a leaked mark can never block attaches
+    // forever (design §4 rule 3).
+    this.markPromptPending(sessionId);
+    let dispatched = false;
+    try {
+      const session = await this.ensure(sessionId, cwd, sessionPath);
+      if (session.sessionFile) {
+        this.watchSessionFile(sessionId, session.sessionFile);
       }
-      return image;
-    });
-    const options = {
-      ...(session.isStreaming ? { streamingBehavior: "followUp" } : {}),
-      ...(validImages?.length ? { images: validImages } : {}),
-    };
-    const dispatch = () => {
-      session
-        .prompt(message, Object.keys(options).length ? options : undefined)
-        .catch((error) =>
-          this.events.append(sessionId, {
-            message: error instanceof Error ? error.message : String(error),
-            type: "omo_error",
-          })
-        );
-    };
-    if (this.operationLedger) {
-      return this.operationLedger.accept(operationId, result, dispatch);
+      const operationId = requestId || crypto.randomUUID();
+      const result = {
+        operationId,
+        sessionFile: session.sessionFile,
+        sessionId: session.sessionId,
+      };
+      if (images !== undefined && !Array.isArray(images)) {
+        throw new Error("Invalid image attachments");
+      }
+      if (images && images.length > 8) {
+        throw new Error("Too many image attachments");
+      }
+      const validImages = images?.map((image) => {
+        if (
+          image?.type !== "image" ||
+          typeof image.data !== "string" ||
+          typeof image.mimeType !== "string" ||
+          !image.mimeType.startsWith("image/") ||
+          image.data.length > MAX_IMAGE_DATA_LENGTH
+        ) {
+          throw new Error("Invalid image attachment");
+        }
+        return image;
+      });
+      const options = {
+        ...(session.isStreaming ? { streamingBehavior: "followUp" } : {}),
+        ...(validImages?.length ? { images: validImages } : {}),
+      };
+      const failDispatch = (error) => {
+        this.events.append(sessionId, {
+          message: error instanceof Error ? error.message : String(error),
+          type: "omo_error",
+        });
+      };
+      const dispatch = () => {
+        dispatched = true;
+        // Defense in depth: ownership may have moved to a native attachment
+        // between acceptance and this dispatch. The attach gate rejects that
+        // window, but the Prompt side must never start a second executor if
+        // it happens anyway; surface a safe error instead of fabricating a
+        // successful dispatch.
+        if (this.nativeAttached(sessionId)) {
+          failDispatch(nativeAttachedError());
+          this.clearPromptPending(sessionId);
+          return;
+        }
+        let promptResult;
+        try {
+          promptResult = session.prompt(
+            message,
+            Object.keys(options).length ? options : undefined
+          );
+        } catch (error) {
+          failDispatch(error);
+          this.clearPromptPending(sessionId);
+          return;
+        }
+        // The mark must outlive `prompt()` itself: a dispatch that has been
+        // accepted but whose prompt is still running (or whose runtime has not
+        // flipped `isStreaming` yet) keeps the Session busy until it settles.
+        Promise.resolve(promptResult)
+          .catch(failDispatch)
+          .finally(() => this.clearPromptPending(sessionId));
+      };
+      if (this.operationLedger) {
+        return await this.operationLedger.accept(operationId, result, dispatch);
+      }
+      if (requestId) {
+        this.events.saveRequest(operationId, result);
+      }
+      dispatch();
+      return result;
+    } finally {
+      // ensure/validation failure, a ledger dedupe hit, or a ledger that never
+      // invoked the captured dispatch would otherwise leak the mark forever.
+      if (!dispatched) {
+        this.clearPromptPending(sessionId);
+      }
     }
-    if (requestId) {
-      this.events.saveRequest(operationId, result);
-    }
-    dispatch();
-    return result;
   }
 
   async abort(sessionId) {
+    this.assertHeadlessOwned(sessionId);
     await (await this.sessions.get(sessionId))?.abort();
   }
 
