@@ -31,7 +31,7 @@
 - [x] V1-007：验证 Web follow-up → CLI 实时显示
 - [x] V1-008：验证 SSE 重复事件、断线与 sequence 重放
 - [x] V1-009：验证重复 `requestId` 只 dispatch 一次，并记录崩溃窗口限制
-- [ ] V1-010：验证无客户端连接时 Session 继续运行
+- [x] V1-010：验证无客户端连接时 Session 继续运行
 - [ ] V1-GATE：完成 CLI TUI ↔ Host ↔ Web 首个可验收切片
 
 ## Stage D：本机 daemon
