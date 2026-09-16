@@ -12,6 +12,7 @@ const { EventStore } = require("./event-store.cjs");
 const { ExecutionBroker } = require("./execution-broker.cjs");
 const { ExtensionService } = require("./extension-service.cjs");
 const { loadHostIdentity } = require("./host-identity.cjs");
+const { createNativeEventHandler } = require("./native-events.cjs");
 const {
   prepareLocalEndpoint,
   protectLocalEndpoint,
@@ -52,6 +53,7 @@ let webSockets;
 let localEndpoint;
 let extensionService;
 let executionBroker;
+let nativeEventHandler;
 
 const mime = {
   ".css": "text/css; charset=utf-8",
@@ -880,6 +882,10 @@ async function initializeHost() {
     heartbeatTimeoutMs: config.extensionHeartbeatTimeoutMs,
     hostId,
     onAttachConfirm: (sessionId) => executionBroker?.onAttachConfirm(sessionId),
+    // Late-bound: ExtensionService is constructed before the EventStore, so
+    // the closure reads the handler once `initializeHost` wires it below.
+    onNativeEvent: (attachment, nativeEvent) =>
+      nativeEventHandler?.handle(attachment, nativeEvent),
     sweepIntervalMs: Math.min(
       config.extensionHeartbeatIntervalMs,
       config.extensionHeartbeatTimeoutMs,
@@ -889,6 +895,7 @@ async function initializeHost() {
   workspace = createWorkspaceGuard(config.workspaceRoots);
   sessionWorkspace = createWorkspaceGuard([config.sessionRoot]);
   events = new EventStore(config.dataDir, config.eventRetention);
+  nativeEventHandler = createNativeEventHandler({ events });
   terminals = new TerminalService(workspace);
   browsers = new BrowserService();
   projectsFile = path.join(config.dataDir, "projects.json");

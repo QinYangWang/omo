@@ -361,6 +361,14 @@ class PiService {
               return;
             }
             lastSize = size;
+            // A live native attachment already streams this Session over the
+            // Extension channel (design §8). The watcher stays armed as the
+            // persistence-calibration signal, but must not duplicate the
+            // realtime stream. `lastSize` is advanced above regardless, so a
+            // real change after a detach still emits exactly once.
+            if (this.nativeAttached(sessionId)) {
+              return;
+            }
             this.events.append(sessionId, {
               path: filePath,
               type: "omo_session_file",
