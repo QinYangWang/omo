@@ -57,7 +57,7 @@ interface PiSession {
   cwd: string;
   firstMessage: string;
   id: string;
-  messageCount: number;
+  messageCount?: number;
   modified: number;
   name?: string;
   path: string;

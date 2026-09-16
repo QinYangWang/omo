@@ -99,10 +99,19 @@ test("Project and Session list contracts match current HTTP responses", () => {
         modified: 2,
         path: "/sessions/session-1.jsonl",
       },
+      {
+        created: 1,
+        cwd: "/workspace/project",
+        firstMessage: "legacy runtime summary",
+        id: "session-2",
+        modified: 2,
+        path: "/sessions/session-2.jsonl",
+      },
     ],
     "SessionList"
   );
   assert.equal(sessions[0]?.messageCount, 2);
+  assert.equal(sessions[1]?.messageCount, undefined);
 });
 
 test("Session open and Prompt acceptance contracts match current responses", () => {

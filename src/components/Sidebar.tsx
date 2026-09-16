@@ -424,7 +424,10 @@ export function Sidebar({
                     {session.name || session.firstMessage || t("untitled")}
                   </div>
                   <div className="w-full min-w-0 truncate text-muted-foreground text-xs">
-                    {session.cwd} · {session.messageCount} messages
+                    {session.cwd}
+                    {typeof session.messageCount === "number"
+                      ? ` · ${session.messageCount} messages`
+                      : null}
                   </div>
                 </Button>
               ))}

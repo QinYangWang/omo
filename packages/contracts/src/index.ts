@@ -64,12 +64,12 @@ export type AddProjectCommand = Static<typeof AddProjectCommandSchema>;
 
 export const SessionSummarySchema = Type.Object(
   {
-    allMessagesText: Type.String(),
+    allMessagesText: Type.Optional(Type.String()),
     created: Type.Number(),
     cwd: Type.String(),
     firstMessage: Type.String(),
     id: Type.String({ minLength: 1 }),
-    messageCount: Type.Integer({ minimum: 0 }),
+    messageCount: Type.Optional(Type.Integer({ minimum: 0 })),
     modified: Type.Number(),
     name: Type.Optional(Type.String()),
     parentSessionPath: Type.Optional(Type.String({ minLength: 1 })),
