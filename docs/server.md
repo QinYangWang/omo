@@ -49,6 +49,8 @@ pnpm restart:web
 | --- | --- | --- |
 | `OMO_HOST` | `127.0.0.1` | 监听地址 |
 | `OMO_PORT` | `5189` | HTTP 与 WebSocket 端口 |
+| `OMO_TRANSPORT` | `tcp` | `tcp` 或 `socket`；`socket` 时改用本机端点，忽略 `OMO_HOST`/`OMO_PORT` |
+| `OMO_LOCAL_SOCKET` | 空 | 显式 Unix socket 路径（须位于托管目录内）或 Windows named pipe；设置后默认启用 `socket` transport |
 | `OMO_TOKEN` | 空 | Bearer Token |
 | `OMO_WORKSPACE_ROOTS` | 当前工作目录 | 允许访问的目录，逗号分隔 |
 | `OMO_DATA_DIR` | `~/.omo-server` | Project 清单与 SQLite |
@@ -68,6 +70,16 @@ OMO_TLS_CERT=/path/to/cert.pem OMO_TLS_KEY=/path/to/key.pem pnpm server
 ```
 
 只设置其中一个或文件不可读时 Server 拒绝启动并提示。可用 mkcert 为局域网地址签发受信任证书；自签名证书需要各客户端手动信任，否则浏览器与 Electron 远程模式会拒绝连接。启用 HTTPS 后客户端的 Server URL 相应改为 `https://`。
+
+## 本机 transport
+
+`OMO_TRANSPORT=socket` 时 Host 在进程内监听本机端点，而不是 TCP 端口。Unix 上默认使用 `<OMO_DATA_DIR>/run/host-<hash>.sock`；如果该路径超过 `sun_path` 长度限制，则退化到系统临时目录下由 dataDir 哈希出的短路径。Windows 上使用 `\\.\pipe\omo-<hash>` named pipe。
+
+`OMO_LOCAL_SOCKET` 可覆盖端点，但 Unix 显式路径必须位于 `<OMO_DATA_DIR>/run` 或上述临时回退目录内；指向其他位置的路径会在创建目录或 unlink 之前直接拒绝启动。Windows pipe 名按平台规则校验。
+
+启动时只删除经异步连接探测确认为没有 listener 的 stale socket（普通文件会拒绝覆盖，无法证明已失效时也会 fail closed）；检测到活动 listener 时以 already-in-use 失败且不会 unlink。监听后 socket 权限收紧为 `0600`，只有本进程成功绑定的 socket 才会在正常退出或失败清理时删除。
+
+CLI 侧 `omo` 支持 `--socket <path>`（或 `OMO_LOCAL_SOCKET`）：JSON 请求与 SSE 复用同一个 `HostClient`，仅把 Node 传输换成 Unix socket / named pipe。D1-003 不包含 daemon discovery、PID/锁或自动启动。
 
 ## Web 托管
 

@@ -15,6 +15,7 @@ import {
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
 import { HttpHostClient } from "@omo/client-core";
+import { createLocalEndpointFetch } from "./local-transport.mjs";
 
 const require = createRequire(import.meta.url);
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -32,6 +33,7 @@ const VALUE_OPTIONS = new Map([
   ["--host", "host"],
   ["--port", "port"],
   ["--session", "sessionPath"],
+  ["--socket", "socket"],
   ["--token", "token"],
   ["--url", "url"],
 ]);
@@ -63,6 +65,7 @@ function parseArguments(argv) {
     host: process.env.OMO_HOST || "127.0.0.1",
     port: process.env.OMO_PORT || "5189",
     sessionPath: undefined,
+    socket: process.env.OMO_LOCAL_SOCKET || "",
     token: process.env.OMO_TOKEN || "",
     url: process.env.OMO_URL || DEFAULT_URL,
   };
@@ -108,12 +111,12 @@ async function waitForHost(client, baseUrl) {
   throw new Error(`Timed out waiting for omo Host at ${baseUrl}`);
 }
 
-async function ensureLocalHost(client, baseUrl) {
+async function ensureLocalHost(client, target, allowAutoStart) {
   try {
     return await client.health();
   } catch (error) {
-    if (baseUrl !== DEFAULT_URL) {
-      throw new Error(`Unable to connect to omo Host at ${baseUrl}`, {
+    if (!allowAutoStart) {
+      throw new Error(`Unable to connect to omo Host at ${target}`, {
         cause: error,
       });
     }
@@ -125,7 +128,7 @@ async function ensureLocalHost(client, baseUrl) {
     stdio: "ignore",
   });
   child.unref();
-  return waitForHost(client, baseUrl);
+  return waitForHost(client, target);
 }
 
 function textFromContent(content) {
@@ -412,6 +415,10 @@ async function serveHost(options) {
   if (options.dataDir) {
     process.env.OMO_DATA_DIR = options.dataDir;
   }
+  if (options.socket) {
+    process.env.OMO_LOCAL_SOCKET = options.socket;
+    process.env.OMO_TRANSPORT = "socket";
+  }
   if (options.token) {
     process.env.OMO_TOKEN = options.token;
   }
@@ -423,11 +430,17 @@ async function serveHost(options) {
   const { startHost } = require("../server/host.cjs");
   const lease = acquireDaemonLease({
     dataDir: config.dataDir,
-    endpoint: tcpEndpoint({
-      host: config.host,
-      port: config.port,
-      tls: Boolean(config.tlsCert),
-    }),
+    endpoint: options.socket
+      ? {
+          path: options.socket,
+          transport: process.platform === "win32" ? "pipe" : "unix",
+          url: "http://localhost",
+        }
+      : tcpEndpoint({
+          host: config.host,
+          port: config.port,
+          tls: Boolean(config.tlsCert),
+        }),
   });
   // Normal shutdown removes owned runtime state. SIGKILL skips this handler;
   // the next startup reclaims the stale state instead.
@@ -447,11 +460,17 @@ async function serveHost(options) {
   }
   try {
     lease.update({
-      endpoint: tcpEndpoint({
-        host: config.host,
-        port: running.port,
-        tls: Boolean(config.tlsCert),
-      }),
+      endpoint: running.endpoint
+        ? {
+            path: running.endpoint.path,
+            transport: running.endpoint.kind === "pipe" ? "pipe" : "unix",
+            url: "http://localhost",
+          }
+        : tcpEndpoint({
+            host: config.host,
+            port: running.port,
+            tls: Boolean(config.tlsCert),
+          }),
       hostId: running.hostId,
     });
   } catch (error) {
@@ -469,11 +488,19 @@ async function main() {
     return;
   }
 
+  const useLocalSocket = options.socket.length > 0;
   const client = new HttpHostClient({
-    baseUrl: options.url,
+    baseUrl: useLocalSocket ? "http://localhost" : options.url,
+    fetch: useLocalSocket
+      ? createLocalEndpointFetch(options.socket)
+      : undefined,
     token: options.token,
   });
-  const host = await ensureLocalHost(client, options.url);
+  const target = useLocalSocket ? options.socket : options.url;
+  // Local sockets are explicit in D1-003; discovery and auto-start of the
+  // default daemon endpoint belong to D1-004.
+  const canAutoStart = !useLocalSocket && target === DEFAULT_URL;
+  const host = await ensureLocalHost(client, target, canAutoStart);
   if (options.command === "session-list") {
     const sessions = await client.listSessions(options.cwd);
     for (const session of sessions) {
@@ -484,7 +511,7 @@ async function main() {
     }
     return;
   }
-  await runTui(client, options.url, host, options);
+  await runTui(client, target, host, options);
 }
 
 main().catch((error) => {

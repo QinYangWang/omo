@@ -10,6 +10,12 @@ const config = require("./config.cjs");
 const { createWorkspaceGuard, inside } = require("./workspace.cjs");
 const { EventStore } = require("./event-store.cjs");
 const { loadHostIdentity } = require("./host-identity.cjs");
+const {
+  prepareLocalEndpoint,
+  protectLocalEndpoint,
+  removeLocalEndpoint,
+  resolveLocalEndpoint,
+} = require("./local-endpoint.cjs");
 const { PiService } = require("./pi-service.cjs");
 const { usageSnapshot } = require("./usage.cjs");
 const {
@@ -41,6 +47,7 @@ let browsers;
 let projectsFile;
 let server;
 let webSockets;
+let localEndpoint;
 
 const mime = {
   ".css": "text/css; charset=utf-8",
@@ -793,10 +800,18 @@ function listen(instance) {
     };
     const onListening = () => {
       instance.off("error", onError);
+      if (localEndpoint) {
+        localEndpoint.owned = true;
+        protectLocalEndpoint(localEndpoint);
+      }
       resolve();
     };
     instance.once("error", onError);
     instance.once("listening", onListening);
+    if (localEndpoint) {
+      instance.listen(localEndpoint.path);
+      return;
+    }
     instance.listen(config.port, config.host);
   });
 }
@@ -835,6 +850,13 @@ async function initializeHost() {
   await fs.mkdir(config.dataDir, { recursive: true });
   try {
     await initializeCore();
+    if (config.transport === "socket") {
+      localEndpoint = resolveLocalEndpoint({
+        dataDir: config.dataDir,
+        explicit: config.localSocket,
+      });
+      await prepareLocalEndpoint(localEndpoint);
+    }
     server = createServer();
     webSockets = new WebSocketServer({ noServer: true });
     server.on("upgrade", handleUpgrade);
@@ -844,11 +866,16 @@ async function initializeHost() {
     throw error;
   }
   installSignalHandlers();
-  const protocol = config.tlsCert ? "https" : "http";
-  const address = server.address();
-  const port =
-    address && typeof address === "object" ? address.port : config.port;
-  console.log(`omo server listening on ${protocol}://${config.host}:${port}`);
+  let port;
+  if (localEndpoint) {
+    const scheme = localEndpoint.kind === "pipe" ? "pipe" : "unix";
+    console.log(`omo server listening on ${scheme}:${localEndpoint.path}`);
+  } else {
+    const protocol = config.tlsCert ? "https" : "http";
+    const address = server.address();
+    port = address && typeof address === "object" ? address.port : config.port;
+    console.log(`omo server listening on ${protocol}://${config.host}:${port}`);
+  }
   console.log(`host id: ${hostId}`);
   console.log(`workspace roots: ${workspace.roots.join(", ")}`);
   if (!config.token) {
@@ -856,7 +883,7 @@ async function initializeHost() {
       "WARNING: OMO_TOKEN is not set; API authentication is disabled."
     );
   }
-  return { hostId, port, server, stopHost };
+  return { endpoint: localEndpoint, hostId, port, server, stopHost };
 }
 
 /**
@@ -891,6 +918,11 @@ async function shutdownHost() {
       client.terminate();
     }
     await new Promise((resolve) => webSockets.close(() => resolve()));
+  }
+  try {
+    removeLocalEndpoint(localEndpoint);
+  } catch (error) {
+    console.error("omo: failed to remove local socket", error);
   }
   terminals?.dispose();
   browsers?.dispose();
