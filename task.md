@@ -52,7 +52,7 @@
 - [x] M1-001：基于单 Host 使用结果设计 Host registry 与多 endpoint 语义
 - [x] M1-002：实现 credential reference 与每 Host 独立错误域
 - [x] M1-003：实现 Web 与 CLI 多 Host 切换
-- [ ] M1-GATE：验证一个 Host 离线不影响其他 Host
+- [x] M1-GATE：验证一个 Host 离线不影响其他 Host
 
 ## Backlog：不进入当前实施
 
