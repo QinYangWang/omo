@@ -16,7 +16,7 @@ JSON 请求体上限为 16MB。错误响应格式：
 
 ### `GET /health`
 
-返回 API 版本和能力列表。
+返回持久化 `hostId`、API/协议版本和能力列表。`hostId` 保存在 `OMO_DATA_DIR/host.json`，客户端必须用它校验逻辑 Host 身份，不能把可变 URL 当作 Host 主键。
 
 ## Projects
 

@@ -27,6 +27,7 @@ class EventStore {
       );
     `);
     this.retention = retention;
+    this.closed = false;
     this.emitter = new EventEmitter();
     this.emitter.setMaxListeners(0);
     this.insert = this.db.prepare(`
@@ -50,6 +51,9 @@ class EventStore {
     );
     this.putRequest = this.db.prepare(
       "INSERT OR REPLACE INTO requests(request_id, result, created_at) VALUES (?, ?, ?)"
+    );
+    this.insertRequest = this.db.prepare(
+      "INSERT OR IGNORE INTO requests(request_id, result, created_at) VALUES (?, ?, ?)"
     );
   }
 
@@ -102,6 +106,15 @@ class EventStore {
     return () => this.emitter.off(sessionId, callback);
   }
 
+  close() {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    this.emitter.removeAllListeners();
+    this.db.close();
+  }
+
   requestResult(requestId) {
     const row = this.getRequest.get(requestId);
     return row ? JSON.parse(row.result) : undefined;
@@ -109,6 +122,16 @@ class EventStore {
 
   saveRequest(requestId, result) {
     this.putRequest.run(requestId, JSON.stringify(result), Date.now());
+  }
+
+  saveRequestIfAbsent(requestId, result) {
+    const inserted =
+      this.insertRequest.run(requestId, JSON.stringify(result), Date.now())
+        .changes > 0;
+    return {
+      inserted,
+      result: inserted ? result : this.requestResult(requestId),
+    };
   }
 }
 

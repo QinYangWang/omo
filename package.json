@@ -4,25 +4,38 @@
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
+  "bin": {
+    "omo": "cli/omo.mjs"
+  },
   "scripts": {
-    "build": "tsc -b && vite build",
+    "build": "pnpm --filter './packages/**' -r build && tsc -b && vite build",
     "check": "ultracite check",
-    "dev": "concurrently -k \"vite --port 5188 --strictPort\" \"wait-on http://localhost:5188 && electron .\"",
+    "dev": "pnpm --filter @omo/client-core... build && vite",
+    "dev:desktop": "concurrently -k \"pnpm --filter @omo/client-core... build && vite\" \"wait-on http://localhost:5188 && electron .\"",
+    "dev:web": "pnpm --filter @omo/client-core... build && vite",
     "fix": "ultracite fix",
-    "server": "node server/index.cjs",
-    "server:dev": "node --watch server/index.cjs",
-    "start": "electron ."
+    "omo": "node cli/omo.mjs",
+    "omo:dev": "pnpm --filter @omo/client-core... build && node cli/omo.mjs",
+    "prepare": "pnpm --filter @omo/client-core... build",
+    "restart:web": "bash scripts/restart-web-server.sh",
+    "server": "pnpm --filter './packages/**' -r build && node server/index.cjs",
+    "server:dev": "pnpm --filter './packages/**' -r build && node --watch server/index.cjs",
+    "start": "electron .",
+    "test": "pnpm --filter './packages/**' -r build && pnpm --filter './packages/**' -r test && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
     "@earendil-works/pi-coding-agent": "^0.85.0",
-    "@earendil-works/pi-server": "^0.85.0",
+    "@earendil-works/pi-tui": "0.85.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@fontsource-variable/outfit": "^5.3.0",
     "@fontsource-variable/raleway": "^5.3.0",
     "@hugeicons/core-free-icons": "^4.3.0",
     "@hugeicons/react": "^1.1.10",
+    "@omo/client-core": "workspace:*",
+    "@omo/host-core": "workspace:*",
+    "@omo/pi-runtime": "workspace:*",
     "@pierre/diffs": "^1.4.1",
     "@rive-app/react-webgl2": "^4.33.0",
     "@thesvg/react": "^3.3.3",
@@ -68,5 +81,6 @@
     "vite": "^8.0.0",
     "wait-on": "latest"
   },
+  "packageManager": "pnpm@10.34.5",
   "productName": "omo"
 }

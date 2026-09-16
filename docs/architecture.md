@@ -1,5 +1,7 @@
 # 架构
 
+> 本文描述当前已实现架构。pnpm、多 Host、统一本地 daemon 与移动端的目标架构见 [architecture-v2.md](architecture-v2.md)。
+
 ## 运行形态
 
 omo 使用同一套 React 渲染层支持三种已实现的运行形态：
@@ -25,6 +27,9 @@ server/browser-service.cjs 服务器端浏览器代理与 Cookie 会话
 server/workspace.cjs        路径边界
 server/quotas.cjs           Provider 配额
 server/usage.cjs            JSONL 用量聚合
+cli/omo.mjs                  CLI 入口、TUI 与前台 serve 生命周期
+cli/local-host.mjs           本机 daemon 发现、自动启动与目标优先级
+cli/local-transport.mjs      Unix socket / named pipe 的 fetch 适配
 src/lib/omo.ts              统一后端入口
 src/lib/remote-api.ts       远程 Transport
 src/App.tsx                 应用壳与面板布局

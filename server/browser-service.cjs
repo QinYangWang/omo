@@ -513,6 +513,11 @@ class BrowserService {
     }
   }
 
+  dispose() {
+    clearInterval(this.cleanupTimer);
+    this.sessions.clear();
+  }
+
   session(id) {
     const session = this.sessions.get(id);
     if (!session) {

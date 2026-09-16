@@ -6,23 +6,17 @@ const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
-let sdkPromise;
-const getSdk = () => {
-  sdkPromise ||= import("@earendil-works/pi-coding-agent");
-  return sdkPromise;
+let runtimePromise;
+const getRuntime = () => {
+  runtimePromise ||= import("@omo/pi-runtime").then(
+    ({ PiRuntimeAdapter }) => new PiRuntimeAdapter()
+  );
+  return runtimePromise;
 };
 
-async function listSkills(agentDir) {
-  const { loadSkillsFromDir } = await getSdk();
-  const result = loadSkillsFromDir({
-    dir: path.join(agentDir, "skills"),
-    source: "user",
-  });
-  return result.skills.map((skill) => ({
-    description: skill.description,
-    filePath: skill.filePath,
-    name: skill.name,
-  }));
+async function listSkills(agentDir, runtimeAdapter) {
+  const runtime = runtimeAdapter || (await getRuntime());
+  return runtime.listSkills(agentDir);
 }
 
 function readSettings(agentDir) {

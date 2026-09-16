@@ -5,12 +5,15 @@ interface Project {
   /** Client-side tag: which server this project belongs to. */
   serverId: string;
 }
-interface OmoStoredRemoteServer {
-  id: string;
-  name: string;
-  token: string;
-  url: string;
+interface OmoLegacyRemoteServer {
+  id?: string;
+  name?: string;
+  token?: string;
+  url?: string;
 }
+type OmoSecureRemoteConfig =
+  | { credentials: Record<string, string>; document: unknown }
+  | { legacyServers: OmoLegacyRemoteServer[] };
 interface PiImageContent {
   data: string;
   mimeType: string;
@@ -57,7 +60,7 @@ interface PiSession {
   cwd: string;
   firstMessage: string;
   id: string;
-  messageCount: number;
+  messageCount?: number;
   modified: number;
   name?: string;
   path: string;
@@ -406,8 +409,11 @@ interface Window {
   __OMO_SERVER_URL__?: string;
   omo: omoApi;
   omoSecure?: {
-    loadRemoteConfig: () => Promise<OmoStoredRemoteServer[]>;
-    saveRemoteConfig: (servers: OmoStoredRemoteServer[]) => Promise<boolean>;
+    loadRemoteConfig: () => Promise<OmoSecureRemoteConfig | null>;
+    saveRemoteConfig: (state: {
+      credentials: Record<string, string>;
+      document: unknown;
+    }) => Promise<boolean>;
     clearRemoteConfig: () => Promise<boolean>;
   };
 }

@@ -5,8 +5,8 @@
 仓库已实现以下验证命令：
 
 ```bash
-npm run check
-npm run build
+pnpm check
+pnpm build
 git diff --check
 ```
 
@@ -53,7 +53,7 @@ node --check electron/preload.cjs
 BrowserWindow 禁用默认菜单与拼写检查，保持后台节流，并显式启用 sandbox、context isolation、关闭 node integration。窗口在 `ready-to-show` 后显示。renderer 最多保留 12 个非运行会话的正文窗口和附件草稿缓存；文本草稿仍由 localStorage 持久化。Electron 主进程会回收 release 后空闲的已完成 Agent，默认超时 15 分钟：
 
 ```bash
-OMO_SESSION_IDLE_MS=300000 npm start
+OMO_SESSION_IDLE_MS=300000 pnpm start
 ```
 
 运行中 Agent 不受 UI 切换和空闲回收影响。诊断实际占用时应分别查看 Electron Task Manager/Chrome Memory 中的 main、renderer、GPU、utility 与 webview 进程；打开 Workspace 浏览器标签会创建额外 Chromium renderer，这是预期的进程隔离成本。
@@ -61,17 +61,17 @@ OMO_SESSION_IDLE_MS=300000 npm start
 ## Server 启动
 
 ```bash
-npm run build
+pnpm build
 OMO_TOKEN='<long-random-token>' \
 OMO_WORKSPACE_ROOTS='/workspace,/srv/projects' \
 OMO_HOST=127.0.0.1 \
-npm run server
+pnpm server
 ```
 
 开发 watch 模式：
 
 ```bash
-npm run server:dev
+pnpm server:dev
 ```
 
 ## Docker

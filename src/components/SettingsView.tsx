@@ -54,10 +54,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { type I18nKey, type Lang, useI18n } from "@/lib/i18n";
 import {
   addRemoteServer,
+  getDefaultServerId,
   getServerApi,
   type OmoServer,
   removeRemoteServer,
   type ServerStatus,
+  setSelectedServerId,
   testServerConnection,
   updateRemoteServer,
   useServerStatuses,
@@ -390,6 +392,7 @@ function ServersSection() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<OmoServer | null>(null);
   const hosted = !!window.__OMO_SERVER_URL__ && !window.omoSecure;
+  const defaultId = getDefaultServerId();
 
   return (
     <div className="flex max-w-2xl flex-col gap-5">
@@ -431,6 +434,21 @@ function ServersSection() {
               </div>
             </div>
             <ServerStatusBadge status={statuses[server.id]} />
+            {server.id === defaultId ? (
+              <Badge variant="secondary">{t("server_default")}</Badge>
+            ) : (
+              <Button
+                onClick={() =>
+                  setSelectedServerId(
+                    server.kind === "local" ? null : server.id
+                  )
+                }
+                size="sm"
+                variant="ghost"
+              >
+                {t("server_use")}
+              </Button>
+            )}
             {server.removable || server.url ? (
               <div className="flex gap-1">
                 <Button

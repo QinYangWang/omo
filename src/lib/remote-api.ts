@@ -1,3 +1,4 @@
+import { HttpHostClient } from "@omo/client-core";
 import { randomUUID } from "@/lib/utils";
 
 const trailingSlash = /\/$/;
@@ -20,6 +21,18 @@ interface RemoteTerminal {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isOmoPiEvent(value: unknown): value is OmoPiEvent {
+  return isRecord(value) && typeof value.type === "string";
+}
+
+function clientProject(project: {
+  cwd: string;
+  id: string;
+  name: string;
+}): Project {
+  return { ...project, serverId: "" };
 }
 
 function handleRemoteTerminalMessage(
@@ -151,6 +164,7 @@ export function normalizeBaseUrl(value: string) {
 
 export function createRemoteApi(baseUrl: string, token: string): omoApi {
   const base = normalizeBaseUrl(baseUrl);
+  const hostClient = new HttpHostClient({ baseUrl: base, token });
   const headers = () => ({
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -182,7 +196,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
   const piListeners = new Set<EventCallback>();
   const authListeners = new Set<(event: ProviderAuthEvent) => void>();
   const terminals = new Map<string, RemoteTerminal>();
-  const streams = new Map<string, AbortController>();
+  const streams = new Map<string, { close: () => void }>();
 
   const getTerminal = (key: string): RemoteTerminal => {
     const existing = terminals.get(key);
@@ -205,8 +219,26 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     if (streams.has(sessionId)) {
       return;
     }
+    if (sessionId !== "__providers") {
+      const sequenceKey = `omo:event-sequence:${base}:${sessionId}`;
+      const after = eventStreamCursor(sessionId, sequenceKey, true);
+      const subscription = hostClient.subscribeSession(
+        sessionId,
+        after,
+        (record) => {
+          localStorage.setItem(sequenceKey, String(record.sequence));
+          if (isOmoPiEvent(record.payload)) {
+            for (const listener of piListeners) {
+              listener({ event: record.payload, sessionId });
+            }
+          }
+        }
+      );
+      streams.set(sessionId, subscription);
+      return;
+    }
     const controller = new AbortController();
-    streams.set(sessionId, controller);
+    streams.set(sessionId, { close: () => controller.abort() });
     let retry = 1000;
     let firstConnection = true;
 
@@ -355,7 +387,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
     },
     pi: {
       abort: async (sessionId) => {
-        await post("/pi/abort", { sessionId });
+        await hostClient.abort({ sessionId });
       },
       branch: (sessionId, entryId) =>
         post("/pi/branch", { entryId, sessionId }),
@@ -373,22 +405,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
         return () => piListeners.delete(callback);
       },
       open: async (sessionId, cwd, sessionPath) => {
-        const result = await post<{
-          cursor: number;
-          eventSequence?: number;
-          hasMore: boolean;
-          messages: unknown[];
-          outline?: {
-            absoluteIndex: number;
-            id: string;
-            userPreview: string;
-          }[];
-          contextUsage?: PiContextUsage | null;
-          model?: { id: string; name: string; provider: string } | null;
-          thinkingLevel?: string;
-          isStreaming?: boolean;
-          replayFromSequence?: number;
-        }>("/pi/open", {
+        const result = await hostClient.openSession({
           cwd,
           sessionId,
           sessionPath,
@@ -410,10 +427,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
         return result;
       },
       prompt: async (sessionId, message, cwd, sessionPath, images) => {
-        const result = await post<{
-          sessionFile?: string;
-          sessionId?: string;
-        }>("/pi/prompt", {
+        const result = await hostClient.prompt({
           cwd,
           images,
           message,
@@ -435,9 +449,9 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
         post("/pi/sync", { sessionId, sessionPath, tailItemCount, turnCount }),
     },
     projects: {
-      add: (path?: string) =>
-        path ? post("/projects", { cwd: path }) : Promise.resolve(null),
-      list: () => request("/projects"),
+      add: async (path?: string) =>
+        path ? clientProject(await hostClient.addProject({ cwd: path })) : null,
+      list: async () => (await hostClient.listProjects()).map(clientProject),
       pickDirectory: async () => null,
     },
     providers: {
@@ -471,7 +485,7 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
       import: async (sourcePath, cwd) =>
         (await post<{ path: string }>("/sessions/import", { cwd, sourcePath }))
           .path,
-      list: (cwd) => request(`/sessions?${query({ cwd })}`),
+      list: (cwd) => hostClient.listSessions(cwd),
       rename: async (sessionPath, name) => {
         await post("/sessions/rename", { name, path: sessionPath });
         return true;

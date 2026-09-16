@@ -932,14 +932,8 @@ function createWindow() {
       return "";
     }
   };
-  ipcMain.handle("remote-config:load", async () => {
-    let stored;
-    try {
-      stored = JSON.parse(await fs.readFile(remoteConfigFile, "utf8"));
-    } catch {
-      return [];
-    }
-    if (Array.isArray(stored.servers)) {
+  const legacyServers = (stored) => {
+    if (Array.isArray(stored?.servers)) {
       return stored.servers
         .filter((server) => server && typeof server.url === "string")
         .map((server) => ({
@@ -949,8 +943,8 @@ function createWindow() {
           url: server.url || "",
         }));
     }
-    // Migrate the legacy single-server configuration.
-    if (stored.url) {
+    // The original single-server configuration.
+    if (stored?.url) {
       return [
         {
           id: crypto.randomUUID(),
@@ -961,30 +955,62 @@ function createWindow() {
       ];
     }
     return [];
-  });
-  ipcMain.handle("remote-config:save", async (_event, { servers }) => {
-    const list = Array.isArray(servers) ? servers : [];
-    if (
-      list.some((server) => server.token) &&
-      !safeStorage.isEncryptionAvailable()
-    ) {
-      throw new Error("OS credential encryption is unavailable");
+  };
+  ipcMain.handle("remote-config:load", async () => {
+    let stored;
+    try {
+      stored = JSON.parse(await fs.readFile(remoteConfigFile, "utf8"));
+    } catch {
+      return null;
     }
-    const stored = list.map((server) => ({
-      encryptedToken: server.token
-        ? safeStorage.encryptString(server.token).toString("base64")
-        : "",
-      id: server.id || crypto.randomUUID(),
-      name: server.name || server.url || "",
-      url: server.url || "",
-    }));
-    await fs.writeFile(
-      remoteConfigFile,
-      JSON.stringify({ servers: stored }, null, 2),
-      { mode: 0o600 }
-    );
-    return true;
+    // New shape: registry metadata plus an encrypted credential vault. The
+    // two stay logically separate so the document never contains a token.
+    if (stored?.document) {
+      const credentials = {};
+      for (const [ref, encrypted] of Object.entries(stored.credentials ?? {})) {
+        credentials[ref] = decryptToken(encrypted);
+      }
+      return { credentials, document: stored.document };
+    }
+    // Legacy shape: the renderer migrates it once, then saves the new shape.
+    const legacy = legacyServers(stored);
+    return legacy.length > 0 ? { legacyServers: legacy } : null;
   });
+  ipcMain.handle(
+    "remote-config:save",
+    async (_event, { document, credentials }) => {
+      const entries = Object.entries(
+        credentials && typeof credentials === "object" ? credentials : {}
+      );
+      if (
+        entries.some(([, token]) => token) &&
+        !safeStorage.isEncryptionAvailable()
+      ) {
+        throw new Error("OS credential encryption is unavailable");
+      }
+      const encrypted = {};
+      for (const [ref, token] of entries) {
+        encrypted[ref] = token
+          ? safeStorage.encryptString(token).toString("base64")
+          : "";
+      }
+      await fs.writeFile(
+        remoteConfigFile,
+        JSON.stringify(
+          {
+            credentials: encrypted,
+            document: document ?? null,
+            schema: "omo.electron-host-registry",
+            version: 1,
+          },
+          null,
+          2
+        ),
+        { mode: 0o600 }
+      );
+      return true;
+    }
+  );
   ipcMain.handle("remote-config:clear", async () => {
     await fs.rm(remoteConfigFile, { force: true });
     return true;

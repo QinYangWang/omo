@@ -5,12 +5,13 @@ omo 是 Pi Agent 的 Electron Desktop 与 Web 客户端。项目使用 Electron�
 ## 运行
 
 ```bash
-npm install
-npm run dev          # Vite 5188 + Electron
-npm run build        # tsc -b && vite build
-npm start            # Electron
-npm run server       # omo Server，默认 127.0.0.1:5189
-npm run server:dev   # omo Server watch 模式
+pnpm install
+pnpm dev          # Web/Vite，监听 0.0.0.0:5188
+pnpm dev:desktop  # Vite 5188 + Electron（Desktop 可用时）
+pnpm build        # tsc -b && vite build
+pnpm start        # Electron
+pnpm server       # omo Server，默认 127.0.0.1:5189
+pnpm server:dev   # omo Server watch 模式
 ```
 
 ## 核心约束
@@ -25,7 +26,8 @@ npm run server:dev   # omo Server watch 模式
 
 ## 文档索引
 
-- [docs/architecture.md](docs/architecture.md) — 运行形态、代码边界、本地与远程数据流
+- [docs/architecture.md](docs/architecture.md) — 当前运行形态、代码边界、本地与远程数据流
+- [docs/architecture-v2.md](docs/architecture-v2.md) — pnpm、多 Host、统一本地 daemon 与多端同步目标架构
 - [docs/client-modes.md](docs/client-modes.md) — Electron 本地/远程、静态 Web、safeStorage 与连接配置
 - [docs/server.md](docs/server.md) — omo Server 启动、配置、托管与 Docker
 - [docs/server-api.md](docs/server-api.md) — HTTP、SSE 和 WebSocket API 参考
@@ -45,9 +47,9 @@ This project uses **Ultracite**, a zero-config preset that enforces strict code 
 
 ## Quick Reference
 
-- **Format code**: `npm exec -- ultracite fix`
-- **Check for issues**: `npm exec -- ultracite check`
-- **Diagnose setup**: `npm exec -- ultracite doctor`
+- **Format code**: `pnpm exec ultracite fix`
+- **Check for issues**: `pnpm exec ultracite check`
+- **Diagnose setup**: `pnpm exec ultracite doctor`
 
 Biome (the underlying engine) provides robust linting and formatting. Most issues are automatically fixable.
 
@@ -161,4 +163,4 @@ Biome's linter will catch most issues automatically. Focus your attention on:
 
 ---
 
-Most formatting and common issues are automatically fixed by Biome. Run `npm exec -- ultracite fix` before committing to ensure compliance.
+Most formatting and common issues are automatically fixed by Biome. Run `pnpm exec ultracite fix` before committing to ensure compliance.

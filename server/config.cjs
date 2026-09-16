@@ -9,6 +9,10 @@ function split(value) {
     .filter(Boolean);
 }
 
+const localSocket = process.env.OMO_LOCAL_SOCKET || "";
+const transport = String(
+  process.env.OMO_TRANSPORT || (localSocket ? "socket" : "tcp")
+).toLowerCase();
 const dataDir = path.resolve(
   process.env.OMO_DATA_DIR || path.join(os.homedir(), ".omo-server")
 );
@@ -21,6 +25,7 @@ module.exports = {
   dataDir,
   eventRetention: Number(process.env.OMO_EVENT_RETENTION || 100_000),
   host: process.env.OMO_HOST || "127.0.0.1",
+  localSocket,
   port: Number(process.env.OMO_PORT || 5189),
   sessionRoot: path.resolve(
     process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent"),
@@ -29,6 +34,7 @@ module.exports = {
   tlsCert: process.env.OMO_TLS_CERT || "",
   tlsKey: process.env.OMO_TLS_KEY || "",
   token: process.env.OMO_TOKEN || "",
+  transport,
   webRoot: path.resolve(
     process.env.OMO_WEB_ROOT || path.join(__dirname, "..", "dist")
   ),
