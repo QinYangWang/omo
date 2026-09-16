@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { errorMessage, toJsonSafe } from "./daemon-channel.mjs";
 
 const EVENTS_URL_ENV = "OMO_EXTENSION_EVENTS_URL";
 const COMMANDS_URL_ENV = "OMO_EXTENSION_COMMANDS_URL";
@@ -27,85 +28,116 @@ const STREAM_EVENTS = [
   "turn_start",
 ];
 
-/**
- * Convert an arbitrary Pi event payload into a JSON-safe value. Handles
- * BigInt, functions, Errors, Dates, `undefined` and circular references so a
- * single forwarding failure can never break the Pi event pipeline.
- */
-const sanitize = (value, seen) => {
-  if (value === null) {
-    return null;
+const readSessionId = (ctx) => {
+  try {
+    return ctx?.sessionManager?.getSessionId() ?? undefined;
+  } catch {
+    // The session manager may already be torn down; treat it as unknown.
   }
-  const type = typeof value;
-  if (type === "string" || type === "number" || type === "boolean") {
-    return value;
-  }
-  if (type === "bigint") {
-    return value.toString();
-  }
-  if (type !== "object") {
-    return;
-  }
-  if (seen.has(value)) {
-    return "[Circular]";
-  }
-  seen.add(value);
-  let result;
-  if (Array.isArray(value)) {
-    result = value.map((item) => sanitize(item, seen));
-  } else if (value instanceof Error) {
-    result = { message: value.message, name: value.name };
-  } else if (value instanceof Date) {
-    result = value.toISOString();
-  } else {
-    result = {};
-    for (const [key, item] of Object.entries(value)) {
-      const safe = sanitize(item, seen);
-      if (safe !== undefined) {
-        result[key] = safe;
-      }
-    }
-  }
-  seen.delete(value);
-  return result;
 };
 
-const toJsonSafe = (value) => sanitize(value, new WeakSet());
-
-const errorMessage = (error) =>
-  error instanceof Error ? error.message : String(error);
-
-export default function omoEventForwarder(pi) {
-  const eventsUrl = process.env[EVENTS_URL_ENV]?.trim();
-  if (!eventsUrl) {
-    // No receiver configured: stay completely inert (no network, no timers).
-    return;
+const readSessionFile = (ctx) => {
+  try {
+    return ctx?.sessionManager?.getSessionFile() ?? undefined;
+  } catch {
+    // The session manager may already be torn down; treat it as unknown.
   }
-  // The command channel is only meaningful when acks have somewhere to go.
-  // Without OMO_EXTENSION_COMMANDS_URL the E0-002 forwarding behavior is
-  // unchanged.
-  const commandsUrl = process.env[COMMANDS_URL_ENV]?.trim();
+};
 
-  const instanceId = randomUUID();
-  let nativeSequence = 0;
-  let sessionId;
-  let sessionFile;
-  let active = false;
-  let errorLogs = 0;
-  let consecutiveFailures = 0;
-  let degraded = false;
-  let draining = false;
-  let pending = [];
+/**
+ * Serialized, bounded delivery queue. One record is delivered at a time so
+ * `nativeSequence` ordering is preserved at the receiver without ever
+ * awaiting delivery inside the agent loop. A dead receiver trips the
+ * `isDropped` circuit breaker and drops the backlog instead of delaying
+ * process shutdown indefinitely.
+ */
+class SerialDeliveryQueue {
+  constructor({ deliver, isDropped, maxPending = MAX_PENDING }) {
+    this.deliver = deliver;
+    this.isDropped = isDropped;
+    this.maxPending = maxPending;
+    this.pending = [];
+    this.draining = false;
+  }
 
-  const logForwardingError = (error) => {
-    if (errorLogs >= MAX_ERROR_LOGS) {
+  enqueue(item) {
+    return new Promise((resolve) => {
+      this.pending.push({ item, resolve });
+      if (this.pending.length > this.maxPending) {
+        const dropped = this.pending.shift();
+        dropped?.resolve(false);
+      }
+      if (!this.draining) {
+        this.draining = true;
+        this.#drain();
+      }
+    });
+  }
+
+  dropAll() {
+    const { pending } = this;
+    this.pending = [];
+    for (const entry of pending) {
+      entry.resolve(false);
+    }
+  }
+
+  async #drain() {
+    const entry = this.pending.shift();
+    if (entry === undefined) {
+      this.draining = false;
       return;
     }
-    errorLogs += 1;
-    process.stderr.write(
-      `[omo-pi-extension] event delivery failed: ${errorMessage(error)}\n`
-    );
-  };
+    if (this.isDropped?.()) {
+      entry.resolve(false);
+      this.dropAll();
+      this.draining = false;
+      return;
+    }
+    let delivered = false;
+    try {
+      delivered = await this.deliver(entry.item);
+    } catch {
+      delivered = false;
+    }
+    entry.resolve(delivered);
+    await this.#drain();
+  }
+}
+
+/**
+ * Per-session spike state. All mutable resources (timers, command stream,
+ * delivery queue) are created in `start` and released in `dispose`, so a
+ * double `session_shutdown` or a `session_start` cycle leaves nothing behind.
+ * The extension factory itself only holds immutable configuration.
+ */
+function createSpikeSession({
+  commandsUrl,
+  eventsUrl,
+  instanceId,
+  log,
+  nextSequence,
+  pi,
+}) {
+  let active = false;
+  let sessionId;
+  let sessionFile;
+  let ctx;
+  let consecutiveFailures = 0;
+  let degraded = false;
+
+  // Command bridge state (E0-003).
+  let commandStopped = false;
+  let commandAttempts = 0;
+  let commandController;
+  let commandReconnectTimer;
+  const seenRequestIds = new Set();
+  const requestIdOrder = [];
+  let lastCommandSequence = 0;
+  let activePrompt;
+  let promptStarted = false;
+  let activeAbort;
+  let lastAssistantStopReason;
 
   const postOnce = async (body) => {
     const controller = new AbortController();
@@ -125,122 +157,62 @@ export default function omoEventForwarder(pi) {
   // Fire-and-forget with at most one retry. Never rejects, so a dead receiver
   // can never surface an unhandled rejection inside Pi.
   const deliver = async (body) => {
+    let delivered = false;
     try {
       await postOnce(body);
-      return true;
+      delivered = true;
     } catch {
       try {
         await postOnce(body);
-        return true;
+        delivered = true;
       } catch (error) {
-        logForwardingError(error);
-        return false;
+        log(`event delivery failed: ${errorMessage(error)}`);
       }
     }
-  };
-
-  // Drain one record at a time so nativeSequence ordering is preserved at the
-  // receiver without ever awaiting delivery inside the agent loop. A dead
-  // receiver trips a circuit breaker that drops the backlog instead of
-  // delaying process shutdown indefinitely. Ack senders can await the returned
-  // promise to learn whether their record was actually delivered.
-  const enqueue = (record) =>
-    new Promise((resolve) => {
-      pending.push({
-        body: JSON.stringify(record),
-        resolve,
-      });
-      if (pending.length > MAX_PENDING) {
-        const dropped = pending.shift();
-        dropped?.resolve(false);
-      }
-      if (!draining) {
-        draining = true;
-        drain();
-      }
-    });
-
-  const drain = async () => {
-    const item = pending.shift();
-    if (item === undefined) {
-      draining = false;
-      return;
-    }
-    if (degraded) {
-      item.resolve(false);
-      for (const dropped of pending) {
-        dropped.resolve(false);
-      }
-      pending = [];
-      draining = false;
-      return;
-    }
-    const delivered = await deliver(item.body);
     consecutiveFailures = delivered ? 0 : consecutiveFailures + 1;
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       degraded = true;
     }
-    item.resolve(delivered);
-    await drain();
+    return delivered;
   };
 
-  const nextSequence = () => {
-    nativeSequence += 1;
-    return nativeSequence;
-  };
+  const queue = new SerialDeliveryQueue({
+    deliver,
+    isDropped: () => degraded,
+  });
 
-  const forward = (eventName, payload, ctx) => {
-    if (!active || degraded) {
+  const forward = (eventName, payload, currentCtx) => {
+    if (!(active && !degraded)) {
       return;
     }
-    if (ctx?.sessionManager) {
-      sessionId = ctx.sessionManager.getSessionId();
-      sessionFile = ctx.sessionManager.getSessionFile();
-    }
+    sessionId = readSessionId(currentCtx) ?? sessionId;
+    sessionFile = readSessionFile(currentCtx) ?? sessionFile;
     // Intentionally not awaited: a slow receiver must never stall Pi.
-    enqueue({
-      event: eventName,
-      instanceId,
-      nativeSequence: nextSequence(),
-      payload: toJsonSafe(payload),
-      sessionFile,
-      sessionId,
-      timestamp: Date.now(),
-    });
+    queue.enqueue(
+      JSON.stringify({
+        event: eventName,
+        instanceId,
+        nativeSequence: nextSequence(),
+        payload: toJsonSafe(payload),
+        sessionFile,
+        sessionId,
+        timestamp: Date.now(),
+      })
+    );
   };
 
-  // ---------------------------------------------------------------------------
-  // Command channel (E0-003)
-  //
-  // The extension only ever connects OUT to the harness-owned command stream.
-  // It never opens a listening socket. A command is applied at most once per
-  // process instance: stale commandSequence values are dropped and duplicate
-  // requestIds are rejected without executing anything.
-  // ---------------------------------------------------------------------------
-
-  let sessionCtx;
-  let commandStopped = false;
-  let commandAttempts = 0;
-  let commandController;
-  let commandReconnectTimer;
-  const seenRequestIds = new Set();
-  const requestIdOrder = [];
-  let lastCommandSequence = 0;
-  let activePrompt;
-  let promptStarted = false;
-  let activeAbort;
-  let lastAssistantStopReason;
-
   const sendAck = (fields) =>
-    enqueue({
-      ...fields,
-      instanceId,
-      kind: "ack",
-      nativeSequence: nextSequence(),
-      sessionFile,
-      sessionId,
-      timestamp: Date.now(),
-    });
+    queue.enqueue(
+      JSON.stringify({
+        ...fields,
+        instanceId,
+        kind: "ack",
+        nativeSequence: nextSequence(),
+        sessionFile,
+        sessionId,
+        timestamp: Date.now(),
+      })
+    );
 
   const rememberRequestId = (requestId) => {
     seenRequestIds.add(requestId);
@@ -254,25 +226,25 @@ export default function omoEventForwarder(pi) {
   const rejectCommand = (requestId, commandSequence, reason) =>
     sendAck({ commandSequence, reason, requestId, status: "rejected" });
 
-  const isCtxIdle = (ctx, whenUnknown) => {
+  const isCtxIdle = (currentCtx, whenUnknown) => {
     try {
-      return ctx.isIdle();
+      return currentCtx.isIdle();
     } catch {
       return whenUnknown;
     }
   };
 
-  const handlePromptCommand = async ({ requestId, commandSequence, text }) => {
+  const handlePromptCommand = async ({ commandSequence, requestId, text }) => {
     if (typeof text !== "string" || text.trim().length === 0) {
       await rejectCommand(requestId, commandSequence, "empty_text");
       return;
     }
-    const ctx = sessionCtx;
-    if (!(active && ctx)) {
+    const currentCtx = ctx;
+    if (!(active && currentCtx)) {
       await rejectCommand(requestId, commandSequence, "no_active_session");
       return;
     }
-    if (!isCtxIdle(ctx, false)) {
+    if (!isCtxIdle(currentCtx, false)) {
       await rejectCommand(requestId, commandSequence, "turn_already_running");
       return;
     }
@@ -294,19 +266,19 @@ export default function omoEventForwarder(pi) {
     }
   };
 
-  const handleAbortCommand = async ({ requestId, commandSequence }) => {
-    const ctx = sessionCtx;
-    if (!(active && ctx)) {
+  const handleAbortCommand = async ({ commandSequence, requestId }) => {
+    const currentCtx = ctx;
+    if (!(active && currentCtx)) {
       await rejectCommand(requestId, commandSequence, "no_active_session");
       return;
     }
-    if (isCtxIdle(ctx, true)) {
+    if (isCtxIdle(currentCtx, true)) {
       await rejectCommand(requestId, commandSequence, "no_active_turn");
       return;
     }
     activeAbort = { commandSequence, requestId };
     try {
-      ctx.abort();
+      currentCtx.abort();
     } catch (error) {
       activeAbort = undefined;
       await rejectCommand(
@@ -397,7 +369,7 @@ export default function omoEventForwarder(pi) {
     } catch (error) {
       // Handler errors are swallowed so one bad command can never kill the
       // stream or the Pi session.
-      logForwardingError(error);
+      log(`command handling failed: ${errorMessage(error)}`);
     }
     await processCommands();
   };
@@ -436,22 +408,6 @@ export default function omoEventForwarder(pi) {
     }
   };
 
-  const scheduleCommandReconnect = () => {
-    if (commandStopped || commandReconnectTimer) {
-      return;
-    }
-    if (commandAttempts >= COMMAND_RECONNECT_ATTEMPTS) {
-      return;
-    }
-    commandAttempts += 1;
-    const delayMs = COMMAND_RECONNECT_BASE_MS * 2 ** (commandAttempts - 1);
-    commandReconnectTimer = setTimeout(() => {
-      commandReconnectTimer = undefined;
-      openCommandStream();
-    }, delayMs);
-    commandReconnectTimer.unref?.();
-  };
-
   const openCommandStream = () => {
     if (commandStopped || !commandsUrl || commandController) {
       return;
@@ -475,7 +431,7 @@ export default function omoEventForwarder(pi) {
         if (controller.signal.aborted || commandStopped) {
           return;
         }
-        logForwardingError(error);
+        log(`command stream failed: ${errorMessage(error)}`);
       } finally {
         if (commandController === controller) {
           commandController = undefined;
@@ -484,6 +440,22 @@ export default function omoEventForwarder(pi) {
       scheduleCommandReconnect();
     };
     run();
+  };
+
+  const scheduleCommandReconnect = () => {
+    if (commandStopped || commandReconnectTimer) {
+      return;
+    }
+    if (commandAttempts >= COMMAND_RECONNECT_ATTEMPTS) {
+      return;
+    }
+    commandAttempts += 1;
+    const delayMs = COMMAND_RECONNECT_BASE_MS * 2 ** (commandAttempts - 1);
+    commandReconnectTimer = setTimeout(() => {
+      commandReconnectTimer = undefined;
+      openCommandStream();
+    }, delayMs);
+    commandReconnectTimer.unref?.();
   };
 
   const closeCommandStream = () => {
@@ -523,59 +495,128 @@ export default function omoEventForwarder(pi) {
     }
   };
 
-  pi.on("session_start", (event, ctx) => {
-    active = true;
-    // A fresh session may see a recovered receiver; reset the breaker without
-    // touching the process-scoped sequence, instance id or in-flight drain.
-    consecutiveFailures = 0;
-    degraded = false;
-    sessionCtx = ctx;
-    activePrompt = undefined;
-    promptStarted = false;
-    activeAbort = undefined;
-    lastAssistantStopReason = undefined;
-    if (commandsUrl) {
+  return {
+    dispose() {
+      active = false;
+      ctx = undefined;
       closeCommandStream();
-      commandStopped = false;
-      commandAttempts = 0;
-      openCommandStream();
+    },
+    forward,
+    onAgentSettled() {
+      finishTurn();
+    },
+    onAgentStart() {
+      if (!(activePrompt && !promptStarted)) {
+        return;
+      }
+      promptStarted = true;
+      const { commandSequence, requestId } = activePrompt;
+      sendAck({ commandSequence, requestId, status: "started" });
+    },
+    onMessageEnd(event) {
+      if (event?.message?.role === "assistant") {
+        lastAssistantStopReason = event.message.stopReason;
+      }
+    },
+    start(currentCtx) {
+      active = true;
+      // A fresh session may see a recovered receiver; reset the breaker
+      // without touching the process-scoped sequence or instance id.
+      consecutiveFailures = 0;
+      degraded = false;
+      ctx = currentCtx;
+      activePrompt = undefined;
+      promptStarted = false;
+      activeAbort = undefined;
+      lastAssistantStopReason = undefined;
+      if (commandsUrl) {
+        closeCommandStream();
+        commandStopped = false;
+        commandAttempts = 0;
+        openCommandStream();
+      }
+    },
+  };
+}
+
+export default function omoEventForwarder(pi) {
+  const eventsUrl = process.env[EVENTS_URL_ENV]?.trim();
+  if (!eventsUrl) {
+    // No receiver configured: stay completely inert (no network, no timers).
+    return;
+  }
+  // The command channel is only meaningful when acks have somewhere to go.
+  // Without OMO_EXTENSION_COMMANDS_URL the E0-002 forwarding behavior is
+  // unchanged.
+  const commandsUrl = process.env[COMMANDS_URL_ENV]?.trim();
+
+  const instanceId = randomUUID();
+  let nativeSequence = 0;
+  let errorLogs = 0;
+  let session;
+
+  // Process-scoped monotonic sequence shared by events and acks.
+  const nextSequence = () => {
+    nativeSequence += 1;
+    return nativeSequence;
+  };
+
+  const log = (message) => {
+    if (errorLogs >= MAX_ERROR_LOGS) {
+      return;
     }
-    forward("session_start", event, ctx);
+    errorLogs += 1;
+    try {
+      process.stderr.write(`[omo-pi-extension] ${message}\n`);
+    } catch {
+      // stderr may already be closed during teardown.
+    }
+  };
+
+  pi.on("session_start", (event, ctx) => {
+    const previous = session;
+    session = undefined;
+    previous?.dispose();
+    const next = createSpikeSession({
+      commandsUrl,
+      eventsUrl,
+      instanceId,
+      log,
+      nextSequence,
+      pi,
+    });
+    session = next;
+    next.start(ctx);
+    next.forward("session_start", event, ctx);
   });
 
   pi.on("session_shutdown", (event, ctx) => {
-    forward("session_shutdown", event, ctx);
-    active = false;
-    sessionCtx = undefined;
-    closeCommandStream();
+    const current = session;
+    if (!current) {
+      return;
+    }
+    current.forward("session_shutdown", event, ctx);
+    session = undefined;
+    current.dispose();
   });
 
   // Only registered when the command channel is configured. These handlers
   // turn native lifecycle events into truthful `started` / `completed` acks.
   if (commandsUrl) {
     pi.on("agent_start", () => {
-      if (!activePrompt || promptStarted) {
-        return;
-      }
-      promptStarted = true;
-      const { commandSequence, requestId } = activePrompt;
-      sendAck({ commandSequence, requestId, status: "started" });
+      session?.onAgentStart();
     });
-
     pi.on("message_end", (event) => {
-      if (event?.message?.role === "assistant") {
-        lastAssistantStopReason = event.message.stopReason;
-      }
+      session?.onMessageEnd(event);
     });
-
     pi.on("agent_settled", () => {
-      finishTurn();
+      session?.onAgentSettled();
     });
   }
 
   for (const eventName of STREAM_EVENTS) {
     pi.on(eventName, (event, ctx) => {
-      forward(eventName, event, ctx);
+      session?.forward(eventName, event, ctx);
     });
   }
 }

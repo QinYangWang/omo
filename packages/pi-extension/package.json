@@ -2,6 +2,7 @@
   "name": "@omo/pi-extension",
   "version": "0.1.0",
   "private": true,
+  "description": "Version-locked Pi extension that bridges a native Pi session to the local omo daemon (register, heartbeat, event forwarding) while keeping the E0 spike receiver modes.",
   "type": "module",
   "scripts": {
     "test:spike": "node --test test/*.test.mjs"

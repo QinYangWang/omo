@@ -76,8 +76,8 @@
 
 ### E2：omo Pi Extension package
 
-- [ ] E2-001：建立版本锁定的 omo Pi package；只在 `session_start` 启动资源并在 `session_shutdown` 幂等清理
-- [ ] E2-002：实现 Session 注册、heartbeat 及 message/turn/tool/agent/retry/compaction/model lifecycle 转发
+- [x] E2-001：建立版本锁定的 omo Pi package；只在 `session_start` 启动资源并在 `session_shutdown` 幂等清理（`68c8bb0`）
+- [x] E2-002：实现 Session 注册、heartbeat 及 message/turn/tool/agent/retry/compaction/model lifecycle 转发（`2d2d536`）
 - [ ] E2-003：实现私有 command stream 的 Prompt/Abort dispatch、结构化 ack 与 requestId 关联
 - [ ] E2-004：正确处理 `/new`、`/resume`、`/fork`、`/reload` 和异常退出，不复用 stale SessionContext
 - [ ] E2-GATE：验证 Extension reload/switch/crash 不泄漏 watcher、timer、socket 或旧 generation 事件
