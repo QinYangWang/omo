@@ -27,6 +27,7 @@ class EventStore {
       );
     `);
     this.retention = retention;
+    this.closed = false;
     this.emitter = new EventEmitter();
     this.emitter.setMaxListeners(0);
     this.insert = this.db.prepare(`
@@ -103,6 +104,15 @@ class EventStore {
   subscribe(sessionId, callback) {
     this.emitter.on(sessionId, callback);
     return () => this.emitter.off(sessionId, callback);
+  }
+
+  close() {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    this.emitter.removeAllListeners();
+    this.db.close();
   }
 
   requestResult(requestId) {

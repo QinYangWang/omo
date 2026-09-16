@@ -36,7 +36,7 @@
 
 ## Stage D：本机 daemon
 
-- [ ] D1-001：实现 `omo serve` 生命周期与优雅关闭
+- [x] D1-001：实现 `omo serve` 生命周期与优雅关闭
 - [ ] D1-002：实现 daemon discovery、PID、启动锁与 stale PID 清理
 - [ ] D1-003：实现 Unix socket 与 Windows named pipe transport
 - [ ] D1-004：让 `omo` 默认发现或启动本机 Host 后进入 TUI

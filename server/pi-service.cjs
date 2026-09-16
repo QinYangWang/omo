@@ -242,6 +242,16 @@ class PiService {
     );
   }
 
+  dispose() {
+    for (const watcher of this.fileWatchers.values()) {
+      watcher.close();
+    }
+    this.fileWatchers.clear();
+    this.sessions.clear();
+    this.history.clear();
+    this.authPrompts.clear();
+  }
+
   async models() {
     const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
     return (await (await this.runtime()).getAvailable()).map((model) => ({

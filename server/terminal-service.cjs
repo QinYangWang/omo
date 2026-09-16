@@ -208,6 +208,14 @@ class TerminalService {
       }
     }
   }
+
+  dispose() {
+    clearInterval(this.cleanupTimer);
+    for (const terminalId of [...this.terminals.keys()]) {
+      this.close(terminalId);
+    }
+    this.tickets.clear();
+  }
 }
 
 module.exports = { TerminalService };
