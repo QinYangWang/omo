@@ -61,7 +61,7 @@
 ### E0：可行性与稳定 API Spike
 
 - [x] E0-001：定义 Extension/daemon 边界、Session 执行所有权、私有通道与分阶段任务
-- [ ] E0-002：Spike：Extension 从原生 Pi TUI 转发 message/turn/tool/agent 事件到测试接收端
+- [x] E0-002：Spike：Extension 从原生 Pi TUI 转发 message/turn/tool/agent 事件到测试接收端（`3602ebf`）
 - [ ] E0-003：Spike：通过 Extension command bridge 将外部 Prompt 与 Abort 注入同一个原生 AgentSession
 - [ ] E0-004：Spike：`omo` 使用项目锁定的 Pi 依赖启动原生 TUI并显式加载 Extension，无需全局安装 Pi
 - [ ] E0-GATE：真实 Pi TUI Prompt 可在测试客户端 token 级显示，外部 Prompt 可由同一 runtime 执行，退出后无残留资源
