@@ -32,6 +32,16 @@ const DAEMON_REREGISTER_BASE_MS = 500;
 const DAEMON_HEARTBEAT_FAILURE_LIMIT = 3;
 const DAEMON_DEFAULT_HEARTBEAT_MS = 5000;
 
+/**
+ * The latest extension factory instance loaded for one `pi` object. Pi always
+ * hands a distinct API object to each load, so this is per-extension in
+ * production. It also protects the mock/shared case (and the brief window
+ * during `/reload` where two instances may coexist): only the newest instance
+ * may register, forward or acknowledge, while the superseded instance still
+ * releases its own resources on `session_shutdown`.
+ */
+const currentInstances = new WeakMap();
+
 const extractSseData = (frame) =>
   frame
     .split("\n")
@@ -1367,6 +1377,13 @@ export default function omoEventForwarder(pi) {
   // go. Without OMO_EXTENSION_COMMANDS_URL the E0-002 behavior is unchanged.
   const commandsUrl = process.env[COMMANDS_URL_ENV]?.trim();
 
+  // Latest-instance registry. Pi loads extensions fresh on `/reload` (new API
+  // object per load); a newer load supersedes the old one so that, while both
+  // are briefly loaded, only the newest registers, forwards or acknowledges.
+  const instanceToken = {};
+  currentInstances.set(pi, instanceToken);
+  const isSuperseded = () => currentInstances.get(pi) !== instanceToken;
+
   const instanceId = randomUUID();
   // The launcher gates the real Pi version (E0-004); E3 passes OMO_PI_VERSION
   // through. A missing value is recorded as "unknown" rather than guessed.
@@ -1399,6 +1416,29 @@ export default function omoEventForwarder(pi) {
     }
   };
 
+  /**
+   * Contains every handler error: a throwing handler must never crash Pi.
+   * Async handler rejections are logged through the same bounded stderr
+   * budget as transport failures.
+   */
+  const guard = (label, handler) =>
+    function guarded(...args) {
+      try {
+        const result = handler(...args);
+        if (result && typeof result.then === "function") {
+          return result.catch((error) => {
+            log(`${label} failed: ${errorMessage(error)}`);
+          });
+        }
+        return result;
+      } catch (error) {
+        log(`${label} failed: ${errorMessage(error)}`);
+      }
+    };
+
+  const on = (eventName, handler) =>
+    pi.on(eventName, guard(eventName, handler));
+
   const forwardToSessions = (eventName, event, ctx) => {
     spikeSession?.forward(eventName, event, ctx);
     daemonSession?.forward(eventName, event, ctx);
@@ -1413,7 +1453,13 @@ export default function omoEventForwarder(pi) {
     await daemon?.dispose();
   };
 
-  pi.on("session_start", async (event, ctx) => {
+  on("session_start", async (event, ctx) => {
+    // A superseded instance (briefly alive during `/reload`) releases its own
+    // resources but never registers a second attachment.
+    if (isSuperseded()) {
+      await disposeSessions();
+      return;
+    }
     // Defensive: a start without a preceding shutdown must not leak the old
     // session's timers or lease.
     await disposeSessions();
@@ -1448,11 +1494,13 @@ export default function omoEventForwarder(pi) {
     forwardToSessions("session_start", event, ctx);
   });
 
-  pi.on("session_shutdown", async (event, ctx) => {
+  on("session_shutdown", async (event, ctx) => {
     if (!(spikeSession || daemonSession)) {
       return;
     }
-    forwardToSessions("session_shutdown", event, ctx);
+    if (!isSuperseded()) {
+      forwardToSessions("session_shutdown", event, ctx);
+    }
     await disposeSessions();
   });
 
@@ -1460,28 +1508,39 @@ export default function omoEventForwarder(pi) {
   // handlers turn native lifecycle events into truthful `started` /
   // `completed` acks.
   if (commandsUrl) {
-    pi.on("agent_start", () => {
-      spikeSession?.onAgentStart();
+    on("agent_start", () => {
+      if (!isSuperseded()) {
+        spikeSession?.onAgentStart();
+      }
     });
-    pi.on("message_end", (event) => {
-      spikeSession?.onMessageEnd(event);
+    on("message_end", (event) => {
+      if (!isSuperseded()) {
+        spikeSession?.onMessageEnd(event);
+      }
     });
-    pi.on("agent_settled", () => {
-      spikeSession?.onAgentSettled();
+    on("agent_settled", () => {
+      if (!isSuperseded()) {
+        spikeSession?.onAgentSettled();
+      }
     });
   }
 
   if (eventsUrl) {
     for (const eventName of STREAM_EVENTS) {
-      pi.on(eventName, (event, ctx) => {
-        spikeSession?.forward(eventName, event, ctx);
+      on(eventName, (event, ctx) => {
+        if (!isSuperseded()) {
+          spikeSession?.forward(eventName, event, ctx);
+        }
       });
     }
   }
 
   if (daemonSocket) {
     for (const eventName of DAEMON_STREAM_EVENTS) {
-      pi.on(eventName, (event, ctx) => {
+      on(eventName, (event, ctx) => {
+        if (isSuperseded()) {
+          return;
+        }
         // One handler per native event forwards it and, for the three ack
         // lifecycle events, drives the truthful `started`/`completed` acks
         // through the same serialized delivery queue.

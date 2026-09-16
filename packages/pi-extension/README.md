@@ -14,6 +14,12 @@ bridge:
   shutdown. The daemon is the long-lived management surface; this package never
   opens a listening socket and never owns TLS, CORS, the public bearer token or
   workspace paths.
+- **E2-003** — receive daemon `Prompt`/`Abort` commands over the private SSE
+  command stream and return structured, truthful acks (`accepted` → `started`
+  → `completed`, or `rejected` with a reason).
+- **E2-004** — handle `/new`, `/resume`, `/fork` and `/reload` without reusing a
+  stale `SessionContext`, and contain every handler error so a bad event or
+  command can never crash Pi.
 
 This package intentionally has **no `test` script and no `build` script**, so the
 live-model spikes never run in the default repository gates. It is plain ESM
@@ -36,6 +42,17 @@ JavaScript and is loaded directly by Pi with no TypeScript build step.
 - `test/daemon-live.test.mjs` — E2 live harness. Serves a real
   `ExtensionService` over a real Unix socket and asserts register, heartbeat,
   event forwarding, detach, inert-without-env and register-rejection behavior.
+- `test/daemon-command.test.mjs` — E2-003 in-process dispatch: prompt/abort
+  acks, busy/empty/unknown/duplicate rejections and malformed-frame drops.
+- `test/daemon-command-live.test.mjs` — E2-003 live harness: a real daemon
+  `sendCommand` drives the pinned Pi RPC session through accepted → started →
+  streaming deltas → completed, a duplicate `requestId` and a mid-stream abort.
+- `test/daemon-fencing.test.mjs` — E2 generation fencing: re-register drops old
+  in-flight acks and the daemon rejects stale-generation acks with 409.
+- `test/daemon-session-switch.test.mjs` — E2-004 in-process `/new` `/resume`
+  `/fork` switches: old detach before new register, dispatch via the new ctx.
+- `test/daemon-reload.test.mjs` — E2-004 reload hygiene: two sequential loads
+  against one shared `pi` do not double-register, double-forward or leak.
 - `test/heartbeat-recovery.test.mjs` — E2 in-process recovery test: heartbeat
   expiry triggers the bounded re-register path and forwarding resumes with the
   new generation.
@@ -170,6 +187,94 @@ Daemon mode uses the private channel in
 - Events emitted while registration is pending or failed are dropped; nothing
   is buffered unboundedly.
 
+### Command stream and acks (E2-003)
+
+On every successful register the attachment opens an **outbound** SSE stream:
+
+```
+GET /api/v1/extension/commands?instanceId=<id>&generation=<n>
+Authorization: Bearer <instance credential>
+Accept: text/event-stream
+```
+
+The daemon is the only side that writes commands; the extension only ever
+reads. Frames are the frozen `ExtensionCommandSchema` union:
+
+```json
+{ "type": "prompt", "requestId": "req-1", "commandSequence": 1, "text": "…" }
+{ "type": "abort", "requestId": "abort-1", "commandSequence": 2 }
+```
+
+Dispatch rules:
+
+- Commands are validated against the union shape; malformed frames are dropped
+  without acking and without crashing Pi.
+- `commandSequence <= lastApplied` is ignored; `requestId` dedup is a bounded
+  LRU (`1024`) and a repeated id is rejected `duplicate_request`.
+- `prompt` is rejected `empty_text` when blank and `turn_already_running` when
+  `ctx.isIdle()` is false; otherwise it is dispatched with
+  `pi.sendUserMessage(text)`.
+- `abort` is rejected `no_active_turn` when idle; otherwise it calls the
+  current `ctx.abort()`.
+
+Acks POST the frozen `ExtensionAckSchema` to `/api/v1/extension/ack` with the
+same credential:
+
+```json
+{ "status": "accepted", "requestId": "req-1", "commandSequence": 1,
+  "instanceId": "…", "generation": 1 }
+```
+
+- `accepted` is sent after validation, before dispatch.
+- `started` is sent only when a native `agent_start` actually fires.
+- `completed` is sent on `agent_settled`; `reason` carries the native assistant
+  `stopReason` when available (`stop`, `aborted`, `error`, …).
+- `rejected` always carries a reason (`empty_text`, `turn_already_running`,
+  `no_active_turn`, `duplicate_request`, `no_active_session`,
+  `unknown_command_type: …`, `dispatch_failed: …`, `abort_failed: …`).
+
+Events and acks share one serialized delivery queue, so the daemon observes the
+ack lifecycle in order relative to the native `nativeSequence` stream. Acks are
+fenced by their captured generation: on re-register the in-flight ack state is
+dropped and old-generation acks are never relabelled.
+
+The command stream reconnects with bounded backoff (3 attempts, 500 ms / 1 s /
+2 s) after an unexpected drop. A `401`/`409` response means the generation is
+dead, so the extension stops reconnecting and lets the heartbeat recovery path
+re-register. A dropped stream is **unknown** to the daemon: the extension never
+fabricates an ack that was not actually emitted.
+
+### Session lifecycle and crash hygiene (E2-004)
+
+- `/new`, `/resume`, `/fork`: Pi emits `session_shutdown` (with the switch
+  `reason` and `previousSessionFile`) then `session_start` for the new session.
+  The extension forwards the shutdown, drains the queue, detaches the old
+  attachment (heartbeat stop + command-stream close) and only then registers the
+  new `sessionId`/`sessionFile`/`cwd` from the new `ctx`. That register receives
+  a new generation from the daemon.
+- Commands always dispatch through the attachment's current live `ctx`; a
+  switched session can never be reached through a captured factory-scope ctx.
+- `/reload`: Pi re-imports the extension (fresh factory state). A latest-
+  instance registry guarantees that while the old and new instances coexist
+  briefly only the newest registers, forwards or acknowledges. The old
+  instance still releases its own resources on `session_shutdown`.
+- Every handler is wrapped so a thrown or rejected error is logged through the
+  bounded stderr budget (`MAX_ERROR_LOGS`) and never propagates into Pi.
+- Process exit without an explicit detach (crash / kill) leaves the daemon to
+  expire the lease via heartbeat timeout. The extension adds **no** keepalive
+  or replay hack.
+
+Process-scoped resources (one per extension factory invocation): `instanceId`,
+`nativeSequence`, the stderr log budget and the latest-instance registry entry.
+Per-session resources (created per `session_start`, released idempotently by
+`dispose()`): the heartbeat timer, the recovery timer, the command stream and
+its reconnect timer, the serialized delivery queue and the command dedup state.
+
+**Honest-delivery limitations:** an accepted command whose ack never reaches the
+daemon is reported as silence (unknown), not as success; there is no durable
+operation recovery and no exactly-once claim. An ack is only ever emitted for a
+native lifecycle fact (`agent_start`, `agent_settled`).
+
 **Retry observability:** Pi 0.85.0 has no separate extension retry event. A
 provider retry or auto-compaction retry is observed through the
 `agent_end` / `agent_settled` payloads (and the `message_*` stream), not as a
@@ -220,8 +325,7 @@ command.
 
 ## Non-goals
 
-No command dispatch over the daemon channel (E2-003), no `/new` `/resume`
-`/fork` `/reload` semantics beyond "register on every `session_start`"
-(E2-004), no CLI changes, no daemon changes, no additional dependencies and no
-TypeScript build step. Delivery is fire-and-forget with a short timeout and a
-bounded retry; nothing here claims exactly-once semantics.
+No daemon-side ack consumption or Prompt routing (E4), no client-visible
+execution state (E4), no CLI changes (E3), no durable operation recovery, no
+exactly-once semantics, no additional dependencies and no TypeScript build
+step. Delivery is fire-and-forget with a short timeout and a bounded retry.
