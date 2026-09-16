@@ -45,7 +45,7 @@
 ## Performance：CLI 启动
 
 - [x] PERF-001：将 workspace 编译移至安装/开发阶段，正常 `omo` 启动不再重复执行 TypeScript build
-- [ ] PERF-GATE：已运行 daemon 的 `pnpm run omo -- session list` 启动时间低于 1 秒
+- [x] PERF-GATE：已运行 daemon 的 `pnpm run omo -- session list` 启动时间低于 1 秒
 
 ## Stage M：多 Host
 
