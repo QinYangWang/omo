@@ -23,7 +23,7 @@
 ## Stage V：双客户端垂直切片
 
 - [x] V1-001：补齐 health、Project、Session list/open、Prompt、abort 与 SSE 的 contracts
-- [ ] V1-002：实现基于现有 `/api/v1` HTTP/SSE 的共享 `HostClient`
+- [x] V1-002：实现基于现有 `/api/v1` HTTP/SSE 的共享 `HostClient`
 - [ ] V1-003：让 CLI 只通过 `HostClient` 访问 Host
 - [ ] V1-004：让 Web 只通过 `HostClient` 访问 Host
 - [ ] V1-005：建立 CLI 与 Web 同时 attach 同一 Session 的集成测试
