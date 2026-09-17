@@ -166,6 +166,7 @@ class ExtensionService {
       hostId,
       now = Date.now,
       onAck,
+      onAttach,
       onAttachConfirm,
       onDetach,
       onNativeEvent,
@@ -192,6 +193,7 @@ class ExtensionService {
     this.sseHeartbeatMs = positiveInteger(sseHeartbeatMs, SSE_HEARTBEAT_MS);
     this.now = now;
     this.onAck = typeof onAck === "function" ? onAck : noop;
+    this.onAttach = typeof onAttach === "function" ? onAttach : noop;
     this.onDetach = typeof onDetach === "function" ? onDetach : noop;
     this.onNativeEvent =
       typeof onNativeEvent === "function" ? onNativeEvent : noop;
@@ -364,6 +366,11 @@ class ExtensionService {
     this.attachments.set(attachment.key, attachment);
     this.currentBySession.set(parsed.sessionId, attachment);
     this.instances.set(parsed.instanceId, { generation });
+    // Ownership transition hook (design §4). Fires after the attachment is
+    // confirmed and the idle headless runtime (if any) was synchronously
+    // released by `onAttachConfirm`, so consumers observe exactly one stable
+    // `native-attached` transition per accepted attach. Credential-free view.
+    this.onAttach(attachment.sessionId, attachmentView(attachment));
     return parseContract(
       ExtensionRegisterAcceptedSchema,
       {

@@ -77,6 +77,19 @@ class PiService {
     return this.executionBroker?.nativeAttached(sessionId) === true;
   }
 
+  /**
+   * Credential-free ownership view for `sessionId` (design §4). Falls back to
+   * `headless-owned` when no broker is wired (unit tests, legacy paths),
+   * because `open()` serves a headless runtime in that case.
+   */
+  executionState(sessionId) {
+    return (
+      this.executionBroker?.executionState(sessionId) ?? {
+        state: "headless-owned",
+      }
+    );
+  }
+
   /** Fails closed when a native Extension currently owns the Session. */
   assertHeadlessOwned(sessionId) {
     if (this.nativeAttached(sessionId)) {
@@ -255,6 +268,11 @@ class PiService {
           ...historyPage(history),
           contextUsage: null,
           eventSequence: this.events.latestSequence(sessionId),
+          // History-only path: no runtime is created or returned here, so
+          // report the broker's current ownership exactly as of this
+          // response. Normally `native-attached`; `detached` remains a
+          // truthful answer if ownership changed after the branch decision.
+          execution: this.executionState(sessionId),
           isStreaming: false,
           model: null,
           outline: history.metas,
@@ -281,6 +299,10 @@ class PiService {
         ...page,
         contextUsage: session.getContextUsage() ?? null,
         eventSequence: this.events.latestSequence(sessionId),
+        // `ensure()` above created or returned the headless runtime, so the
+        // response describes the ownership it leaves behind (`headless-owned`)
+        // rather than the ownership seen at request entry.
+        execution: this.executionState(sessionId),
         isStreaming,
         model: session.model
           ? {
@@ -307,6 +329,10 @@ class PiService {
       contextUsage: session.getContextUsage() ?? null,
       cursor: 0,
       eventSequence: this.events.latestSequence(sessionId),
+      // `ensure()` above created or returned the headless runtime, so the
+      // response describes the ownership it leaves behind (`headless-owned`)
+      // rather than the ownership seen at request entry.
+      execution: this.executionState(sessionId),
       hasMore: false,
       isStreaming,
       messages: [],

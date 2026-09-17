@@ -157,6 +157,58 @@ test("Session open and Prompt acceptance contracts match current responses", () 
   assert.equal(HostApiContracts.prompt.response, AcceptedOperationSchema);
 });
 
+test("OpenSessionResponse exposes an optional credential-free execution view", () => {
+  const base = {
+    contextUsage: null,
+    cursor: 0,
+    eventSequence: 0,
+    hasMore: false,
+    isStreaming: false,
+    messages: [],
+    model: null,
+    sessionId: "session-1",
+    thinkingLevel: "off",
+  };
+  // Backward compatible: older responses that predate E4-001 still validate.
+  assert.equal(
+    parseContract(OpenSessionResponseSchema, base, "OpenSessionResponse")
+      .execution,
+    undefined
+  );
+  for (const execution of [
+    { state: "detached" },
+    { state: "headless-owned" },
+    { generation: 2, ownerInstanceId: HOST_ID, state: "native-attached" },
+  ]) {
+    assert.deepEqual(
+      parseContract(
+        OpenSessionResponseSchema,
+        { ...base, execution },
+        "OpenSessionResponse"
+      ).execution,
+      execution
+    );
+  }
+  assert.throws(
+    () =>
+      parseContract(
+        OpenSessionResponseSchema,
+        { ...base, execution: { state: "attaching" } },
+        "OpenSessionResponse"
+      ),
+    ContractValidationError
+  );
+  assert.throws(
+    () =>
+      parseContract(
+        OpenSessionResponseSchema,
+        { ...base, execution: { credential: "secret", state: "detached" } },
+        "OpenSessionResponse"
+      ),
+    ContractValidationError
+  );
+});
+
 test("JSON and Agent event contracts reject non-JSON values", () => {
   assert.deepEqual(
     parseContract(JsonValueSchema, { delta: ["hello", 1, null] }, "JsonValue"),

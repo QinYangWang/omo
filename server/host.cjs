@@ -9,7 +9,10 @@ const { WebSocketServer } = require("ws");
 const config = require("./config.cjs");
 const { createWorkspaceGuard, inside } = require("./workspace.cjs");
 const { EventStore } = require("./event-store.cjs");
-const { ExecutionBroker } = require("./execution-broker.cjs");
+const {
+  appendExecutionStateEvent,
+  ExecutionBroker,
+} = require("./execution-broker.cjs");
 const { ExtensionService } = require("./extension-service.cjs");
 const { loadHostIdentity } = require("./host-identity.cjs");
 const { createNativeEventHandler } = require("./native-events.cjs");
@@ -875,13 +878,22 @@ function installSignalHandlers() {
 
 async function initializeHost() {
   hostId = loadHostIdentity(config.dataDir);
+  // Ownership transition events (design §4). Attach, detach and heartbeat
+  // expiry each append exactly one `omo_execution_state` event to the
+  // Session's existing Host event stream; headless creation is
+  // client-initiated and emits nothing. `events` and `executionBroker` are
+  // late-bound, so the closure reads them when a transition actually fires.
+  const recordExecutionState = (sessionId) =>
+    appendExecutionStateEvent(events, executionBroker, sessionId);
   extensionService = new ExtensionService({
     canAttach: (sessionId) =>
       executionBroker ? executionBroker.canAttach(sessionId) : { ok: true },
     heartbeatIntervalMs: config.extensionHeartbeatIntervalMs,
     heartbeatTimeoutMs: config.extensionHeartbeatTimeoutMs,
     hostId,
+    onAttach: (sessionId) => recordExecutionState(sessionId),
     onAttachConfirm: (sessionId) => executionBroker?.onAttachConfirm(sessionId),
+    onDetach: (sessionId) => recordExecutionState(sessionId),
     // Late-bound: ExtensionService is constructed before the EventStore, so
     // the closure reads the handler once `initializeHost` wires it below.
     onNativeEvent: (attachment, nativeEvent) =>

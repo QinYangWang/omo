@@ -211,11 +211,44 @@ export const SessionOutlineItemSchema = Type.Object(
 );
 export type SessionOutlineItem = Static<typeof SessionOutlineItemSchema>;
 
+/**
+ * Ownership identity primitives shared by the public execution view and the
+ * private Extension channel. `instanceId` is regenerated per Extension
+ * process; `generation` is minted per accepted attachment (design §4/§5).
+ */
+export const ExtensionInstanceIdSchema = Type.String({
+  pattern: HOST_ID_PATTERN,
+});
+export type ExtensionInstanceId = Static<typeof ExtensionInstanceIdSchema>;
+
+export const ExtensionGenerationSchema = Type.Integer({ minimum: 1 });
+export type ExtensionGeneration = Static<typeof ExtensionGenerationSchema>;
+
+/**
+ * Public, credential-free view of who currently executes a Session (design
+ * §4). Exposed through the Session API (E4-001); never carries the instance
+ * credential or other process secrets.
+ */
+export const SessionExecutionStateSchema = Type.Object(
+  {
+    generation: Type.Optional(ExtensionGenerationSchema),
+    ownerInstanceId: Type.Optional(ExtensionInstanceIdSchema),
+    state: Type.Union([
+      Type.Literal("headless-owned"),
+      Type.Literal("native-attached"),
+      Type.Literal("detached"),
+    ]),
+  },
+  { additionalProperties: false }
+);
+export type SessionExecutionState = Static<typeof SessionExecutionStateSchema>;
+
 export const OpenSessionResponseSchema = Type.Object(
   {
     contextUsage: Type.Union([ContextUsageSchema, Type.Null()]),
     cursor: Type.Integer({ minimum: 0 }),
     eventSequence: Type.Integer({ minimum: 0 }),
+    execution: Type.Optional(SessionExecutionStateSchema),
     hasMore: Type.Boolean(),
     isStreaming: Type.Boolean(),
     messages: Type.Array(JsonValueSchema),
@@ -369,14 +402,6 @@ export const HostApiContracts = {
  *   generation)` scope.
  */
 export const EXTENSION_CHANNEL_VERSION = 1;
-
-export const ExtensionInstanceIdSchema = Type.String({
-  pattern: HOST_ID_PATTERN,
-});
-export type ExtensionInstanceId = Static<typeof ExtensionInstanceIdSchema>;
-
-export const ExtensionGenerationSchema = Type.Integer({ minimum: 1 });
-export type ExtensionGeneration = Static<typeof ExtensionGenerationSchema>;
 
 export const ExtensionNativeSequenceSchema = Type.Integer({ minimum: 1 });
 export type ExtensionNativeSequence = Static<
@@ -568,25 +593,6 @@ export const ExtensionDetachRequestSchema = Type.Object(
 export type ExtensionDetachRequest = Static<
   typeof ExtensionDetachRequestSchema
 >;
-
-/**
- * Public, credential-free view of who currently executes a Session (design
- * §4). Exposed to Web/Desktop later (E4-001); never carries the instance
- * credential or other process secrets.
- */
-export const SessionExecutionStateSchema = Type.Object(
-  {
-    generation: Type.Optional(ExtensionGenerationSchema),
-    ownerInstanceId: Type.Optional(ExtensionInstanceIdSchema),
-    state: Type.Union([
-      Type.Literal("headless-owned"),
-      Type.Literal("native-attached"),
-      Type.Literal("detached"),
-    ]),
-  },
-  { additionalProperties: false }
-);
-export type SessionExecutionState = Static<typeof SessionExecutionStateSchema>;
 
 export const ExtensionChannelContracts = {
   ack: {

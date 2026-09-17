@@ -107,4 +107,23 @@ class ExecutionBroker {
   }
 }
 
-module.exports = { ExecutionBroker };
+/**
+ * Projects `sessionId`'s current ownership as one `omo_execution_state` Host
+ * event. `ExtensionService` calls this from its attach/detach hooks so SSE
+ * consumers observe ownership transitions in real time; headless creation is
+ * client-initiated and emits nothing. The payload is credential-free by
+ * construction because the broker only ever returns SessionExecutionState
+ * shaped data.
+ */
+function appendExecutionStateEvent(events, broker, sessionId) {
+  if (!events || typeof events.append !== "function") {
+    return;
+  }
+  const state = broker?.executionState(sessionId);
+  if (!state) {
+    return;
+  }
+  return events.append(sessionId, { type: "omo_execution_state", ...state });
+}
+
+module.exports = { appendExecutionStateEvent, ExecutionBroker };
