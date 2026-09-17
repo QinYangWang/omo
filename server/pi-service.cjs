@@ -260,6 +260,11 @@ class PiService {
           this.sessionHandles.set(durableSessionId, handle);
         }
       }
+      // A Session that had no headless runtime just crossed the idle
+      // `detached` -> `headless-owned` boundary. The broker emits exactly one
+      // observable claim here; a later `ensure` (or a concurrent one) returns
+      // the existing runtime at the top of this method and never reaches it.
+      this.executionBroker?.headlessClaimed?.(sessionId);
       return session;
     } catch (error) {
       this.sessions.delete(sessionId);
@@ -268,31 +273,36 @@ class PiService {
   }
 
   async open({ sessionId, cwd, sessionPath }) {
+    // A brand-new Session arrives without an id. Mint one before any
+    // EventStore read or write so the whole call uses one key;
+    // `latestSequence(undefined)` used to crash the new-session branch. The
+    // response still reports the runtime's durable id once it exists.
+    const openSessionId = sessionId || crypto.randomUUID();
     if (sessionPath) {
       const resolvedCwd = await this.workspace.resolveExisting(cwd);
       const resolvedSessionPath =
         await this.sessionWorkspace.resolveExisting(sessionPath);
-      this.watchSessionFile(sessionId, resolvedSessionPath);
+      this.watchSessionFile(openSessionId, resolvedSessionPath);
       const manager = (await this.adapter()).openSessionDocument(
         resolvedSessionPath
       );
       // A native owner must not be shadowed by a second headless runtime.
       // History is still served from the Session file; live model/context
       // state arrives with native event ingestion (E1-004).
-      if (this.nativeAttached(sessionId)) {
+      if (this.nativeAttached(openSessionId)) {
         const history = createHistorySnapshot(sessionHistoryMessages(manager), {
           running: false,
         });
-        this.history.set(sessionId, history);
+        this.history.set(openSessionId, history);
         return {
           ...historyPage(history),
           contextUsage: null,
-          eventSequence: this.events.latestSequence(sessionId),
+          eventSequence: this.events.latestSequence(openSessionId),
           // History-only path: no runtime is created or returned here, so
           // report the broker's current ownership exactly as of this
           // response. Normally `native-attached`; `detached` remains a
           // truthful answer if ownership changed after the branch decision.
-          execution: this.executionState(sessionId),
+          execution: this.executionState(openSessionId),
           isStreaming: false,
           model: null,
           outline: history.metas,
@@ -302,7 +312,7 @@ class PiService {
         };
       }
       const session = await this.ensure(
-        sessionId,
+        openSessionId,
         resolvedCwd,
         resolvedSessionPath
       );
@@ -310,19 +320,19 @@ class PiService {
       const history = createHistorySnapshot(sessionHistoryMessages(manager), {
         running: isStreaming,
       });
-      this.history.set(sessionId, history);
+      this.history.set(openSessionId, history);
       const page = historyPage(history);
       const turnStartSequence = isStreaming
-        ? this.events.latestTurnStartSequence(sessionId)
+        ? this.events.latestTurnStartSequence(openSessionId)
         : 0;
       return {
         ...page,
         contextUsage: session.getContextUsage() ?? null,
-        eventSequence: this.events.latestSequence(sessionId),
+        eventSequence: this.events.latestSequence(openSessionId),
         // `ensure()` above created or returned the headless runtime, so the
         // response describes the ownership it leaves behind (`headless-owned`)
         // rather than the ownership seen at request entry.
-        execution: this.executionState(sessionId),
+        execution: this.executionState(openSessionId),
         isStreaming,
         model: session.model
           ? {
@@ -340,19 +350,19 @@ class PiService {
         thinkingLevel: session.thinkingLevel,
       };
     }
-    const session = await this.ensure(sessionId, cwd);
+    const session = await this.ensure(openSessionId, cwd);
     const { isStreaming } = session;
     const turnStartSequence = isStreaming
-      ? this.events.latestTurnStartSequence(sessionId)
+      ? this.events.latestTurnStartSequence(openSessionId)
       : 0;
     return {
       contextUsage: session.getContextUsage() ?? null,
       cursor: 0,
-      eventSequence: this.events.latestSequence(sessionId),
+      eventSequence: this.events.latestSequence(openSessionId),
       // `ensure()` above created or returned the headless runtime, so the
       // response describes the ownership it leaves behind (`headless-owned`)
       // rather than the ownership seen at request entry.
-      execution: this.executionState(sessionId),
+      execution: this.executionState(openSessionId),
       hasMore: false,
       isStreaming,
       messages: [],

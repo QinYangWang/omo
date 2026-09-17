@@ -11,6 +11,7 @@ const { createWorkspaceGuard, inside } = require("./workspace.cjs");
 const { EventStore } = require("./event-store.cjs");
 const {
   appendExecutionStateEvent,
+  appendInterruptedTurnEvent,
   ExecutionBroker,
 } = require("./execution-broker.cjs");
 const { ExtensionService } = require("./extension-service.cjs");
@@ -772,6 +773,23 @@ function handleExtensionAck({
   });
 }
 
+/**
+ * Applies one attachment loss to a Session exactly once: drops the
+ * per-attachment command counter, marks an unfinished native turn as
+ * interrupted, then projects the resulting `detached` ownership. Extracted
+ * from the Host's `onDetach` hook so the in-process tests exercise the same
+ * wiring. Both explicit `detach` and heartbeat-timeout expiry reach it.
+ */
+function recordAttachmentLoss({
+  events: eventStore,
+  executionBroker: broker,
+  sessionId,
+}) {
+  broker?.onDetach(sessionId);
+  appendInterruptedTurnEvent(eventStore, sessionId);
+  appendExecutionStateEvent(eventStore, broker, sessionId);
+}
+
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   setCors(req, res);
@@ -971,12 +989,8 @@ async function initializeHost() {
       }),
     onAttach: (sessionId) => recordExecutionState(sessionId),
     onAttachConfirm: (sessionId) => executionBroker?.onAttachConfirm(sessionId),
-    onDetach: (sessionId) => {
-      // Drop the per-attachment command counter before the ownership
-      // projection is written, so a re-attach always starts at sequence 1.
-      executionBroker?.onDetach(sessionId);
-      recordExecutionState(sessionId);
-    },
+    onDetach: (sessionId) =>
+      recordAttachmentLoss({ events, executionBroker, sessionId }),
     // Late-bound: ExtensionService is constructed before the EventStore, so
     // the closure reads the handler once `initializeHost` wires it below.
     onNativeEvent: (attachment, nativeEvent) =>
@@ -1001,6 +1015,10 @@ async function initializeHost() {
       extensionService,
       hasHeadlessRuntime: (sessionId) => pi.hasRuntime(sessionId),
       isHeadlessStreaming: (sessionId) => pi.isRuntimeStreaming(sessionId),
+      // A detached Session becoming headless-owned is an explicit idle
+      // resume; emit its one ownership transition like the attach/detach
+      // hooks so SSE consumers observe it (design §7).
+      onHeadlessClaim: (sessionId) => recordExecutionState(sessionId),
       releaseIdleRuntime: (sessionId) => pi.releaseIdleRuntime(sessionId),
     });
     pi.setExecutionBroker(executionBroker);
@@ -1090,6 +1108,7 @@ async function shutdownHost() {
 module.exports = {
   handleExtensionAck,
   NativeSessionHandle,
+  recordAttachmentLoss,
   startHost,
   stopHost,
 };

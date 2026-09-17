@@ -43,6 +43,9 @@ class EventStore {
     this.latestTurnStart = this.db.prepare(
       "SELECT COALESCE(MAX(sequence), 0) AS value FROM session_events WHERE session_id = ? AND type = 'turn_start'"
     );
+    this.latestTurnEnd = this.db.prepare(
+      "SELECT COALESCE(MAX(sequence), 0) AS value FROM session_events WHERE session_id = ? AND type = 'turn_end'"
+    );
     this.trim = this.db.prepare(
       "DELETE FROM session_events WHERE session_id = ? AND sequence <= ?"
     );
@@ -88,6 +91,20 @@ class EventStore {
 
   latestTurnStartSequence(sessionId) {
     return Number(this.latestTurnStart.get(sessionId).value);
+  }
+
+  /**
+   * True when the Session's event tail holds a `turn_start` with no later
+   * `turn_end`, i.e. a native turn was still running. The check is durable and
+   * survives a daemon restart because it reads the same persisted rows the
+   * client replays. On any doubt it stays conservative: an unfinished turn is
+   * reported rather than fabricating a completion.
+   */
+  hasUnfinishedTurn(sessionId) {
+    return (
+      this.latestTurnStartSequence(sessionId) >
+      Number(this.latestTurnEnd.get(sessionId).value)
+    );
   }
 
   list(sessionId, after = 0, limit = 5000) {

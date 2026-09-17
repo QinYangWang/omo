@@ -32,6 +32,7 @@ class ExecutionBroker {
       extensionService,
       hasHeadlessRuntime,
       isHeadlessStreaming,
+      onHeadlessClaim,
       releaseIdleRuntime,
     } = options;
     if (
@@ -51,6 +52,12 @@ class ExecutionBroker {
         : () => false;
     this.releaseIdleRuntime =
       typeof releaseIdleRuntime === "function" ? releaseIdleRuntime : noop;
+    // Ownership-transition hook (design §4/§7). `ensure()` fires it once when
+    // a detached Session gains its headless runtime, so an explicit idle
+    // resume is observable on the public SSE stream instead of happening
+    // silently. Later opens reuse the runtime and never reach the hook.
+    this.onHeadlessClaim =
+      typeof onHeadlessClaim === "function" ? onHeadlessClaim : noop;
     // Daemon-owned command sequencing (design §5). The counter is scoped to
     // one live attachment `(instanceId, generation)` so a duplicate-safe
     // retry reuses the same scope, while a fresh generation starts again at
@@ -116,6 +123,16 @@ class ExecutionBroker {
     this.clearCommandSequence(sessionId);
   }
 
+  /**
+   * Notifies the wired hook that `ensure()` claimed `sessionId` for a
+   * headless runtime. `PiService.ensure` only calls this on the creation
+   * path: a Session that already owns a runtime returns before reaching it,
+   * so exactly one `headless-owned` transition is emitted per idle resume.
+   */
+  headlessClaimed(sessionId) {
+    this.onHeadlessClaim(sessionId);
+  }
+
   /** Forgets the `(instanceId, generation)` command scope for `sessionId`. */
   clearCommandSequence(sessionId) {
     const key = this.commandSequenceKeys.get(sessionId);
@@ -172,6 +189,7 @@ class ExecutionBroker {
     this.extensionService = null;
     this.hasHeadlessRuntime = () => false;
     this.isHeadlessStreaming = () => false;
+    this.onHeadlessClaim = noop;
     this.releaseIdleRuntime = noop;
     this.commandSequences.clear();
     this.commandSequenceKeys.clear();
@@ -197,4 +215,35 @@ function appendExecutionStateEvent(events, broker, sessionId) {
   return events.append(sessionId, { type: "omo_execution_state", ...state });
 }
 
-module.exports = { appendExecutionStateEvent, ExecutionBroker };
+/**
+ * Appends the single client-visible `native_turn_interrupted` marker when the
+ * Session's durable tail still holds an unfinished turn (a `turn_start` with
+ * no later `turn_end`). The host calls this once per released attachment, so
+ * a lost Extension mid-turn cannot silently look like a completed turn; the
+ * outcome stays unknown and no `turn_end`/`message_end`/`agent_end` is ever
+ * fabricated (design §4 rule 4 and §6.3). A clean detach after a completed
+ * turn (or with no turn at all) appends nothing.
+ */
+function appendInterruptedTurnEvent(events, sessionId) {
+  if (
+    !events ||
+    typeof events.append !== "function" ||
+    typeof events.hasUnfinishedTurn !== "function" ||
+    !events.hasUnfinishedTurn(sessionId)
+  ) {
+    return;
+  }
+  return events.append(sessionId, {
+    code: "native_turn_interrupted",
+    message:
+      "The native Pi turn was interrupted when its Extension detached; the outcome is unknown and it was not retried.",
+    retryable: true,
+    type: "omo_error",
+  });
+}
+
+module.exports = {
+  appendExecutionStateEvent,
+  appendInterruptedTurnEvent,
+  ExecutionBroker,
+};

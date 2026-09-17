@@ -106,7 +106,7 @@ for (const row of db.prepare('SELECT sequence, type, created_at FROM session_eve
   - `omo_error`：可操作的运行时错误。当前存在的 `code`：
     - `native_dispatch_unavailable` — Web/Desktop 的 Prompt 或 Abort 已 durable accepted，但当前没有订阅者接收命令（native owner 断开或未连接）。operation 仍算 accepted，`retryable: true`。
     - `extension_command_rejected` — native owner 回了 `rejected` ack（例如 `turn_already_running`）。daemon 只在 ack 仍属于当前 owner 时写入，迟到的 ack 不会污染新 Session。
-  - 说明：任务设想中的 `native_turn_interrupted` 专用错误码在当前版本**尚未实现**（对应 E5-001 仍未完成）。当前可观察到的“turn 被中断”信号是 lease 失效并追加 `omo_execution_state: detached`，外加缺失 `agent_settled` / `completed` ack，而不是一个独立错误事件。
+  - 说明：turn 中断时会追加一个 `omo_error` 事件，`code: "native_turn_interrupted"`（`retryable: true`），随后是 `omo_execution_state: detached`；daemon 不会伪造 `turn_end`/`message_end`，也不会自动重复 dispatch。
 
 ### 日志位置
 
