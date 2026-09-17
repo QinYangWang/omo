@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import {
+  addHostRegistryEntry,
+  createEmptyHostRegistryDocument,
+  selectHostRegistryEntry,
+} from "@omo/client-core";
+import {
+  selectedRegistryHostIsRemote,
+  writeHostRegistry,
+} from "../cli/host-registry.mjs";
 import { parseArguments } from "../cli/local-host.mjs";
 import {
   assertExtensionExists,
@@ -33,6 +43,11 @@ const DAEMON_ENDPOINT_PATTERN = /Unix socket or Windows named pipe/;
 const DAEMON_SOCKET_PATH_PATTERN = /missing its socket path/;
 const USAGE_HEADER_PATTERN = /Usage:/;
 const NATIVE_FLAG_PATTERN = /--native/;
+const LEGACY_FLAG_PATTERN = /--legacy-tui/;
+const NATIVE_LEGACY_CONFLICT_PATTERN = /select different local TUIs/;
+const INVALID_OMO_TUI_PATTERN = /expected "native" or "legacy"/;
+const REGISTRY_CONNECT_PATTERN = /Unable to connect to registry Host/;
+const NATIVE_LAUNCH_PATTERN = /launching project-locked Pi/;
 
 test("parseArguments recognizes --native without disturbing other options", () => {
   const defaultOptions = parseArguments([], {});
@@ -260,6 +275,215 @@ test("selectUiMode defaults the local flow to the native Pi TUI", () => {
   );
 });
 
+test("selectUiMode honors --legacy-tui and OMO_TUI with flags beating the env", () => {
+  const legacyFlag = parseArguments(["--legacy-tui"], {});
+  assert.equal(legacyFlag.legacyTui, true);
+  assert.equal(legacyFlag.native, false);
+  assert.deepEqual(legacyFlag.positional, []);
+  assert.equal(selectUiMode(legacyFlag), UI_MODE.legacy);
+
+  const legacyEnv = { OMO_TUI: "legacy" };
+  const nativeEnv = { OMO_TUI: "native" };
+  assert.equal(
+    selectUiMode(parseArguments([], legacyEnv), legacyEnv),
+    UI_MODE.legacy
+  );
+  assert.equal(
+    selectUiMode(parseArguments([], nativeEnv), nativeEnv),
+    UI_MODE.native
+  );
+
+  // Explicit flags always beat OMO_TUI.
+  assert.equal(
+    selectUiMode(parseArguments(["--legacy-tui"], nativeEnv), nativeEnv),
+    UI_MODE.legacy
+  );
+  assert.equal(
+    selectUiMode(parseArguments(["--native"], legacyEnv), legacyEnv),
+    UI_MODE.native
+  );
+
+  assert.throws(
+    () => selectUiMode(parseArguments(["--native", "--legacy-tui"], {})),
+    NATIVE_LEGACY_CONFLICT_PATTERN
+  );
+
+  const bogus = { OMO_TUI: "bogus" };
+  assert.throws(
+    () => selectUiMode(parseArguments([], bogus), bogus),
+    INVALID_OMO_TUI_PATTERN
+  );
+  // An explicit flag resolves the local mode, so a stale/typo env value is
+  // not consulted.
+  assert.equal(
+    selectUiMode(parseArguments(["--legacy-tui"], bogus), bogus),
+    UI_MODE.legacy
+  );
+});
+
+const REMOTE_ENDPOINT = {
+  transport: "http",
+  url: "http://registry-remote.example:5189",
+};
+
+function makeRegistryDataDir({
+  corrupt = false,
+  endpoint,
+  missing = false,
+  selected = true,
+} = {}) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "omo-ui-mode-"));
+  if (missing) {
+    return dataDir;
+  }
+  if (corrupt) {
+    fs.writeFileSync(path.join(dataDir, "host-registry.json"), "{ not json");
+    return dataDir;
+  }
+  let document = createEmptyHostRegistryDocument();
+  if (endpoint) {
+    const added = addHostRegistryEntry(document, {
+      endpoint,
+      id: "test-host",
+      label: "Test Host",
+    });
+    document = selected
+      ? selectHostRegistryEntry(added.document, added.entry.id)
+      : added.document;
+  }
+  writeHostRegistry(dataDir, document);
+  return dataDir;
+}
+
+function modeWithRegistry(options, env = process.env) {
+  return selectUiMode(options, env, {
+    selectedRegistryHostIsRemote: () =>
+      selectedRegistryHostIsRemote(options, env),
+  });
+}
+
+test("selectedRegistryHostIsRemote reports only http/https selections", () => {
+  const remoteDirs = [
+    makeRegistryDataDir({
+      endpoint: { transport: "http", url: "http://host.example:5189" },
+    }),
+    makeRegistryDataDir({
+      endpoint: { transport: "https", url: "https://host.example:5189" },
+    }),
+  ];
+  for (const dataDir of remoteDirs) {
+    assert.equal(
+      selectedRegistryHostIsRemote(parseArguments(["--data-dir", dataDir], {})),
+      true
+    );
+  }
+
+  const localDirs = [
+    makeRegistryDataDir({
+      endpoint: { path: "/tmp/omo.sock", transport: "unix" },
+    }),
+    makeRegistryDataDir({
+      endpoint: { path: "\\\\.\\pipe\\omo", transport: "pipe" },
+    }),
+  ];
+  for (const dataDir of localDirs) {
+    assert.equal(
+      selectedRegistryHostIsRemote(parseArguments(["--data-dir", dataDir], {})),
+      false
+    );
+  }
+});
+
+test("selectedRegistryHostIsRemote treats unusable registries as not remote", () => {
+  const dirs = [
+    makeRegistryDataDir({ missing: true }),
+    makeRegistryDataDir({ corrupt: true }),
+    makeRegistryDataDir({ endpoint: REMOTE_ENDPOINT, selected: false }),
+  ];
+  for (const dataDir of dirs) {
+    assert.equal(
+      selectedRegistryHostIsRemote(parseArguments(["--data-dir", dataDir], {})),
+      false
+    );
+  }
+});
+
+test("plain omo honors a selected remote registry Host with the legacy TUI", () => {
+  const dataDir = makeRegistryDataDir({ endpoint: REMOTE_ENDPOINT });
+  const mode = modeWithRegistry(parseArguments(["--data-dir", dataDir], {}));
+  assert.equal(mode, UI_MODE.legacy);
+  // Legacy is the branch that skips `runNativePi`; only `native` calls it.
+  assert.notEqual(mode, UI_MODE.native);
+});
+
+test("plain omo stays native for local, missing or corrupt registry selections", () => {
+  const dirs = [
+    makeRegistryDataDir({
+      endpoint: { path: "/tmp/omo.sock", transport: "unix" },
+    }),
+    makeRegistryDataDir({
+      endpoint: { path: "\\\\.\\pipe\\omo", transport: "pipe" },
+    }),
+    makeRegistryDataDir({ missing: true }),
+    makeRegistryDataDir({ corrupt: true }),
+    makeRegistryDataDir({ endpoint: REMOTE_ENDPOINT, selected: false }),
+  ];
+  for (const dataDir of dirs) {
+    const options = parseArguments(["--data-dir", dataDir], {});
+    assert.equal(modeWithRegistry(options), UI_MODE.native, dataDir);
+  }
+});
+
+test("explicit --native overrides a selected remote registry Host", () => {
+  const dataDir = makeRegistryDataDir({ endpoint: REMOTE_ENDPOINT });
+  const options = parseArguments(["--native", "--data-dir", dataDir], {});
+  assert.equal(modeWithRegistry(options), UI_MODE.native);
+});
+
+test("OMO_TUI beats the registry selection without reading it", () => {
+  const dataDir = makeRegistryDataDir({ endpoint: REMOTE_ENDPOINT });
+  const options = parseArguments(["--data-dir", dataDir], {});
+  const registryMustNotBeRead = {
+    selectedRegistryHostIsRemote: () => {
+      throw new Error("registry must not be consulted when OMO_TUI is set");
+    },
+  };
+  const legacyEnv = { OMO_TUI: "legacy" };
+  assert.equal(
+    selectUiMode(options, legacyEnv, registryMustNotBeRead),
+    UI_MODE.legacy
+  );
+  const nativeEnv = { OMO_TUI: "native" };
+  assert.equal(
+    selectUiMode(options, nativeEnv, registryMustNotBeRead),
+    UI_MODE.native
+  );
+});
+
+test("plain omo routes a selected remote registry Host to legacy, not native Pi", () => {
+  const dataDir = makeRegistryDataDir({
+    endpoint: { transport: "http", url: "http://127.0.0.1:1" },
+  });
+  const result = spawnSync(
+    process.execPath,
+    [path.join(ROOT, "cli", "omo.mjs"), "--data-dir", dataDir],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OMO_DATA_DIR: "",
+        OMO_LOCAL_SOCKET: "",
+        OMO_TUI: "",
+        OMO_URL: "",
+      },
+      timeout: 60_000,
+    }
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, REGISTRY_CONNECT_PATTERN);
+  assert.doesNotMatch(result.stderr, NATIVE_LAUNCH_PATTERN);
+});
+
 test("omo --help prints the CLI usage without launching a daemon", () => {
   const output = execFileSync(
     process.execPath,
@@ -268,6 +492,7 @@ test("omo --help prints the CLI usage without launching a daemon", () => {
   );
   assert.match(output, USAGE_HEADER_PATTERN);
   assert.match(output, NATIVE_FLAG_PATTERN);
+  assert.match(output, LEGACY_FLAG_PATTERN);
 });
 
 test("buildNativeSpawnArgs always loads exactly one extension first", () => {

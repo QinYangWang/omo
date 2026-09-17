@@ -338,7 +338,7 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 const USAGE = `omo — Pi-native TUI with the omo extension
 
 Usage:
-  omo [--native] [--cwd <dir>] [--session <path>] [Pi args...]
+  omo [--native | --legacy-tui] [--cwd <dir>] [--session <path>] [Pi args...]
   omo --server <entryId> | --url <url> | --socket <path>
   omo session list | omo session new
   omo host <list|add|remove|use>
@@ -348,6 +348,7 @@ UI mode:
   (default local)  discover or start the local omo daemon, then launch the
                    project-locked Pi native TUI with the omo extension
   --native         force the native Pi TUI (local daemon only)
+  --legacy-tui     use the legacy omo TUI against the local daemon
   --server, --url, --socket and their environment equivalents always use the
   legacy omo TUI
 
@@ -356,6 +357,7 @@ Environment:
   OMO_LOCAL_SOCKET  explicit local daemon socket
   OMO_URL           explicit remote Host URL
   OMO_TOKEN         daemon Bearer token (never passed to Pi)
+  OMO_TUI           local UI mode: "native" (default) or "legacy"
 
 Run \`omo --native --help\` to forward --help to the Pi CLI.`;
 
@@ -593,16 +595,16 @@ async function main() {
   }
   // Explicit commands (`session list`, `session new`, `serve`, `host ...`)
   // keep their legacy behavior; only the default local TUI and an explicit
-  // `--native` switch to the native Pi TUI.
-  const uiMode = selectUiMode(options, {
-    selectedRegistryHostIsRemote: () => selectedRegistryHostIsRemote(options),
-  });
-  if (
-    uiMode === UI_MODE.native &&
-    (options.native || options.command === "tui")
-  ) {
-    await runNativePi(options);
-    return;
+  // `--native` switch to the native Pi TUI. UI mode selection only runs for
+  // the TUI path so a bad OMO_TUI value cannot break `session list`.
+  if (options.native || options.command === "tui") {
+    const uiMode = selectUiMode(options, process.env, {
+      selectedRegistryHostIsRemote: () => selectedRegistryHostIsRemote(options),
+    });
+    if (uiMode === UI_MODE.native) {
+      await runNativePi(options);
+      return;
+    }
   }
 
   const { client, target, host } = await resolveClientTarget(options);

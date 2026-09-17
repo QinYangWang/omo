@@ -37,9 +37,11 @@ const VALUE_OPTIONS = new Map([
   ["--credential-env", "credentialEnv"],
   ["--server", "server"],
 ]);
-// `--native` is a boolean flag that never consumes the following argument.
-// Everything else that is not a known value option is forwarded to Pi.
+// `--native` and `--legacy-tui` are boolean flags that never consume the
+// following argument. Everything else that is not a known value option is
+// forwarded to Pi.
 const NATIVE_FLAG = "--native";
+const LEGACY_TUI_FLAG = "--legacy-tui";
 
 function markExplicitSource(options, option) {
   if (option === "socket") {
@@ -103,6 +105,7 @@ export function parseArguments(argv, env = process.env) {
   };
   const positional = [];
   let native = false;
+  let legacyTui = false;
   let pendingOption;
   for (const argument of argv) {
     if (pendingOption) {
@@ -116,6 +119,8 @@ export function parseArguments(argv, env = process.env) {
       pendingOption = option;
     } else if (argument === NATIVE_FLAG) {
       native = true;
+    } else if (argument === LEGACY_TUI_FLAG) {
+      legacyTui = true;
     } else if (argument !== "--") {
       positional.push(argument);
     }
@@ -127,6 +132,7 @@ export function parseArguments(argv, env = process.env) {
   return {
     ...options,
     command: commandFromPositional(positional),
+    legacyTui,
     native,
     positional,
   };

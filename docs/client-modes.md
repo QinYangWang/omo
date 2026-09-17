@@ -26,6 +26,22 @@ omo --server <entryId> [session list | TUI]
 - 只有本地模式会启动 Host；`omo host ...` 元数据命令不连接也不启动 Host；选中的远端失败不会回退到本机。
 - 连接 registry entry 时使用 `HostConnectionManager` 做 health 与身份校验；首次成功会原子写入 `expectedHostId`，身份不匹配/凭据缺失/离线分别为可操作的错误，且不改写选择或其他条目。
 
+## CLI UI 模式
+
+E3-001/E3-002 起，`omo` 本机默认进入带 omo Pi Extension 的 Pi 原生 TUI。原简化 omo TUI 保留为本机回退路径（`--legacy-tui` / `OMO_TUI=legacy`），并始终用于显式远程选择器以及 registry 中显式选中的远端 Host。
+
+选择优先级（高到低）：
+
+1. **显式远程选择器**：`--socket`、`--url`、`--server`，或环境变量 `OMO_LOCAL_SOCKET`、`OMO_URL`（即上节连接优先级里所有非本机默认的情况）→ 简化 omo TUI，不启动原生 Pi。显式远程选择器与 `--native` 组合是硬错误。
+2. `--native` → 本机 Pi 原生 TUI。
+3. `--legacy-tui` → 本机简化 omo TUI；与 `--native` 组合是硬错误。
+4. `OMO_TUI=legacy` → 本机简化 omo TUI；`OMO_TUI=native` 等价于默认。其它非空值（包括大小写不同的写法）是硬错误，错误信息列出 `"native"` 与 `"legacy"` 两个合法值。显式 `--native` / `--legacy-tui` 优先于该环境变量。
+5. **本机默认**（无远程选择器、无上述 flag、无 `OMO_TUI`）→ 先解析客户端 registry（`OMO_DATA_DIR/host-registry.json`，见 `cli/host-registry.mjs` 的 `selectedRegistryHostIsRemote`）：若 `selectedEntryId` 指向的 entry endpoint 为远端（`http`/`https`），沿用简化 omo TUI，保证 `omo host use <entry>` 的显式选择不被默认值静默覆盖；若选中的是本机 entry（`unix`/`pipe`）或没有有效选中项 → Pi 原生 TUI。registry 文件缺失、损坏或 schema 非法，以及悬空的 `selectedEntryId`，都视为“无远端选中项”并回退到本机原生 TUI（registry 只是客户端便利设施，不是启动本机 TUI 的硬依赖），不会因此崩溃。
+
+本机默认与 `--native` 的流程：先发现或启动本机 daemon（同一 `OMO_DATA_DIR` 下的 `daemon.json` 与 Unix socket / Windows named pipe），然后用项目锁定依赖中的 Pi 启动原生 TUI，并显式 `--extension packages/pi-extension/index.js`。子进程环境只注入两项：`OMO_DAEMON_SOCKET`（daemon 的 socket/pipe 路径）与 `OMO_PI_VERSION`（锁定的 Pi 版本）。这两项总是以 launcher 解析出的值覆盖父环境中的同名变量；`OMO_TOKEN` 与 E0-004 的 `OMO_EXTENSION_EVENTS_URL` 都不会传入子进程。Pi 退出不影响已 detached 的 daemon。
+
+`omo session list`、`omo session new`、`omo host ...` 与 `omo serve` 保持原有行为，不受默认 UI 模式影响。原生 TUI 启动失败、daemon 不可达与 Pi 版本不兼容的可操作错误和安全回退属于 E3-003，本阶段不声称在失败时自动回退到简化 TUI。
+
 ## 本机服务器
 
 - **Electron**：preload 暴露 `window.omo`，Pi Agent 在本地主进程内运行，无需登录。
