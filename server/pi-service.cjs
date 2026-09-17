@@ -9,10 +9,30 @@ const { contextDetails } = require("./pi-context.cjs");
 
 const MAX_IMAGE_DATA_LENGTH = 8_000_000;
 
+/**
+ * HTTP-mapped service error. `statusCode` is read by the Host request
+ * handler; `code` is the stable machine-readable reason surfaced to clients.
+ */
+class PiServiceError extends Error {
+  constructor(statusCode, code, message) {
+    super(message);
+    this.name = "PiServiceError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 /** Native ownership conflicts are reported with a stable, matchable code. */
 function nativeAttachedError() {
   const error = new Error("session_native_attached");
   error.code = "session_native_attached";
+  return error;
+}
+
+/** No in-process Session exists for a native-input stop request. */
+function sessionNotFoundError() {
+  const error = new Error("session_not_found");
+  error.code = "session_not_found";
   return error;
 }
 
@@ -576,6 +596,15 @@ class PiService {
   }
 
   async prompt({ sessionId, message, cwd, sessionPath, requestId, images }) {
+    // Native routing takes precedence over every headless concern: a Prompt
+    // for a native-selected Session must never call `ensure()`. Fail closed
+    // when the broker cannot route it at all.
+    if (this.nativeAttached(sessionId)) {
+      if (typeof this.executionBroker?.dispatchNativeCommand !== "function") {
+        throw nativeAttachedError();
+      }
+      return this.promptNative({ images, message, requestId, sessionId });
+    }
     // Mark the Session busy synchronously, before the first `await`: from
     // durable acceptance until the dispatch settles, attach gating must fail
     // closed even while `isStreaming` is still false. Every exit path below
@@ -669,9 +698,122 @@ class PiService {
     }
   }
 
+  /**
+   * Routes a text-only Prompt to the native owner through the broker.
+   *
+   * Durable acceptance is preserved: the operation result is written exactly
+   * once through the ledger and the broker dispatch runs inside that
+   * acceptance, so a crash between acceptance and dispatch suppresses the
+   * retry instead of fabricating a second executor (same window as headless).
+   * A delivery failure is surfaced as an `omo_error` event but the operation
+   * stays accepted, because the acceptance is the durable truth.
+   *
+   * The Extension command contract is text-only, so image payloads are
+   * rejected before any dispatch.
+   */
+  async promptNative({ sessionId, message, requestId, images }) {
+    if (
+      images !== undefined &&
+      !(Array.isArray(images) && images.length === 0)
+    ) {
+      throw new PiServiceError(
+        400,
+        "native_prompt_images_unsupported",
+        "Native Extension prompts are text-only; image attachments are not supported."
+      );
+    }
+    const operationId = requestId || crypto.randomUUID();
+    const result = { operationId, sessionId };
+    const dispatch = () => {
+      const outcome = this.executionBroker.dispatchNativeCommand(sessionId, {
+        requestId: operationId,
+        text: message,
+        type: "prompt",
+      });
+      if (!outcome.delivered) {
+        this.events.append(sessionId, {
+          code: "native_dispatch_unavailable",
+          message:
+            "The native Extension did not accept the prompt; it may be disconnected.",
+          requestId: operationId,
+          retryable: true,
+          type: "omo_error",
+        });
+      }
+      return Promise.resolve();
+    };
+    if (this.operationLedger) {
+      return await this.operationLedger.accept(operationId, result, dispatch);
+    }
+    if (requestId) {
+      this.events.saveRequest(operationId, result);
+    }
+    dispatch();
+    return result;
+  }
+
   async abort(sessionId) {
+    // Native owners are aborted through the private command channel, never by
+    // constructing or touching a headless runtime.
+    if (this.nativeAttached(sessionId)) {
+      if (typeof this.executionBroker?.dispatchNativeCommand !== "function") {
+        throw nativeAttachedError();
+      }
+      const outcome = this.executionBroker.dispatchNativeCommand(sessionId, {
+        requestId: crypto.randomUUID(),
+        type: "abort",
+      });
+      if (!outcome.delivered) {
+        this.events.append(sessionId, {
+          code: "native_dispatch_unavailable",
+          message:
+            "The native Extension did not accept the abort; it may be disconnected.",
+          requestId: outcome.requestId,
+          retryable: true,
+          type: "omo_error",
+        });
+      }
+      return { sessionId };
+    }
     this.assertHeadlessOwned(sessionId);
     await (await this.sessions.get(sessionId))?.abort();
+  }
+
+  /**
+   * Ctrl+C-equivalent stop for the active native turn.
+   *
+   * For a native-attached Session this is a best-effort Abort dispatch
+   * through the broker and reports delivery as `{ ok }`; for a headless
+   * Session it keeps the existing in-process abort behavior, and throws
+   * `session_not_found` when there is neither owner.
+   */
+  async stopNativeInput(sessionId) {
+    if (this.nativeAttached(sessionId)) {
+      if (typeof this.executionBroker?.dispatchNativeCommand !== "function") {
+        throw nativeAttachedError();
+      }
+      const outcome = this.executionBroker.dispatchNativeCommand(sessionId, {
+        requestId: crypto.randomUUID(),
+        type: "abort",
+      });
+      if (!outcome.delivered) {
+        this.events.append(sessionId, {
+          code: "native_dispatch_unavailable",
+          message:
+            "The native Extension did not accept the stop request; it may be disconnected.",
+          requestId: outcome.requestId,
+          retryable: true,
+          type: "omo_error",
+        });
+      }
+      return { ok: outcome.delivered };
+    }
+    const session = await this.sessions.get(sessionId);
+    if (!session) {
+      throw sessionNotFoundError();
+    }
+    await session.abort();
+    return { ok: true };
   }
 
   async providers() {
@@ -768,4 +910,4 @@ class PiService {
   }
 }
 
-module.exports = { PiService };
+module.exports = { PiService, PiServiceError };

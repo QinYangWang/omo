@@ -51,6 +51,13 @@ class ExecutionBroker {
         : () => false;
     this.releaseIdleRuntime =
       typeof releaseIdleRuntime === "function" ? releaseIdleRuntime : noop;
+    // Daemon-owned command sequencing (design §5). The counter is scoped to
+    // one live attachment `(instanceId, generation)` so a duplicate-safe
+    // retry reuses the same scope, while a fresh generation starts again at
+    // 1. `commandSequenceKeys` lets a detach drop the old scope without
+    // scanning every counter.
+    this.commandSequences = new Map();
+    this.commandSequenceKeys = new Map();
   }
 
   /** True only while a live, authenticated Extension owns the Session. */
@@ -99,11 +106,75 @@ class ExecutionBroker {
     this.releaseIdleRuntime(sessionId);
   }
 
+  /**
+   * Drops the per-attachment command counter once its lease ends. Extension
+   * detach and heartbeat expiry both call this, so a re-attach of the same
+   * instance can never inherit (or reuse) the previous generation's
+   * sequence numbers. Idempotent for unknown sessions.
+   */
+  onDetach(sessionId) {
+    this.clearCommandSequence(sessionId);
+  }
+
+  /** Forgets the `(instanceId, generation)` command scope for `sessionId`. */
+  clearCommandSequence(sessionId) {
+    const key = this.commandSequenceKeys.get(sessionId);
+    if (key === undefined) {
+      return;
+    }
+    this.commandSequenceKeys.delete(sessionId);
+    this.commandSequences.delete(key);
+  }
+
+  /**
+   * Delivers one Web/Desktop Prompt or Abort command to the current native
+   * owner and returns `{ delivered, requestId, commandSequence }`.
+   *
+   * The ownership read and the send happen in one synchronous block (no
+   * `await` in between), mirroring the attach race discipline: the counter
+   * and the command are derived from the same live attachment, and
+   * `ExtensionService.sendCommand` re-fetches that attachment immediately
+   * before writing to its subscriber. On any doubt (no attachment, no live
+   * subscriber) the result is `delivered: false`; this method never creates
+   * a headless runtime.
+   */
+  dispatchNativeCommand(sessionId, commandBase) {
+    const requestId = commandBase?.requestId;
+    const state = this.extensionService.executionState(sessionId);
+    if (state.state !== "native-attached") {
+      this.clearCommandSequence(sessionId);
+      return { commandSequence: undefined, delivered: false, requestId };
+    }
+    const key = `${state.ownerInstanceId}\u0000${state.generation}`;
+    const previousKey = this.commandSequenceKeys.get(sessionId);
+    if (previousKey !== undefined && previousKey !== key) {
+      // Defensive: a re-attach without an observed detach still resets the
+      // counter for the new generation instead of leaking the old one.
+      this.commandSequences.delete(previousKey);
+    }
+    const commandSequence = (this.commandSequences.get(key) ?? 0) + 1;
+    this.commandSequences.set(key, commandSequence);
+    this.commandSequenceKeys.set(sessionId, key);
+    const command =
+      commandBase?.type === "prompt"
+        ? {
+            commandSequence,
+            requestId,
+            text: commandBase.text,
+            type: "prompt",
+          }
+        : { commandSequence, requestId, type: "abort" };
+    const delivered = this.extensionService.sendCommand(sessionId, command);
+    return { commandSequence, delivered, requestId };
+  }
+
   dispose() {
     this.extensionService = null;
     this.hasHeadlessRuntime = () => false;
     this.isHeadlessStreaming = () => false;
     this.releaseIdleRuntime = noop;
+    this.commandSequences.clear();
+    this.commandSequenceKeys.clear();
   }
 }
 

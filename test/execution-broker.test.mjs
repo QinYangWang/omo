@@ -254,7 +254,7 @@ test("a streaming headless runtime rejects attach without disturbance", async ()
   }
 });
 
-test("a native-attached session refuses headless ownership and operations", async () => {
+test("a native-attached session routes prompt/abort and refuses headless-only operations", async () => {
   const h = createHarness();
   try {
     const request = registerRequest("s");
@@ -273,18 +273,28 @@ test("a native-attached session refuses headless ownership and operations", asyn
     assert.equal(opened.sessionId, "durable-session");
     assert.equal(h.state.openSessionCalls.length, 0);
 
+    // E4-002: prompt/abort are routed to the native owner through the broker
+    // instead of being refused. There is no live command subscriber here, so
+    // delivery is reported as an `omo_error` while the operation stays
+    // accepted; crucially, no headless runtime is created either way.
+    const accepted = await h.service.prompt({
+      cwd: "/workspace",
+      message: "hi",
+      requestId: "r1",
+      sessionId: "s",
+    });
+    assert.equal(accepted.operationId, "r1");
+    assert.deepEqual(await h.service.abort("s"), { sessionId: "s" });
+    const errors = h.events
+      .list("s")
+      .filter((record) => record.type === "omo_error");
+    assert.deepEqual(
+      errors.map((record) => record.payload.code),
+      ["native_dispatch_unavailable", "native_dispatch_unavailable"]
+    );
+
     const isNativeAttached = (error) =>
       error.message === "session_native_attached";
-    await assert.rejects(
-      h.service.prompt({
-        cwd: "/workspace",
-        message: "hi",
-        requestId: "r1",
-        sessionId: "s",
-      }),
-      isNativeAttached
-    );
-    await assert.rejects(h.service.abort("s"), isNativeAttached);
     await assert.rejects(
       h.service.setModel("s", "test", "test-model"),
       isNativeAttached

@@ -701,6 +701,70 @@ async function extensionRoutes(req, res, url) {
   return true;
 }
 
+/**
+ * Thin seam for native-input control (design §5.2). The daemon does not embed
+ * the native Pi process; ownership lives with the Extension, so a stop request
+ * is a best-effort Abort dispatch through the broker. Keeping the operation on
+ * a named handle makes the call site explicit and keeps the PiService free to
+ * implement the headless fallback.
+ */
+class NativeSessionHandle {
+  constructor(service) {
+    this.pi = service;
+  }
+
+  stopNativeInput(sessionId) {
+    return this.pi.stopNativeInput(sessionId);
+  }
+}
+
+/**
+ * Synchronous `onAck` handler for the private Extension channel.
+ *
+ * Only `rejected` acks become user-visible errors; `accepted`, `started` and
+ * `completed` are lifecycle noise because the native turn events are the
+ * truth (design §5). The handler resolves the owning Session from the
+ * attachment that produced the ack and fails closed when that attachment is
+ * no longer the current owner, so a late ack can never write to a Session
+ * that has moved on. It must stay synchronous: ack response latency is
+ * budget-sensitive.
+ */
+function handleExtensionAck({
+  ack,
+  attachment,
+  events: eventStore,
+  extensionService: ownerService,
+  logger = console,
+}) {
+  if (ack?.status !== "rejected") {
+    return;
+  }
+  const sessionId = attachment?.sessionId;
+  if (!sessionId) {
+    logger.warn("omo: rejected extension ack has no resolvable session");
+    return;
+  }
+  const current = ownerService?.executionState(sessionId);
+  if (
+    current?.state !== "native-attached" ||
+    current.ownerInstanceId !== ack.instanceId ||
+    current.generation !== ack.generation
+  ) {
+    logger.warn(
+      "omo: rejected extension ack for an attachment that is no longer current",
+      ack.requestId
+    );
+    return;
+  }
+  eventStore.append(sessionId, {
+    code: "extension_command_rejected",
+    message: ack.reason ?? ack.status,
+    requestId: ack.requestId,
+    retryable: true,
+    type: "omo_error",
+  });
+}
+
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   setCors(req, res);
@@ -891,9 +955,21 @@ async function initializeHost() {
     heartbeatIntervalMs: config.extensionHeartbeatIntervalMs,
     heartbeatTimeoutMs: config.extensionHeartbeatTimeoutMs,
     hostId,
+    onAck: (attachment, ack) =>
+      handleExtensionAck({
+        ack,
+        attachment,
+        events,
+        extensionService,
+      }),
     onAttach: (sessionId) => recordExecutionState(sessionId),
     onAttachConfirm: (sessionId) => executionBroker?.onAttachConfirm(sessionId),
-    onDetach: (sessionId) => recordExecutionState(sessionId),
+    onDetach: (sessionId) => {
+      // Drop the per-attachment command counter before the ownership
+      // projection is written, so a re-attach always starts at sequence 1.
+      executionBroker?.onDetach(sessionId);
+      recordExecutionState(sessionId);
+    },
     // Late-bound: ExtensionService is constructed before the EventStore, so
     // the closure reads the handler once `initializeHost` wires it below.
     onNativeEvent: (attachment, nativeEvent) =>
@@ -1005,6 +1081,8 @@ async function shutdownHost() {
 }
 
 module.exports = {
+  handleExtensionAck,
+  NativeSessionHandle,
   startHost,
   stopHost,
 };
