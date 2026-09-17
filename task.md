@@ -94,7 +94,7 @@
 - [x] E4-001：在现有 Session API 中暴露安全的 execution owner/attachment 状态，不泄漏 process credential
 - [x] E4-002：通过 broker 将 Web Prompt/Abort 路由到 native owner，禁止 selected native 失败时隐式创建 headless runtime
 - [x] E4-003：验证 native event 的 SQLite replay、客户端 SSE 重连与 Extension 重连去重
-- [ ] E4-004：保留无 Extension 外部 Pi 的 JSONL 校准路径，并验证不会与 native event 双重渲染
+- [x] E4-004：保留无 Extension 外部 Pi 的 JSONL 校准路径，并验证不会与 native event 双重渲染
 - [ ] E4-GATE：完成 Pi native TUI ↔ daemon ↔ Web/Desktop 双向实时 E2E，一个客户端断线不影响执行
 
 ### E5：故障恢复与默认切换
