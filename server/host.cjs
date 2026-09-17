@@ -163,6 +163,13 @@ function git(args, cwd) {
 }
 
 function streamEvents(req, res, sessionId, after) {
+  // A cursor ahead of the stored tail cannot be satisfied by a delta. That
+  // happens after the SQLite event log is recreated (a new event-log epoch):
+  // the client's stale sequence is higher than every sequence in the new
+  // log. Replaying from the beginning resyncs the client instead of silently
+  // skipping every event up to the stale cursor. `after === latest` is the
+  // normal tail case and still replays nothing.
+  const cursor = after > events.latestSequence(sessionId) ? 0 : after;
   res.writeHead(200, {
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
@@ -174,7 +181,7 @@ function streamEvents(req, res, sessionId, after) {
     res.write(
       `id: ${record.sequence}\nevent: message\ndata: ${JSON.stringify(record)}\n\n`
     );
-  for (const record of events.list(sessionId, after)) {
+  for (const record of events.list(sessionId, cursor)) {
     send(record);
   }
   const unsubscribe = events.subscribe(sessionId, send);
