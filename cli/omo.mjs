@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import {
@@ -32,8 +31,10 @@ import {
   assertExtensionExists,
   buildNativeSpawnConfig,
   defaultExtensionPath,
+  ensureLocalHostForNative,
   resolveDaemonSocket,
   resolvePiBinary,
+  runForeground,
 } from "./native-pi.mjs";
 import { NATIVE_LOCAL_ONLY_ERROR, selectUiMode, UI_MODE } from "./ui-mode.mjs";
 
@@ -332,7 +333,6 @@ async function runTui(client, baseUrl, host, options) {
   await app.run();
 }
 
-const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 };
 const HELP_FLAGS = new Set(["--help", "-h"]);
 
 const USAGE = `omo — Pi-native TUI with the omo extension
@@ -366,56 +366,21 @@ function printUsage() {
 }
 
 /**
- * Runs the native Pi TUI as the foreground process sharing the user's TTY.
- * SIGINT/SIGTERM are forwarded so `omo` never leaves an orphaned Pi behind
- * when it is signalled directly instead of through the terminal group.
- */
-function runForeground({ command, args, cwd, env }) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: "inherit" });
-    const forward = (signal) => {
-      if (child.exitCode === null && child.signalCode === null) {
-        try {
-          child.kill(signal);
-        } catch {
-          // The child exited between the liveness check and the signal.
-        }
-      }
-    };
-    const onSigint = () => forward("SIGINT");
-    const onSigterm = () => forward("SIGTERM");
-    const cleanup = () => {
-      process.removeListener("SIGINT", onSigint);
-      process.removeListener("SIGTERM", onSigterm);
-    };
-    process.on("SIGINT", onSigint);
-    process.on("SIGTERM", onSigterm);
-    child.once("error", (error) => {
-      cleanup();
-      reject(
-        new Error(`Unable to start the native Pi TUI: ${error.message}`, {
-          cause: error,
-        })
-      );
-    });
-    child.once("exit", (code, signal) => {
-      cleanup();
-      resolve(signal ? (SIGNAL_EXIT_CODES[signal] ?? 1) : (code ?? 0));
-    });
-  });
-}
-
-/**
  * Local (default and `--native`) flow: discover/start the local daemon, then
  * hand the terminal to the project-locked Pi CLI with the omo extension
  * explicitly loaded and the daemon socket injected. The daemon is a separate
  * detached process, so Pi exiting does not stop it.
+ *
+ * Failures are actionable and never silently fall back to the legacy TUI:
+ * daemon errors gain the "legacy shares the daemon" note, while Pi-side
+ * failures (missing binary/extension, version drift, failed spawn, startup
+ * death) point at `omo --legacy-tui` as the escape hatch.
  */
 async function runNativePi(options) {
   if (selectTransportMode(options) !== "local") {
     throw new Error(NATIVE_LOCAL_ONLY_ERROR);
   }
-  const { endpoint } = await ensureLocalHost(options);
+  const { endpoint } = await ensureLocalHostForNative(ensureLocalHost, options);
   const daemonSocket = resolveDaemonSocket(endpoint);
   const { binaryPath, version } = resolvePiBinary();
   const extensionPath = assertExtensionExists(defaultExtensionPath());

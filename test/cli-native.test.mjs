@@ -20,13 +20,19 @@ import {
   buildNativeEnv,
   buildNativeSpawnArgs,
   buildNativeSpawnConfig,
+  DAEMON_SHARED_TUI_HINT,
   defaultExtensionPath,
   EXPECTED_PI_MAJOR_MINOR,
   EXTENSION_RELATIVE_PATH,
+  ensureLocalHostForNative,
+  formatPiStartupFailureHint,
+  NATIVE_TUI_FALLBACK_HINT,
   PI_PACKAGE_NAME,
+  PI_STARTUP_WINDOW_MS,
   parseMajorMinor,
   resolveDaemonSocket,
   resolvePiBinary,
+  runForeground,
 } from "../cli/native-pi.mjs";
 import { selectUiMode, UI_MODE } from "../cli/ui-mode.mjs";
 
@@ -48,6 +54,15 @@ const NATIVE_LEGACY_CONFLICT_PATTERN = /select different local TUIs/;
 const INVALID_OMO_TUI_PATTERN = /expected "native" or "legacy"/;
 const REGISTRY_CONNECT_PATTERN = /Unable to connect to registry Host/;
 const NATIVE_LAUNCH_PATTERN = /launching project-locked Pi/;
+const VERSION_LINE_PATTERN = /0\.85/;
+const PIN_LOCATION_PATTERN = /packages\/pi-runtime/;
+const ESCAPE_HATCH_PATTERN = /--legacy-tui/;
+const STARTUP_FAILURE_PATTERN = /failed during startup/;
+const DAEMON_SHARED_PATTERN = /same local omo daemon/;
+const VERSION_MISMATCH_PATTERN = /Unsupported Pi version "0\.86\.0"/;
+const PI_CLI_PATH_PATTERN = /\/repo\/node_modules\/pi\/cli\.js/;
+const EXIT_CODE_42_PATTERN = /code 42/;
+const SPAWN_FAILURE_PATTERN = /Unable to start the native Pi TUI/;
 
 test("parseArguments recognizes --native without disturbing other options", () => {
   const defaultOptions = parseArguments([], {});
@@ -243,6 +258,18 @@ test("resolveDaemonSocket accepts unix/pipe endpoints and rejects other kinds", 
     DAEMON_SOCKET_PATH_PATTERN
   );
   assert.throws(() => resolveDaemonSocket(null), DAEMON_ENDPOINT_PATTERN);
+  // A reachable TCP daemon is a native-only limitation: the legacy TUI can
+  // still talk to it, so the escape hatch points at `--legacy-tui`.
+  assert.match(
+    captureErrorMessage(() =>
+      resolveDaemonSocket({ transport: "tcp", url: "http://127.0.0.1:5189" })
+    ),
+    ESCAPE_HATCH_PATTERN
+  );
+  assert.match(
+    captureErrorMessage(() => resolveDaemonSocket({ kind: "unix" })),
+    ESCAPE_HATCH_PATTERN
+  );
 });
 
 test("selectUiMode defaults the local flow to the native Pi TUI", () => {
@@ -507,4 +534,187 @@ test("buildNativeSpawnArgs always loads exactly one extension first", () => {
     }),
     ["--extension", "/x/index.js", "--model", "test"]
   );
+});
+
+/** Captures the message of a synchronous throw for exact-text assertions. */
+function captureErrorMessage(run) {
+  try {
+    run();
+  } catch (error) {
+    return error.message;
+  }
+  throw new Error("Expected the call to throw");
+}
+
+function captureStream() {
+  let output = "";
+  return {
+    stream: {
+      write: (chunk) => {
+        output += chunk;
+      },
+    },
+    text: () => output,
+  };
+}
+
+function makeLaunchDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "omo-native-launch-"));
+}
+
+function writeLaunchScript(directory, name, body) {
+  const file = path.join(directory, `${name}.mjs`);
+  fs.writeFileSync(file, body);
+  return file;
+}
+
+test("version mismatch names the resolved version, pin, fix and escape hatch", () => {
+  const message = captureErrorMessage(() => assertSupportedPiVersion("0.86.0"));
+  assert.match(message, VERSION_MISMATCH_PATTERN);
+  assert.match(message, VERSION_LINE_PATTERN);
+  assert.match(message, PIN_LOCATION_PATTERN);
+  assert.match(message, PNPM_INSTALL_PATTERN);
+  assert.match(message, ESCAPE_HATCH_PATTERN);
+  assert.ok(message.includes(NATIVE_TUI_FALLBACK_HINT));
+});
+
+test("missing Pi binary and extension errors carry remediation and escape hatch", () => {
+  const missingBinary = captureErrorMessage(() =>
+    resolvePiBinary({
+      resolveEntry: () => {
+        throw new Error("ERR_MODULE_NOT_FOUND");
+      },
+    })
+  );
+  assert.match(missingBinary, PNPM_INSTALL_PATTERN);
+  assert.match(missingBinary, ESCAPE_HATCH_PATTERN);
+
+  const missingExtension = captureErrorMessage(() =>
+    assertExtensionExists("/repo/packages/pi-extension/index.js", {
+      exists: () => false,
+    })
+  );
+  assert.match(missingExtension, MISSING_EXTENSION_PATTERN);
+  assert.match(missingExtension, PNPM_INSTALL_PATTERN);
+  assert.match(missingExtension, ESCAPE_HATCH_PATTERN);
+});
+
+test("formatPiStartupFailureHint names the exit code, startup window and escape hatch", () => {
+  const hint = formatPiStartupFailureHint({
+    command: "/repo/node_modules/pi/cli.js",
+    elapsedMs: 12,
+    exitCode: 42,
+  });
+  assert.match(hint, PI_CLI_PATH_PATTERN);
+  assert.match(hint, EXIT_CODE_42_PATTERN);
+  assert.match(hint, new RegExp(`${PI_STARTUP_WINDOW_MS}ms startup window`));
+  assert.match(hint, STARTUP_FAILURE_PATTERN);
+  assert.ok(hint.includes(NATIVE_TUI_FALLBACK_HINT));
+});
+
+test("runForeground propagates a startup death and prints the actionable hint", async () => {
+  const directory = makeLaunchDir();
+  const script = writeLaunchScript(directory, "die", "process.exit(42);\n");
+  const captured = captureStream();
+  const exitCode = await runForeground({
+    args: [script],
+    command: process.execPath,
+    cwd: directory,
+    env: process.env,
+    stderr: captured.stream,
+  });
+  assert.equal(exitCode, 42);
+  const stderr = captured.text();
+  assert.match(stderr, STARTUP_FAILURE_PATTERN);
+  assert.match(stderr, EXIT_CODE_42_PATTERN);
+  assert.match(stderr, ESCAPE_HATCH_PATTERN);
+  assert.ok(stderr.includes(NATIVE_TUI_FALLBACK_HINT));
+});
+
+test("runForeground stays silent when the child quits after the startup window", async () => {
+  const directory = makeLaunchDir();
+  const clean = writeLaunchScript(
+    directory,
+    "late-clean",
+    "setTimeout(() => process.exit(0), 150);\n"
+  );
+  const cleanCapture = captureStream();
+  const cleanCode = await runForeground({
+    args: [clean],
+    command: process.execPath,
+    cwd: directory,
+    env: process.env,
+    startupWindowMs: 50,
+    stderr: cleanCapture.stream,
+  });
+  assert.equal(cleanCode, 0);
+  assert.equal(cleanCapture.text(), "");
+
+  const nonzero = writeLaunchScript(
+    directory,
+    "late-nonzero",
+    "setTimeout(() => process.exit(7), 150);\n"
+  );
+  const nonzeroCapture = captureStream();
+  const nonzeroCode = await runForeground({
+    args: [nonzero],
+    command: process.execPath,
+    cwd: directory,
+    env: process.env,
+    startupWindowMs: 50,
+    stderr: nonzeroCapture.stream,
+  });
+  // A late nonzero quit is a normal quit: the exit code is preserved and no
+  // startup hint is printed.
+  assert.equal(nonzeroCode, 7);
+  assert.equal(nonzeroCapture.text(), "");
+});
+
+test("runForeground wraps a spawn failure with context and the escape hatch", async () => {
+  const missingBinary = path.join(
+    os.tmpdir(),
+    "omo-missing-pi-dir",
+    "pi-binary"
+  );
+  await assert.rejects(
+    runForeground({
+      args: [],
+      command: missingBinary,
+      cwd: os.tmpdir(),
+      env: process.env,
+    }),
+    (error) => {
+      assert.match(error.message, SPAWN_FAILURE_PATTERN);
+      assert.ok(error.message.includes(missingBinary));
+      assert.match(error.message, PNPM_INSTALL_PATTERN);
+      assert.match(error.message, ESCAPE_HATCH_PATTERN);
+      return true;
+    }
+  );
+});
+
+test("ensureLocalHostForNative adds the shared-daemon note without duplicating omo serve", async () => {
+  const daemonError = new Error(
+    "Timed out after 30000ms waiting for the local omo Host at unix:/tmp/omo.sock (data dir /tmp/omo). Run `omo serve` to see startup errors."
+  );
+  await assert.rejects(
+    ensureLocalHostForNative(() => {
+      throw daemonError;
+    }, {}),
+    (error) => {
+      assert.equal(error.cause, daemonError);
+      assert.ok(error.message.startsWith(daemonError.message));
+      assert.ok(error.message.includes(DAEMON_SHARED_TUI_HINT));
+      assert.match(error.message, DAEMON_SHARED_PATTERN);
+      assert.match(error.message, ESCAPE_HATCH_PATTERN);
+      // The underlying `omo serve` suggestion is neither removed nor repeated.
+      assert.equal(error.message.split("omo serve").length - 1, 1);
+      return true;
+    }
+  );
+
+  // A reachable daemon passes through untouched.
+  const endpoint = { kind: "unix", path: "/x.sock" };
+  const connected = await ensureLocalHostForNative(() => ({ endpoint }), {});
+  assert.deepEqual(connected, { endpoint });
 });
