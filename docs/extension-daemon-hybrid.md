@@ -1,6 +1,8 @@
 # Pi Extension + omo daemon 混合架构
 
 > 状态：目标设计与实施任务基线。当前生产路径仍是 `docs/architecture-v2.md` 描述的 Host-owned runtime；只有各阶段 Gate 通过后，才逐步切换默认行为。
+>
+> 安装、升级、版本兼容与运维排查见 [pi-extension.md](pi-extension.md)。
 
 ## 1. 目标
 

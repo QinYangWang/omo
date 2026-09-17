@@ -1,5 +1,8 @@
 # @omo/pi-extension
 
+> Full install, upgrade, compatibility, operations and troubleshooting guide:
+> [`docs/pi-extension.md`](../../docs/pi-extension.md).
+
 Version-locked Pi extension implementing two feasibility spikes and the daemon
 bridge:
 

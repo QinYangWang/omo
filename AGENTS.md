@@ -32,6 +32,7 @@ pnpm server:dev   # omo Server watch 模式
 - [docs/server.md](docs/server.md) — omo Server 启动、配置、托管与 Docker
 - [docs/server-api.md](docs/server-api.md) — HTTP、SSE 和 WebSocket API 参考
 - [docs/reliability.md](docs/reliability.md) — SQLite 事件、SSE 重放、Prompt 幂等与终端恢复
+- [docs/pi-extension.md](docs/pi-extension.md) — Pi Extension 安装、升级、版本兼容、运维与故障排查
 - [docs/security.md](docs/security.md) — Token、workspace、Session path、WebSocket ticket 与凭据边界
 - [docs/sessions.md](docs/sessions.md) — Pi Session 生命周期、Turn 聚合、RenderBlock 适配、虚拟列表与实时同步边界
 - [docs/terminal.md](docs/terminal.md) — 本地 shell 与远程 PTY、缓冲、重连和回收

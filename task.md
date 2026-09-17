@@ -101,7 +101,7 @@
 
 - [ ] E5-001：实现 idle 边界上的显式 native detach → headless resume；运行中崩溃只标记 interrupted，不自动重复 dispatch
 - [ ] E5-002：在所有 Gate 通过后将本机 `omo` 默认切换为 Pi 原生 TUI，保留一个发布周期的 legacy fallback
-- [ ] E5-003：完成 Pi package 安装/升级、版本兼容、运维与故障排查文档
+- [x] E5-003：完成 Pi package 安装/升级、版本兼容、运维与故障排查文档
 - [ ] E5-GATE：通过单执行者竞争、Pi/daemon 异常退出、重启重连、事件去重和真实浏览器验收矩阵
 
 ## Backlog：不进入当前实施
