@@ -13,7 +13,11 @@ import {
   Text,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
-import { resolveDataDir, runHostCommand } from "./host-registry.mjs";
+import {
+  resolveDataDir,
+  runHostCommand,
+  selectedRegistryHostIsRemote,
+} from "./host-registry.mjs";
 import {
   buildClientForEndpoint,
   connectRegistryHost,
@@ -28,8 +32,10 @@ import {
   assertExtensionExists,
   buildNativeSpawnConfig,
   defaultExtensionPath,
+  resolveDaemonSocket,
   resolvePiBinary,
 } from "./native-pi.mjs";
+import { NATIVE_LOCAL_ONLY_ERROR, selectUiMode, UI_MODE } from "./ui-mode.mjs";
 
 const require = createRequire(import.meta.url);
 const SESSION_TITLE_WHITESPACE = /\s+/g;
@@ -327,8 +333,35 @@ async function runTui(client, baseUrl, host, options) {
 }
 
 const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 };
-const NATIVE_LOCAL_ONLY_ERROR =
-  "`omo --native` only supports the local omo daemon. Remove --url/--socket/--server (or the OMO_URL/OMO_LOCAL_SOCKET environment overrides) to launch the native Pi TUI.";
+const HELP_FLAGS = new Set(["--help", "-h"]);
+
+const USAGE = `omo — Pi-native TUI with the omo extension
+
+Usage:
+  omo [--native] [--cwd <dir>] [--session <path>] [Pi args...]
+  omo --server <entryId> | --url <url> | --socket <path>
+  omo session list | omo session new
+  omo host <list|add|remove|use>
+  omo serve [--socket <path>]
+
+UI mode:
+  (default local)  discover or start the local omo daemon, then launch the
+                   project-locked Pi native TUI with the omo extension
+  --native         force the native Pi TUI (local daemon only)
+  --server, --url, --socket and their environment equivalents always use the
+  legacy omo TUI
+
+Environment:
+  OMO_DATA_DIR      daemon data directory
+  OMO_LOCAL_SOCKET  explicit local daemon socket
+  OMO_URL           explicit remote Host URL
+  OMO_TOKEN         daemon Bearer token (never passed to Pi)
+
+Run \`omo --native --help\` to forward --help to the Pi CLI.`;
+
+function printUsage() {
+  console.log(USAGE);
+}
 
 /**
  * Runs the native Pi TUI as the foreground process sharing the user's TTY.
@@ -371,28 +404,30 @@ function runForeground({ command, args, cwd, env }) {
 }
 
 /**
- * `omo --native`: discover/start the local daemon exactly like the default
- * local flow, then hand the terminal to the project-locked Pi CLI with the
- * omo extension explicitly loaded. The daemon is a separate detached process,
- * so Pi exiting does not stop it. Daemon-side event ingestion is E1; for the
- * spike the events URL is only passed through from the operator environment.
+ * Local (default and `--native`) flow: discover/start the local daemon, then
+ * hand the terminal to the project-locked Pi CLI with the omo extension
+ * explicitly loaded and the daemon socket injected. The daemon is a separate
+ * detached process, so Pi exiting does not stop it.
  */
 async function runNativePi(options) {
   if (selectTransportMode(options) !== "local") {
     throw new Error(NATIVE_LOCAL_ONLY_ERROR);
   }
-  await ensureLocalHost(options);
+  const { endpoint } = await ensureLocalHost(options);
+  const daemonSocket = resolveDaemonSocket(endpoint);
   const { binaryPath, version } = resolvePiBinary();
   const extensionPath = assertExtensionExists(defaultExtensionPath());
   const spawnConfig = buildNativeSpawnConfig({
     baseEnv: process.env,
     binaryPath,
     cwd: options.cwd,
+    daemonSocket,
     extensionPath,
     passthroughArgs: options.positional,
+    piVersion: version,
   });
   console.error(
-    `omo: launching project-locked Pi ${version} (${binaryPath}) with extension ${extensionPath}`
+    `omo: launching project-locked Pi ${version} (${binaryPath}) with extension ${extensionPath} against daemon socket ${daemonSocket}`
   );
   process.exitCode = await runForeground(spawnConfig);
 }
@@ -537,6 +572,13 @@ async function resolveClientTarget(options) {
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+  if (
+    !options.native &&
+    options.positional.some((arg) => HELP_FLAGS.has(arg))
+  ) {
+    printUsage();
+    return;
+  }
   if (options.command === "serve") {
     await serveHost(options);
     return;
@@ -549,7 +591,16 @@ async function main() {
     runHostCommand(options.command, options, resolveDataDir(options));
     return;
   }
-  if (options.native) {
+  // Explicit commands (`session list`, `session new`, `serve`, `host ...`)
+  // keep their legacy behavior; only the default local TUI and an explicit
+  // `--native` switch to the native Pi TUI.
+  const uiMode = selectUiMode(options, {
+    selectedRegistryHostIsRemote: () => selectedRegistryHostIsRemote(options),
+  });
+  if (
+    uiMode === UI_MODE.native &&
+    (options.native || options.command === "tui")
+  ) {
     await runNativePi(options);
     return;
   }

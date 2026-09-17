@@ -84,8 +84,8 @@
 
 ### E3：原生本机 CLI
 
-- [ ] E3-001：让本机 `omo` 发现/启动 daemon 后进入带 omo Extension 的 Pi 原生 TUI
-- [ ] E3-002：保留现有 omo TUI 作为远程 `--server` 与显式 fallback，定义清晰的选择优先级
+- [x] E3-001：让本机 `omo` 发现/启动 daemon 后进入带 omo Extension 的 Pi 原生 TUI（`597d9b8`）
+- [x] E3-002：保留现有 omo TUI 作为远程 `--server` 与显式 fallback，定义清晰的选择优先级（`0944ad0`）
 - [ ] E3-003：实现原生 TUI 启动失败、daemon 不可达与版本不兼容的可操作错误和安全回退
 - [ ] E3-GATE：验证本机无需全局 Pi、原生 TUI 功能无降级、远程 Host 路径无回归
 

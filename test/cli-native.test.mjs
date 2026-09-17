@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -14,8 +15,10 @@ import {
   EXTENSION_RELATIVE_PATH,
   PI_PACKAGE_NAME,
   parseMajorMinor,
+  resolveDaemonSocket,
   resolvePiBinary,
 } from "../cli/native-pi.mjs";
+import { selectUiMode, UI_MODE } from "../cli/ui-mode.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REPO_NODE_MODULES = path.join(ROOT, "node_modules");
@@ -25,6 +28,11 @@ const PNPM_INSTALL_PATTERN = /pnpm install/;
 const MISSING_BIN_PATTERN = /missing at .*cli\.js/;
 const MISSING_BIN_KEY_PATTERN = /bin\.pi/;
 const MISSING_EXTENSION_PATTERN = /extension is missing/;
+const NATIVE_LOCAL_ONLY_PATTERN = /only supports the local omo daemon/;
+const DAEMON_ENDPOINT_PATTERN = /Unix socket or Windows named pipe/;
+const DAEMON_SOCKET_PATH_PATTERN = /missing its socket path/;
+const USAGE_HEADER_PATTERN = /Usage:/;
+const NATIVE_FLAG_PATTERN = /--native/;
 
 test("parseArguments recognizes --native without disturbing other options", () => {
   const defaultOptions = parseArguments([], {});
@@ -162,46 +170,104 @@ test("assertExtensionExists rejects a missing or empty extension path", () => {
   assert.ok(fs.existsSync(defaultExtensionPath(ROOT)));
 });
 
-test("buildNativeSpawnConfig wires the extension and passes the events URL through", () => {
+test("buildNativeSpawnConfig injects the resolved daemon wiring and strips inherited overrides", () => {
+  const endpoint = { kind: "unix", path: "/x.sock" };
   const extensionPath = defaultExtensionPath(ROOT);
   const binaryPath = "/repo/node_modules/.pnpm/pi/dist/bundle/cli.js";
   const config = buildNativeSpawnConfig({
-    baseEnv: { HOME: "/home/me", OMO_TOKEN: "super-secret" },
+    baseEnv: {
+      HOME: "/home/me",
+      OMO_DAEMON_SOCKET: "/poison.sock",
+      OMO_EXTENSION_EVENTS_URL: "http://127.0.0.1:1234/events",
+      OMO_PI_VERSION: "9.9.9",
+      OMO_TOKEN: "super-secret",
+    },
     binaryPath,
     cwd: "/tmp/work",
+    daemonSocket: resolveDaemonSocket(endpoint),
     extensionPath,
     passthroughArgs: ["--help"],
+    piVersion: "0.85.0",
   });
   assert.equal(config.command, binaryPath);
   assert.equal(config.cwd, "/tmp/work");
   assert.deepEqual(config.args, ["--extension", extensionPath, "--help"]);
+  assert.equal(config.env.OMO_DAEMON_SOCKET, "/x.sock");
+  assert.equal(config.env.OMO_PI_VERSION, "0.85.0");
+  assert.equal(config.env.HOME, "/home/me");
+  // The retired spike channel and every inherited daemon override are gone.
   assert.equal("OMO_EXTENSION_EVENTS_URL" in config.env, false);
   assert.equal("OMO_TOKEN" in config.env, false);
-  assert.equal(JSON.stringify(config.env).includes("super-secret"), false);
-  assert.equal(config.env.HOME, "/home/me");
+  const serialized = JSON.stringify(config.env);
+  assert.equal(serialized.includes("super-secret"), false);
+  assert.equal(serialized.includes("/poison.sock"), false);
+  assert.equal(serialized.includes("9.9.9"), false);
 
-  const withUrl = buildNativeSpawnConfig({
-    baseEnv: {
-      HOME: "/home/me",
-      OMO_EXTENSION_EVENTS_URL: "http://127.0.0.1:1234/events",
-    },
-    binaryPath,
-    extensionPath,
-  });
+  // A base env without daemon wiring stays unset instead of gaining keys.
+  const bare = buildNativeEnv({ baseEnv: { HOME: "/home/me" } });
+  assert.equal("OMO_DAEMON_SOCKET" in bare, false);
+  assert.equal("OMO_PI_VERSION" in bare, false);
+});
+
+test("resolveDaemonSocket accepts unix/pipe endpoints and rejects other kinds", () => {
   assert.equal(
-    withUrl.env.OMO_EXTENSION_EVENTS_URL,
-    "http://127.0.0.1:1234/events"
+    resolveDaemonSocket({ kind: "unix", path: "/x.sock" }),
+    "/x.sock"
   );
+  assert.equal(
+    resolveDaemonSocket({ path: "\\\\.\\pipe\\omo", transport: "pipe" }),
+    "\\\\.\\pipe\\omo"
+  );
+  assert.throws(
+    () =>
+      resolveDaemonSocket({ transport: "tcp", url: "http://127.0.0.1:5189" }),
+    DAEMON_ENDPOINT_PATTERN
+  );
+  assert.throws(
+    () => resolveDaemonSocket({ kind: "unix" }),
+    DAEMON_SOCKET_PATH_PATTERN
+  );
+  assert.throws(() => resolveDaemonSocket(null), DAEMON_ENDPOINT_PATTERN);
+});
 
-  const explicit = buildNativeEnv({
-    baseEnv: { OMO_EXTENSION_EVENTS_URL: "  http://127.0.0.1:9/events  " },
-  });
-  assert.equal(explicit.OMO_EXTENSION_EVENTS_URL, "http://127.0.0.1:9/events");
+test("selectUiMode defaults the local flow to the native Pi TUI", () => {
+  assert.equal(selectUiMode(parseArguments([], {})), UI_MODE.native);
+  assert.equal(selectUiMode(parseArguments(["--native"], {})), UI_MODE.native);
 
-  const blank = buildNativeEnv({
-    baseEnv: { OMO_EXTENSION_EVENTS_URL: "   " },
-  });
-  assert.equal("OMO_EXTENSION_EVENTS_URL" in blank, false);
+  // Explicit remote selectors always keep the legacy omo TUI.
+  const remotes = [
+    parseArguments(["--url", "http://host:5189"], {}),
+    parseArguments(["--socket", "/tmp/omo.sock"], {}),
+    parseArguments(["--server", "remote"], {}),
+    parseArguments([], { OMO_URL: "http://host:5189" }),
+    parseArguments([], { OMO_LOCAL_SOCKET: "/tmp/omo.sock" }),
+  ];
+  for (const options of remotes) {
+    assert.equal(selectUiMode(options), UI_MODE.legacy);
+  }
+
+  // `--native` cannot front a remote Host.
+  assert.throws(
+    () =>
+      selectUiMode(
+        parseArguments(["--native", "--url", "http://host:5189"], {})
+      ),
+    NATIVE_LOCAL_ONLY_PATTERN
+  );
+  assert.throws(
+    () => selectUiMode(parseArguments(["--native", "--server", "remote"], {})),
+    NATIVE_LOCAL_ONLY_PATTERN
+  );
+});
+
+test("omo --help prints the CLI usage without launching a daemon", () => {
+  const output = execFileSync(
+    process.execPath,
+    [path.join(ROOT, "cli", "omo.mjs"), "--help"],
+    { encoding: "utf8" }
+  );
+  assert.match(output, USAGE_HEADER_PATTERN);
+  assert.match(output, NATIVE_FLAG_PATTERN);
 });
 
 test("buildNativeSpawnArgs always loads exactly one extension first", () => {

@@ -6,6 +6,7 @@ import {
   addHostRegistryEntry,
   CredentialResolutionError,
   createEmptyHostRegistryDocument,
+  findHostRegistryEntry,
   HostRegistryDocumentSchema,
   hostEndpointLabel,
   normalizeHttpHostUrl,
@@ -17,6 +18,7 @@ import {
 export const HOST_REGISTRY_FILE_NAME = "host-registry.json";
 
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const REMOTE_HOST_TRANSPORTS = new Set(["http", "https"]);
 
 /** Resolves the client-local registry file inside the configured data dir. */
 export function hostRegistryPath(dataDir) {
@@ -76,6 +78,28 @@ export function readHostRegistry(dataDir) {
       `Host registry file is invalid at ${filePath}: ${error.message}`,
       { cause: error }
     );
+  }
+}
+
+/**
+ * Reports whether the registry's selected entry is a remote (`http`/`https`)
+ * Host. `selectUiMode` consumes this lazily so a plain `omo` with no explicit
+ * selector still routes to an `omo host use` selection instead of silently
+ * defaulting to the local native TUI.
+ *
+ * The registry is a client-side convenience, not a launch dependency: a
+ * missing, unreadable, malformed or schema-invalid file, or a dangling
+ * `selectedEntryId`, all resolve to "not remote" so the local TUI can start.
+ */
+export function selectedRegistryHostIsRemote(options = {}, env = process.env) {
+  try {
+    const { document } = readHostRegistry(resolveDataDir(options, env));
+    const entry = document.selectedEntryId
+      ? findHostRegistryEntry(document, document.selectedEntryId)
+      : undefined;
+    return entry ? REMOTE_HOST_TRANSPORTS.has(entry.endpoint.transport) : false;
+  } catch {
+    return false;
   }
 }
 

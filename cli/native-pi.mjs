@@ -165,46 +165,84 @@ export function buildNativeSpawnArgs({
 }
 
 /**
- * Environment keys that are intentionally not inherited by the native Pi
- * process. `OMO_EXTENSION_EVENTS_URL` is re-added below when the operator set
- * it; `OMO_TOKEN` is the daemon credential and Pi never needs it.
+ * Endpoint kinds the native Pi TUI can talk to. The extension's private
+ * channel is only reachable over a local Unix socket / Windows named pipe.
+ */
+const DAEMON_ENDPOINT_KINDS = new Set(["pipe", "unix"]);
+
+/**
+ * Environment keys the native Pi child must never inherit. The daemon token
+ * is a credential Pi never needs; `OMO_EXTENSION_EVENTS_URL` is the retired
+ * E0-004 spike channel superseded by daemon mode. `OMO_DAEMON_SOCKET` and
+ * `OMO_PI_VERSION` are stripped so an operator-set override can never mask the
+ * values resolved by the launcher; the resolved values are re-added below.
  */
 const NATIVE_ENV_EXCLUSIONS = new Set([
+  "OMO_DAEMON_SOCKET",
   "OMO_EXTENSION_EVENTS_URL",
+  "OMO_PI_VERSION",
   "OMO_TOKEN",
 ]);
 
 /**
- * Builds the child environment. `OMO_EXTENSION_EVENTS_URL` is only forwarded
- * when the operator already set it; daemon-side ingestion of these events is
- * E1, so the spike must not invent an endpoint that does not exist yet. The
- * daemon token is deliberately stripped from the child environment.
+ * Extracts the local socket path the extension must connect to from a daemon
+ * discovery endpoint. Only `unix`/`pipe` endpoints are reachable from the
+ * extension, so anything else (for example a TCP endpoint) fails before a
+ * child process is spawned.
  */
-export function buildNativeEnv({ baseEnv = process.env, eventsUrl } = {}) {
-  const requested = eventsUrl ?? baseEnv.OMO_EXTENSION_EVENTS_URL;
-  const value = typeof requested === "string" ? requested.trim() : "";
+export function resolveDaemonSocket(endpoint) {
+  const kind = endpoint?.kind ?? endpoint?.transport;
+  if (!DAEMON_ENDPOINT_KINDS.has(kind)) {
+    throw new Error(
+      `The native Pi TUI needs the local omo daemon over a Unix socket or Windows named pipe, but daemon discovery reported ${JSON.stringify(kind ?? null)}. Start the daemon with \`omo serve --socket <path>\` and retry.`
+    );
+  }
+  if (typeof endpoint.path !== "string" || endpoint.path.length === 0) {
+    throw new Error(
+      `The local omo daemon endpoint (${kind}) is missing its socket path. Restart the daemon with \`omo serve\` and retry.`
+    );
+  }
+  return endpoint.path;
+}
+
+/**
+ * Builds the child environment for the native Pi TUI. The daemon wiring is
+ * injected as `OMO_DAEMON_SOCKET` plus the locked `OMO_PI_VERSION`, always
+ * from the launcher-resolved values rather than the inherited environment.
+ */
+export function buildNativeEnv({
+  baseEnv = process.env,
+  daemonSocket,
+  piVersion,
+} = {}) {
   const env = Object.fromEntries(
     Object.entries(baseEnv).filter(([key]) => !NATIVE_ENV_EXCLUSIONS.has(key))
   );
-  if (value.length > 0) {
-    env.OMO_EXTENSION_EVENTS_URL = value;
+  const socket = typeof daemonSocket === "string" ? daemonSocket.trim() : "";
+  const version = typeof piVersion === "string" ? piVersion.trim() : "";
+  if (socket.length > 0) {
+    env.OMO_DAEMON_SOCKET = socket;
+  }
+  if (version.length > 0) {
+    env.OMO_PI_VERSION = version;
   }
   return env;
 }
 
 /** Pure spawn description used by `omo --native` and by the unit tests. */
 export function buildNativeSpawnConfig({
+  baseEnv = process.env,
   binaryPath,
+  cwd,
+  daemonSocket,
   extensionPath,
   passthroughArgs = [],
-  baseEnv = process.env,
-  eventsUrl,
-  cwd,
+  piVersion,
 } = {}) {
   return {
     args: buildNativeSpawnArgs({ extensionPath, passthroughArgs }),
     command: binaryPath,
     cwd,
-    env: buildNativeEnv({ baseEnv, eventsUrl }),
+    env: buildNativeEnv({ baseEnv, daemonSocket, piVersion }),
   };
 }
