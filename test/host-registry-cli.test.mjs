@@ -6,6 +6,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { scrubOmoEnv } from "./spawn-env.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const CLI_ENTRY = path.join(ROOT, "cli", "omo.mjs");
@@ -39,6 +40,7 @@ function makeLayout(label) {
 function cliEnv(layout, extra = {}) {
   return {
     ...process.env,
+    ...scrubOmoEnv,
     OMO_DATA_DIR: layout.dataDir,
     OMO_LOCAL_SOCKET: "",
     OMO_TOKEN: "",

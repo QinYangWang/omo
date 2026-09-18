@@ -9,6 +9,7 @@ import test from "node:test";
 
 import { createLocalEndpointFetch } from "../cli/local-transport.mjs";
 import { HttpHostClient } from "../packages/client-core/dist/index.js";
+import { scrubOmoEnv } from "./spawn-env.mjs";
 
 const require = createRequire(import.meta.url);
 const { EventStore } = require("../server/event-store.cjs");
@@ -415,6 +416,7 @@ function spawnHost({ agentDir, dataDir, workspaceDir }) {
     cwd: ROOT,
     env: {
       ...process.env,
+      ...scrubOmoEnv,
       OMO_DATA_DIR: dataDir,
       OMO_LOCAL_SOCKET: "",
       OMO_TOKEN: "",

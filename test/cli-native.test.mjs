@@ -35,6 +35,7 @@ import {
   runForeground,
 } from "../cli/native-pi.mjs";
 import { selectUiMode, UI_MODE } from "../cli/ui-mode.mjs";
+import { scrubOmoEnv } from "./spawn-env.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REPO_NODE_MODULES = path.join(ROOT, "node_modules");
@@ -498,6 +499,7 @@ test("plain omo routes a selected remote registry Host to legacy, not native Pi"
       encoding: "utf8",
       env: {
         ...process.env,
+        ...scrubOmoEnv,
         OMO_DATA_DIR: "",
         OMO_LOCAL_SOCKET: "",
         OMO_TUI: "",

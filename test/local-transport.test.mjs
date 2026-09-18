@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { createLocalEndpointFetch } from "../cli/local-transport.mjs";
 import { HttpHostClient } from "../packages/client-core/dist/index.js";
+import { scrubOmoEnv } from "./spawn-env.mjs";
 
 const require = createRequire(import.meta.url);
 const { resolveLocalEndpoint } = require("../server/local-endpoint.cjs");
@@ -55,6 +56,7 @@ function createSocketClient(socketPath) {
 function spawnSocketHost({ agentDir, dataDir, explicitSocket, workspaceDir }) {
   const env = {
     ...process.env,
+    ...scrubOmoEnv,
     OMO_DATA_DIR: dataDir,
     OMO_LOCAL_SOCKET: explicitSocket || "",
     OMO_TOKEN: "",

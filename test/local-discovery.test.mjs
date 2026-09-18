@@ -11,6 +11,7 @@ import {
   parseArguments,
   selectTransportMode,
 } from "../cli/local-host.mjs";
+import { scrubOmoEnv } from "./spawn-env.mjs";
 
 const require = createRequire(import.meta.url);
 const {
@@ -52,6 +53,7 @@ function makeLayout(label) {
 function cliEnv(layout, extra = {}) {
   return {
     ...process.env,
+    ...scrubOmoEnv,
     OMO_DATA_DIR: layout.dataDir,
     OMO_LOCAL_SOCKET: "",
     OMO_TOKEN: "",

@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createLocalEndpointFetch } from "../cli/local-transport.mjs";
+import { scrubOmoEnv } from "./spawn-env.mjs";
 
 const require = createRequire(import.meta.url);
 const { ExtensionService } = require("../server/extension-service.cjs");
@@ -106,6 +107,7 @@ function spawnHost({
 }) {
   const env = {
     ...process.env,
+    ...scrubOmoEnv,
     OMO_DATA_DIR: dataDir,
     OMO_LOCAL_SOCKET: "",
     OMO_TOKEN: token,

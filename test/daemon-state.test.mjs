@@ -6,6 +6,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { scrubOmoEnv } from "./spawn-env.mjs";
 
 const require = createRequire(import.meta.url);
 const {
@@ -148,6 +149,7 @@ function spawnLeaseChild(dataDir) {
     cwd: ROOT,
     env: {
       ...process.env,
+      ...scrubOmoEnv,
       OMO_TEST_DATA_DIR: dataDir,
       OMO_TEST_HOLD_MS: "30000",
     },
@@ -176,6 +178,7 @@ function spawnServe({ agentDir, dataDir, port, workspaceDir }) {
       cwd: ROOT,
       env: {
         ...process.env,
+        ...scrubOmoEnv,
         OMO_DATA_DIR: dataDir,
         OMO_HOST: HOST_ADDRESS,
         OMO_PORT: String(port),

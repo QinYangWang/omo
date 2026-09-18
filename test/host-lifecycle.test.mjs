@@ -6,6 +6,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { scrubOmoEnv } from "./spawn-env.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const HOST_ENTRY = path.join(ROOT, "server", "index.cjs");
@@ -53,6 +54,7 @@ function spawnHost({ agentDir, dataDir, port, workspaceDir }) {
     cwd: ROOT,
     env: {
       ...process.env,
+      ...scrubOmoEnv,
       OMO_DATA_DIR: dataDir,
       OMO_HOST: HOST_ADDRESS,
       OMO_PORT: String(port),
