@@ -7,7 +7,7 @@ import {
   Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   SessionActions,
   SessionDetailsHover,
@@ -38,24 +38,6 @@ import { useStreamingSessions } from "@/lib/session-streaming";
 import { cn } from "@/lib/utils";
 
 const COLLAPSED_SESSION_LIMIT = 5;
-
-function getVisibleSessions(
-  sessions: PiSession[],
-  activeSession: string | null,
-  expanded: boolean
-): PiSession[] {
-  if (expanded) {
-    return sessions;
-  }
-  const visibleSessions = sessions.slice(0, COLLAPSED_SESSION_LIMIT);
-  const activeProjectSession = sessions.find(
-    (session) => activeSession === session.path || activeSession === session.id
-  );
-  if (activeProjectSession && !visibleSessions.includes(activeProjectSession)) {
-    visibleSessions.push(activeProjectSession);
-  }
-  return visibleSessions;
-}
 
 function SessionRow({
   project,
@@ -253,14 +235,100 @@ export function Sidebar({
                 ? b.session.created - a.session.created
                 : a.index - b.index;
             });
-            const projectSessionItems = decorated.map((item) => item.session);
+            // Forks (parentSessionPath set, parent in the same list) nest
+            // under their parent so same-named branches read as a tree;
+            // pinned sessions always stay roots.
+            const childrenByParent = new Map<string, typeof decorated>();
+            const roots: typeof decorated = [];
+            const itemsByPath = new Map(
+              decorated.map((item) => [item.session.path, item])
+            );
+            for (const item of decorated) {
+              const parentPath = item.session.parentSessionPath;
+              if (!item.pinned && parentPath && itemsByPath.has(parentPath)) {
+                const siblings = childrenByParent.get(parentPath) ?? [];
+                siblings.push(item);
+                childrenByParent.set(parentPath, siblings);
+              } else {
+                roots.push(item);
+              }
+            }
+            for (const siblings of childrenByParent.values()) {
+              siblings.sort((a, b) => a.session.created - b.session.created);
+            }
+            const containsActive = (
+              item: (typeof decorated)[number]
+            ): boolean => {
+              const stack = [item];
+              while (stack.length > 0) {
+                const current = stack.pop();
+                if (!current) {
+                  break;
+                }
+                if (
+                  activeSession === current.session.path ||
+                  activeSession === current.session.id
+                ) {
+                  return true;
+                }
+                stack.push(
+                  ...(childrenByParent.get(current.session.path) ?? [])
+                );
+              }
+              return false;
+            };
             const sessionListExpanded =
               expandedSessionLists[project.id] ?? false;
-            const visibleSessions = getVisibleSessions(
-              projectSessionItems,
-              activeSession,
-              sessionListExpanded
-            );
+            const visibleRoots = sessionListExpanded
+              ? roots
+              : (() => {
+                  const first = roots.slice(0, COLLAPSED_SESSION_LIMIT);
+                  const activeRoot = roots.find((item) => containsActive(item));
+                  if (activeRoot && !first.includes(activeRoot)) {
+                    first.push(activeRoot);
+                  }
+                  return first;
+                })();
+            const renderSessionItem = (
+              item: (typeof decorated)[number]
+            ): ReactNode => {
+              const { session } = item;
+              const key = sessionKey(project.serverId, session.path);
+              const pinned = !!prefs[key]?.pinned;
+              const children = childrenByParent.get(session.path) ?? [];
+              return (
+                <div className="flex flex-col gap-1" key={session.path}>
+                  <SessionRow
+                    isActive={
+                      activeSession === session.path ||
+                      activeSession === session.id
+                    }
+                    isStreaming={
+                      (streamingSessions[`${project.serverId}:${session.id}`] ??
+                        false) ||
+                      (streamingSessions[
+                        `${project.serverId}:${session.path}`
+                      ] ??
+                        false)
+                    }
+                    onChanged={(name) =>
+                      onSessionsChanged(project, undefined, session.path, name)
+                    }
+                    onCloned={(path) => onSessionsChanged(project, path)}
+                    onSelect={() => onSelectSession(project, session)}
+                    pinned={pinned}
+                    prefKey={key}
+                    project={project}
+                    session={session}
+                  />
+                  {children.length > 0 ? (
+                    <div className="ml-3.5 flex flex-col gap-1 border-sidebar-border border-l pl-2">
+                      {children.map((child) => renderSessionItem(child))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            };
 
             return (
               <Collapsible
@@ -315,46 +383,8 @@ export function Sidebar({
                   </div>
                   <CollapsibleContent>
                     <div className="mt-1 ml-3.5 flex flex-col gap-1 border-sidebar-border border-l pl-2.5">
-                      {visibleSessions.map((session) => {
-                        const key = sessionKey(project.serverId, session.path);
-                        const pinned = !!prefs[key]?.pinned;
-                        return (
-                          <SessionRow
-                            isActive={
-                              activeSession === session.path ||
-                              activeSession === session.id
-                            }
-                            isStreaming={
-                              (streamingSessions[
-                                `${project.serverId}:${session.id}`
-                              ] ??
-                                false) ||
-                              (streamingSessions[
-                                `${project.serverId}:${session.path}`
-                              ] ??
-                                false)
-                            }
-                            key={session.path}
-                            onChanged={(name) =>
-                              onSessionsChanged(
-                                project,
-                                undefined,
-                                session.path,
-                                name
-                              )
-                            }
-                            onCloned={(path) =>
-                              onSessionsChanged(project, path)
-                            }
-                            onSelect={() => onSelectSession(project, session)}
-                            pinned={pinned}
-                            prefKey={key}
-                            project={project}
-                            session={session}
-                          />
-                        );
-                      })}
-                      {projectSessionItems.length > COLLAPSED_SESSION_LIMIT ? (
+                      {visibleRoots.map((item) => renderSessionItem(item))}
+                      {roots.length > COLLAPSED_SESSION_LIMIT ? (
                         <Button
                           className="h-7 w-full justify-start rounded-lg px-2 font-normal text-sidebar-foreground text-xs hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           onClick={() =>
@@ -368,7 +398,7 @@ export function Sidebar({
                           {sessionListExpanded
                             ? t("show_fewer_sessions")
                             : t("show_all_sessions", {
-                                count: String(projectSessionItems.length),
+                                count: String(roots.length),
                               })}
                         </Button>
                       ) : null}

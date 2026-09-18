@@ -29,6 +29,7 @@ export interface PiSessionSummary {
   id: string;
   modified: Date;
   name?: string;
+  parentSessionPath?: string;
   path: string;
 }
 
@@ -82,6 +83,7 @@ export class PiRuntimeAdapter {
       id: session.id,
       modified: session.modified,
       name: session.name,
+      parentSessionPath: session.parentSessionPath,
       path: session.path,
     }));
   }
@@ -94,6 +96,7 @@ export class PiRuntimeAdapter {
       id: session.id,
       modified: session.modified,
       name: session.name,
+      parentSessionPath: session.parentSessionPath,
       path: session.path,
     }));
   }

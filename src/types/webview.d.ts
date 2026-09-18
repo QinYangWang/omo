@@ -63,6 +63,8 @@ interface PiSession {
   messageCount?: number;
   modified: number;
   name?: string;
+  /** Path of the parent session file when this session was forked from it. */
+  parentSessionPath?: string;
   path: string;
 }
 
