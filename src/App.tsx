@@ -572,6 +572,27 @@ export default function App() {
               onResizeSidebar={(dx) =>
                 setSidebarW((width) => clamp(width + dx, 240, 400))
               }
+              onSessionDeleted={(serverId, sessionPath) => {
+                const deletedTab = tabs.find(
+                  (tab) =>
+                    tab.session?.serverId === serverId &&
+                    tab.session.path === sessionPath
+                );
+                if (deletedTab) {
+                  closeTab(deletedTab.id);
+                }
+                setSessions((current) =>
+                  Object.fromEntries(
+                    Object.entries(current).map(([projectId, list]) => [
+                      projectId,
+                      projects.find((project) => project.id === projectId)
+                        ?.serverId === serverId
+                        ? list.filter((session) => session.path !== sessionPath)
+                        : list,
+                    ])
+                  )
+                );
+              }}
               sidebarOpen={!collapsed}
               sidebarWidth={sidebarW}
             />
@@ -596,12 +617,14 @@ export default function App() {
                 activeSession={
                   activeSession?.path ?? activeSession?.key ?? null
                 }
-                onImport={async (project, sourcePath) => {
-                  await getServerApi(project.serverId).sessions.import(
-                    sourcePath,
-                    project.cwd
-                  );
-                  await refreshSessions(project);
+                onImport={(project, session) => {
+                  setSessions((current) => ({
+                    ...current,
+                    [project.id]: dedupeSessions([
+                      session,
+                      ...(current[project.id] ?? []),
+                    ]),
+                  }));
                 }}
                 onNewSession={startNewSession}
                 onNewSessionAny={async () => {

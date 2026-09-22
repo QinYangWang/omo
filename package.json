@@ -25,8 +25,8 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
-    "@earendil-works/pi-coding-agent": "^0.85.0",
-    "@earendil-works/pi-tui": "0.85.0",
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-tui": "0.86.1",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@fontsource-variable/outfit": "^5.3.0",

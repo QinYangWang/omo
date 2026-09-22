@@ -33,7 +33,7 @@ test("dispatches prompt and abort with truthful acks over the daemon channel", {
   const daemon = await startDaemonHarness();
   try {
     await withEnv(
-      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.85.0" },
+      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.86.1" },
       async () => {
         const state = { idle: true };
         const aborts = [];

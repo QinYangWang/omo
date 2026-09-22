@@ -147,7 +147,7 @@ test("session switches dispose the old attachment before registering the new ses
   const daemon = await startDaemonHarness();
   try {
     await withEnv(
-      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.85.0" },
+      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.86.1" },
       async () => {
         const { api, emit, sentUserMessages } = createMockPi();
         createExtension(api);

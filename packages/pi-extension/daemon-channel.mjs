@@ -17,8 +17,8 @@ import { fileURLToPath } from "node:url";
 
 export const DAEMON_SOCKET_ENV = "OMO_DAEMON_SOCKET";
 export const PI_VERSION_ENV = "OMO_PI_VERSION";
-/** Pi major/minor line the extension is tested against (E0-004 pins 0.85.0). */
-export const PI_PEER_VERSION = "0.85";
+/** Pi major/minor line the extension is tested against (E0-004 pins 0.86.1). */
+export const PI_PEER_VERSION = "0.86";
 export const DAEMON_REQUEST_TIMEOUT_MS = 2000;
 export const DAEMON_MAX_ERROR_LOGS = 3;
 export const DAEMON_MAX_CONSECUTIVE_FAILURES = 3;

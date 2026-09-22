@@ -117,7 +117,7 @@ M1-002 在 4.3 之上实现共享的每 entry 连接模型；持久化适配器�
 - 加载 skill；
 - 释放 runtime。
 
-它不得暴露未使用的 Pi experimental capability，也不提前依赖 Chord、`pi-client` 或 SQLite backend。`pi-coding-agent@0.85.0` 的公开入口会加载 experimental server，因此暂时保留精确版本的 `pi-server` 运行时兼容依赖，但 omo 不直接调用它。若上层暂时仍需底层 Pi 对象，将其视为迁移债务并限制在 Server adapter 内，不伪装成稳定公共协议。
+它不得暴露未使用的 Pi experimental capability，也不提前依赖 Chord、`pi-client` 或 SQLite backend。自 `pi-coding-agent@0.85.1` 起，公开入口不再加载未发布的 experimental server，因此 `@omo/pi-runtime` 不再保留 `pi-server` 运行时兼容依赖。若上层暂时仍需底层 Pi 对象，将其视为迁移债务并限制在 Server adapter 内，不伪装成稳定公共协议。
 
 ## 5. 当前代码组织
 

@@ -46,7 +46,7 @@ E3-001/E3-002 起，`omo` 本机默认进入带 omo Pi Extension 的 Pi 原生 T
 
 E3-003 起，原生路径失败不会静默回退到简化 TUI：任何失败都会以可操作的错误退出，并明确区分两类回退边界。
 
-- **Pi 侧失败**（`pnpm install` 后依赖仍然缺失/不可读的 Pi 二进制或 extension、Pi 版本不在 `packages/pi-runtime` 锁定的 `0.85.x` 行、spawn 失败、启动窗口内非零退出）：错误信息给出原因、修复方式（在仓库根目录运行 `pnpm install`）与 escape hatch（`omo --legacy-tui` 或 `OMO_TUI=legacy`），简化 TUI 可以绕过这些 Pi 侧问题。
+- **Pi 侧失败**（`pnpm install` 后依赖仍然缺失/不可读的 Pi 二进制或 extension、Pi 版本不在 `packages/pi-runtime` 锁定的 `0.86.x` 行、spawn 失败、启动窗口内非零退出）：错误信息给出原因、修复方式（在仓库根目录运行 `pnpm install`）与 escape hatch（`omo --legacy-tui` 或 `OMO_TUI=legacy`），简化 TUI 可以绕过这些 Pi 侧问题。
 - **启动失败判定**：Pi 子进程在 3 秒启动窗口内以非零码退出时，`omo` 会在 stderr 打印包含退出码与 escape hatch 的启动失败提示；窗口之后的退出（包括非零）视为正常退出并保持安静。子进程退出码始终原样传递，不被吞掉或改写。
 - **daemon 失败**：`ensureLocalHost` 的超时/启动错误内容原样保留（包括其中的 `omo serve` 排查提示），只追加一行说明简化 TUI 连接的是同一个本地 daemon，因此 `--legacy-tui`/`OMO_TUI=legacy` 无法绕过 daemon 不可达，需要先让 `omo serve` 正常运行。
 

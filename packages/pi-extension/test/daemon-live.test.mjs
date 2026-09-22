@@ -32,7 +32,7 @@ test("registers, heartbeats, forwards native events and detaches on exit", {
   try {
     const pi = spawnPi({
       args: [...PI_BASE_ARGS, "--extension", EXTENSION_ENTRY, PROMPT],
-      env: { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.85.0" },
+      env: { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.86.1" },
     });
     const { code } = await pi.closed;
     const context = `code=${code}\nstderr:\n${pi.stderr}`;
@@ -47,7 +47,7 @@ test("registers, heartbeats, forwards native events and detaches on exit", {
     const [registration] = daemon.registerCalls;
     assert.deepEqual(registration.capabilities, ["events", "commands"]);
     assert.equal(registration.channelVersion, 1);
-    assert.equal(registration.piVersion, "0.85.0");
+    assert.equal(registration.piVersion, "0.86.1");
     assert.equal(registration.extensionVersion, "0.1.0");
     assert.match(registration.instanceId, INSTANCE_ID_RE);
     assert.equal(typeof registration.sessionId, "string");
@@ -183,7 +183,7 @@ test("a rejected register runs detached-local without a retry loop", {
         EXTENSION_ENTRY,
         PROMPT,
       ],
-      env: { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.85.0" },
+      env: { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.86.1" },
     });
     const { code } = await pi.closed;
     const context = `code=${code}\nstderr:\n${pi.stderr}`;

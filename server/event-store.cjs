@@ -49,6 +49,9 @@ class EventStore {
     this.trim = this.db.prepare(
       "DELETE FROM session_events WHERE session_id = ? AND sequence <= ?"
     );
+    this.deleteSessionEvents = this.db.prepare(
+      "DELETE FROM session_events WHERE session_id = ?"
+    );
     this.getRequest = this.db.prepare(
       "SELECT result FROM requests WHERE request_id = ?"
     );
@@ -87,6 +90,10 @@ class EventStore {
 
   latestSequence(sessionId) {
     return Number(this.latest.get(sessionId).value);
+  }
+
+  deleteSession(sessionId) {
+    this.deleteSessionEvents.run(sessionId);
   }
 
   latestTurnStartSequence(sessionId) {

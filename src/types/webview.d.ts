@@ -357,11 +357,11 @@ interface omoApi {
     all: () => Promise<PiSession[]>;
     clone: (sessionPath: string) => Promise<string>;
     context: (sessionPath: string) => Promise<string>;
+    delete: (sessionPath: string) => Promise<boolean>;
     details: (
       sessionPath: string,
       cwd: string
     ) => Promise<{ branch: string; cost: number }>;
-    import: (sourcePath: string, cwd: string) => Promise<string>;
     list: (cwd: string) => Promise<PiSession[]>;
     rename: (sessionPath: string, name: string) => Promise<boolean>;
   };

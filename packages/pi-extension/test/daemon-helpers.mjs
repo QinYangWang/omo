@@ -17,7 +17,7 @@ export function registerRequest(overrides = {}) {
     channelVersion: 1,
     extensionVersion: "0.1.0",
     instanceId: crypto.randomUUID(),
-    piVersion: "0.85.0",
+    piVersion: "0.86.1",
     sessionId: "session-daemon-test",
     ...overrides,
   };

@@ -30,7 +30,21 @@ export function sessionKey(serverId: string, path: string): string {
   return `${serverId}:${path}`;
 }
 
-export function setSessionPref(key: string, patch: Partial<SessionPref>) {
+function save(next: SessionPrefs): void {
+  cache = next;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  for (const listener of listeners) {
+    listener();
+  }
+}
+
+export function removeSessionPref(key: string): void {
+  const next = { ...load() };
+  delete next[key];
+  save(next);
+}
+
+export function setSessionPref(key: string, patch: Partial<SessionPref>): void {
   const next = { ...load() };
   const merged = { ...next[key], ...patch };
   if (merged.pinned || merged.archived) {
@@ -38,11 +52,7 @@ export function setSessionPref(key: string, patch: Partial<SessionPref>) {
   } else {
     delete next[key];
   }
-  cache = next;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  for (const listener of listeners) {
-    listener();
-  }
+  save(next);
 }
 
 export function useSessionPrefs(): SessionPrefs {

@@ -65,7 +65,11 @@ import {
   useServerStatuses,
   useServers,
 } from "@/lib/servers";
-import { setSessionPref, useSessionPrefs } from "@/lib/session-prefs";
+import {
+  removeSessionPref,
+  setSessionPref,
+  useSessionPrefs,
+} from "@/lib/session-prefs";
 import {
   exportThemeCss,
   type OverrideMode,
@@ -102,11 +106,13 @@ const tokenNamePattern = /^--/;
 export function SettingsView({
   onBack,
   onResizeSidebar,
+  onSessionDeleted,
   sidebarOpen = true,
   sidebarWidth = 310,
 }: {
   onBack: () => void;
   onResizeSidebar: (dx: number) => void;
+  onSessionDeleted?: (serverId: string, sessionPath: string) => void;
   sidebarOpen?: boolean;
   sidebarWidth?: number;
 }) {
@@ -166,7 +172,9 @@ export function SettingsView({
               {section === "Usage" && <UsageSection />}
               {section === "Packages" && <PackagesSection />}
               {section === "Appearance" && <AppearanceSection />}
-              {section === "Archived" && <ArchivedSection />}
+              {section === "Archived" && (
+                <ArchivedSection onSessionDeleted={onSessionDeleted} />
+              )}
             </div>
           </ScrollArea>
         </main>
@@ -175,50 +183,168 @@ export function SettingsView({
   );
 }
 
-function ArchivedSection() {
+function archivedSessionTarget(
+  key: string,
+  serverIds: readonly string[]
+): { path: string; serverId: string } | null {
+  const [serverId] = serverIds
+    .filter((candidate) => key.startsWith(`${candidate}:`))
+    .sort((left, right) => right.length - left.length);
+  if (!serverId) {
+    return null;
+  }
+  const path = key.slice(serverId.length + 1);
+  return path ? { path, serverId } : null;
+}
+
+function ArchivedSection({
+  onSessionDeleted,
+}: {
+  onSessionDeleted?: (serverId: string, sessionPath: string) => void;
+}) {
   const { t } = useI18n();
   const prefs = useSessionPrefs();
+  const servers = useServers();
   const archived = Object.entries(prefs).filter(([, pref]) => pref.archived);
+  const [deleteKey, setDeleteKey] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const deletePref = deleteKey ? prefs[deleteKey] : undefined;
+
+  const deleteSession = async (): Promise<void> => {
+    if (!deleteKey) {
+      return;
+    }
+    const target = archivedSessionTarget(
+      deleteKey,
+      servers.map((server) => server.id)
+    );
+    if (!target) {
+      setDeleteError(
+        t("delete_session_failed", { error: "Invalid archived session key" })
+      );
+      return;
+    }
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await getServerApi(target.serverId).sessions.delete(target.path);
+      removeSessionPref(deleteKey);
+      onSessionDeleted?.(target.serverId, target.path);
+      setDeleteKey(null);
+    } catch (error) {
+      setDeleteError(
+        t("delete_session_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
-    <div className="flex max-w-2xl flex-col gap-5">
-      <div>
-        <h2 className="font-medium text-xl">{t("section_archived")}</h2>
-        <p className="mt-1 text-muted-foreground text-sm">
-          {t("archived_desc")}
-        </p>
-      </div>
-      {archived.length === 0 ? (
-        <p className="text-muted-foreground text-sm">{t("archived_empty")}</p>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {archived.map(([key, pref]) => (
-            <div
-              className="flex items-center gap-2 rounded-md border border-border px-3 py-2"
-              key={key}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm">
-                  {pref.title || t("untitled")}
-                </div>
-                {pref.project ? (
-                  <div className="truncate text-muted-foreground text-xs">
-                    {pref.project}
-                  </div>
-                ) : null}
-              </div>
-              <Button
-                className="shrink-0"
-                onClick={() => setSessionPref(key, { archived: false })}
-                size="sm"
-                variant="outline"
-              >
-                {t("restore")}
-              </Button>
-            </div>
-          ))}
+    <>
+      <div className="flex max-w-2xl flex-col gap-5">
+        <div>
+          <h2 className="font-medium text-xl">{t("section_archived")}</h2>
+          <p className="mt-1 text-muted-foreground text-sm">
+            {t("archived_desc")}
+          </p>
         </div>
-      )}
-    </div>
+        {archived.length === 0 ? (
+          <p className="text-muted-foreground text-sm">{t("archived_empty")}</p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {archived.map(([key, pref]) => (
+              <div
+                className="flex items-center gap-2 rounded-md border border-border px-3 py-2"
+                key={key}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm">
+                    {pref.title || t("untitled")}
+                  </div>
+                  {pref.project ? (
+                    <div className="truncate text-muted-foreground text-xs">
+                      {pref.project}
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  className="shrink-0"
+                  onClick={() => setSessionPref(key, { archived: false })}
+                  size="sm"
+                  variant="outline"
+                >
+                  {t("restore")}
+                </Button>
+                <Button
+                  className="shrink-0"
+                  onClick={() => {
+                    setDeleteError("");
+                    setDeleteKey(key);
+                  }}
+                  size="sm"
+                  variant="destructive"
+                >
+                  <HugeiconsIcon data-icon="inline-start" icon={Delete02Icon} />
+                  {t("delete_session")}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || deleting)) {
+            setDeleteKey(null);
+            setDeleteError("");
+          }
+        }}
+        open={deleteKey !== null}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("delete_session_title")}</DialogTitle>
+            <DialogDescription>
+              {deletePref?.title || t("untitled")} — {t("delete_session_desc")}
+            </DialogDescription>
+          </DialogHeader>
+          {deleteError ? (
+            <p className="text-destructive text-sm" role="alert">
+              {deleteError}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <DialogClose
+              disabled={deleting}
+              render={<Button type="button" variant="outline" />}
+            >
+              {t("cancel")}
+            </DialogClose>
+            <Button
+              disabled={deleting}
+              onClick={deleteSession}
+              type="button"
+              variant="destructive"
+            >
+              {deleting ? (
+                <HugeiconsIcon
+                  className="animate-spin"
+                  data-icon="inline-start"
+                  icon={Loading03Icon}
+                />
+              ) : (
+                <HugeiconsIcon data-icon="inline-start" icon={Delete02Icon} />
+              )}
+              {t("delete_session")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

@@ -34,9 +34,9 @@ pnpm omo       # 默认本机：发现/启动 daemon，再用项目内 Pi 启动
 ### 版本锁策略
 
 - **私有通道版本**：`channelVersion: 1`（`buildRegisterRequest`）。
-- **Pi peer 版本锁**：`PI_PEER_VERSION = "0.85"`（`daemon-channel.mjs`），与 `cli/native-pi.mjs` 的 `EXPECTED_PI_MAJOR_MINOR = "0.85"`、`packages/pi-runtime/package.json` 中锁定的 `@earendil-works/pi-coding-agent@0.85.0` 对齐。
-- **launcher 是真正的门**：`resolvePiBinary()` 调用 `assertSupportedPiVersion()`，Pi 不在 `0.85.x` 行时拒绝启动。
-- **Extension 侧复核**：`checkPiPeerVersion()` 在 `OMO_PI_VERSION` 与锁不一致时只记一行日志（`pi_peer_version_mismatch: expected 0.85.x, got ...`）并让当前 Session 保持 detached-local；`OMO_PI_VERSION` 缺失时按 `"unknown"` 处理并跳过 peer 检查（launcher 已注入真实版本）。
+- **Pi peer 版本锁**：`PI_PEER_VERSION = "0.86"`（`daemon-channel.mjs`），与 `cli/native-pi.mjs` 的 `EXPECTED_PI_MAJOR_MINOR = "0.86"`、`packages/pi-runtime/package.json` 中锁定的 `@earendil-works/pi-coding-agent@0.86.1` 对齐。
+- **launcher 是真正的门**：`resolvePiBinary()` 调用 `assertSupportedPiVersion()`，Pi 不在 `0.86.x` 行时拒绝启动。
+- **Extension 侧复核**：`checkPiPeerVersion()` 在 `OMO_PI_VERSION` 与锁不一致时只记一行日志（`pi_peer_version_mismatch: expected 0.86.x, got ...`）并让当前 Session 保持 detached-local；`OMO_PI_VERSION` 缺失时按 `"unknown"` 处理并跳过 peer 检查（launcher 已注入真实版本）。
 
 ### 升级流程（必须按顺序）
 
@@ -59,12 +59,12 @@ pnpm test
 | 组件 | 当前锁定值 | 定义处 |
 | --- | --- | --- |
 | Extension 私有通道 | `channelVersion = 1` | `packages/pi-extension/daemon-channel.mjs` |
-| Pi peer 行 | `0.85`（即 `0.85.x`） | `PI_PEER_VERSION` / `EXPECTED_PI_MAJOR_MINOR` |
-| Pi 依赖 | `@earendil-works/pi-coding-agent@0.85.0` | `packages/pi-runtime/package.json` |
+| Pi peer 行 | `0.86`（即 `0.86.x`） | `PI_PEER_VERSION` / `EXPECTED_PI_MAJOR_MINOR` |
+| Pi 依赖 | `@earendil-works/pi-coding-agent@0.86.1` | `packages/pi-runtime/package.json` |
 
 不匹配时的行为：
 
-- **launcher 侧**：Pi 不是 `0.85.x` 时 `assertSupportedPiVersion()` 抛错，`omo` 拒绝启动；错误信息包含实际版本、要求版本、`pnpm install` 修复方式与 `omo --legacy-tui`（或 `OMO_TUI=legacy`）。
+- **launcher 侧**：Pi 不是 `0.86.x` 时 `assertSupportedPiVersion()` 抛错，`omo` 拒绝启动；错误信息包含实际版本、要求版本、`pnpm install` 修复方式与 `omo --legacy-tui`（或 `OMO_TUI=legacy`）。
 - **Extension 侧**（例如绕过 launcher 手工设置 `OMO_PI_VERSION`）：`checkPiPeerVersion()` 记录一行 mismatch 日志，当前 Session 不注册，保持 detached-local。
 - **私有通道 generation 不匹配**：视为 lease 失效并按 fencing 处理，见下文。
 
@@ -125,7 +125,7 @@ for (const row of db.prepare('SELECT sequence, type, created_at FROM session_eve
 | 404 `Unknown instance` | daemon 没有该 attachment（daemon 重启、attachment 已被回收） | 心跳路径会重注册；确认两次使用的是同一 `OMO_DATA_DIR` 与 socket |
 | 心跳超时后 Session 变成 `detached` | Pi 进程崩溃/被杀，或长时间没有心跳 | 重新在本机启动 `omo`，Extension 会重新注册；daemon 不自动抢占 |
 | turn 进行中 Pi 崩溃，之后没有自动重发 Prompt | 设计如此：不自动重复 dispatch | 用 `omo` 重新进入该 Session 并重新发送；历史保存在 Session JSONL |
-| TUI 启动失败：版本错误 | Pi 不在 `0.85.x` 行 | 在仓库根运行 `pnpm install`；核对依赖版本与版本锁一致 |
+| TUI 启动失败：版本错误 | Pi 不在 `0.86.x` 行 | 在仓库根运行 `pnpm install`；核对依赖版本与版本锁一致 |
 | TUI 启动失败：缺少二进制 / extension | 依赖未安装或被删除 | `pnpm install`；恢复 `packages/pi-extension/index.js` |
 | TUI 启动失败：daemon 不可达 | daemon 未启动或启动超时 | 先 `omo serve`（或 `omo --socket <path>`）确认 daemon；注意 `--legacy-tui` 连接同一个 daemon，无法绕过此失败 |
 | Web 收不到 token 增量 | 先看 attach 状态：最近一条 `omo_execution_state` 是否为 `native-attached` | 若为 `headless-owned` 或 `detached`，说明 Prompt 没有走 native；检查 Pi 进程是否运行、Extension 是否注册成功 |

@@ -52,7 +52,7 @@ test("dispatches daemon commands into the live native session with structured ac
   const daemon = await startDaemonHarness();
   const pi = spawnPiRpc({
     args: ["--extension", EXTENSION_ENTRY],
-    env: { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.85.0" },
+    env: { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.86.1" },
   });
   const context = () =>
     `\nstderr:\n${pi.stderr}\nacks=[${daemon.acks

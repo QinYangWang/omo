@@ -17,7 +17,7 @@ test("daemon attachment lifecycle is idempotent and re-registers with a new gene
   });
   try {
     await withEnv(
-      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.85.0" },
+      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.86.1" },
       async () => {
         const { api, emit } = createMockPi();
         createExtension(api);

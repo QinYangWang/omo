@@ -116,17 +116,6 @@ export class PiRuntimeAdapter {
     return SessionManager.open(sessionPath);
   }
 
-  forkSession(sourcePath: string, cwd: string): string {
-    const sessionFile = SessionManager.forkFrom(
-      sourcePath,
-      cwd
-    ).getSessionFile();
-    if (!sessionFile) {
-      throw new Error("Forked Session did not create a Session file");
-    }
-    return sessionFile;
-  }
-
   renameSession(sessionPath: string, name: string): void {
     SessionManager.open(sessionPath).appendSessionInfo(name);
   }

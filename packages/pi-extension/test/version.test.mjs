@@ -16,26 +16,26 @@ import {
 const PEER_MISMATCH_RE = /pi_peer_version_mismatch/;
 
 test("parseMajorMinor extracts the major/minor line", () => {
-  assert.equal(parseMajorMinor("0.85.0"), "0.85");
-  assert.equal(parseMajorMinor("0.85"), "0.85");
-  assert.equal(parseMajorMinor("0.86.1-beta.2"), "0.86");
+  assert.equal(parseMajorMinor("0.86.1"), "0.86");
+  assert.equal(parseMajorMinor("0.86"), "0.86");
+  assert.equal(parseMajorMinor("0.87.1-beta.2"), "0.87");
   assert.equal(parseMajorMinor("unknown"), null);
   assert.equal(parseMajorMinor(""), null);
   assert.equal(parseMajorMinor(undefined), null);
 });
 
 test("checkPiPeerVersion accepts the pinned line and rejects everything else", () => {
-  assert.equal(PI_PEER_VERSION, "0.85");
-  assert.deepEqual(checkPiPeerVersion("0.85.0"), {
-    majorMinor: "0.85",
+  assert.equal(PI_PEER_VERSION, "0.86");
+  assert.deepEqual(checkPiPeerVersion("0.86.1"), {
+    majorMinor: "0.86",
     ok: true,
   });
-  assert.deepEqual(checkPiPeerVersion("0.85"), {
-    majorMinor: "0.85",
+  assert.deepEqual(checkPiPeerVersion("0.86"), {
+    majorMinor: "0.86",
     ok: true,
   });
 
-  for (const version of ["0.86.0", "0.84.9", "1.0.0", "unknown", ""]) {
+  for (const version of ["0.87.0", "0.85.1", "1.0.0", "unknown", ""]) {
     const result = checkPiPeerVersion(version);
     assert.equal(result.ok, false, `${version} must be rejected`);
     assert.match(result.reason, PEER_MISMATCH_RE);

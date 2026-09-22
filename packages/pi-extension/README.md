@@ -80,7 +80,7 @@ The extension is configured by environment variables:
   and daemon mode are independent and can be active at the same time; the
   launcher sets only daemon mode.
 - `OMO_PI_VERSION` — the running Pi version reported in `register`. Unset →
-  `"unknown"` is reported. When set it must match the `0.85.x` peer line; a
+  `"unknown"` is reported. When set it must match the `0.86.x` peer line; a
   mismatch logs one line and leaves the session detached-local (the launcher is
   the real gate, E0-004).
 
@@ -278,7 +278,7 @@ daemon is reported as silence (unknown), not as success; there is no durable
 operation recovery and no exactly-once claim. An ack is only ever emitted for a
 native lifecycle fact (`agent_start`, `agent_settled`).
 
-**Retry observability:** Pi 0.85.0 has no separate extension retry event. A
+**Retry observability:** Pi 0.86.1 has no separate extension retry event. A
 provider retry or auto-compaction retry is observed through the
 `agent_end` / `agent_settled` payloads (and the `message_*` stream), not as a
 dedicated event.

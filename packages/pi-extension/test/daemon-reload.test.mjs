@@ -17,7 +17,7 @@ test("sequential extension reloads do not double-register, double-forward or lea
   });
   try {
     await withEnv(
-      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.85.0" },
+      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.86.1" },
       async () => {
         // One shared mock `pi`; each `createExtension` call is one module load
         // (Pi re-imports the module on `/reload`).

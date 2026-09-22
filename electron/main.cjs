@@ -888,10 +888,30 @@ function createWindow() {
       modified: +s.modified,
     }));
   });
-  ipcMain.handle("sessions:import", async (_e, { sourcePath, cwd }) => {
+  ipcMain.handle("sessions:delete", async (_e, { sessionPath }) => {
     const { SessionManager } = await getSdk();
-    const manager = SessionManager.forkFrom(sourcePath, cwd);
-    return manager.getSessionFile();
+    const resolvedPath = path.resolve(sessionPath);
+    const knownSession = (await SessionManager.listAll()).some(
+      (session) => path.resolve(session.path) === resolvedPath
+    );
+    if (!knownSession) {
+      throw new Error("Unknown Pi session path");
+    }
+    const sessionId = SessionManager.open(resolvedPath).getSessionId();
+    const pending = piSessions.get(sessionId);
+    if (pending) {
+      const session = await pending;
+      if (session.isStreaming) {
+        throw new Error("Wait for the session to finish before deleting it");
+      }
+      piSessions.delete(sessionId);
+      clearTimeout(sessionEvictionTimers.get(sessionId));
+      sessionEvictionTimers.delete(sessionId);
+      await session.dispose();
+    }
+    closeSessionFileWatcher(sessionId);
+    await fs.unlink(resolvedPath);
+    return true;
   });
   ipcMain.handle("sessions:rename", async (_e, { sessionPath, name }) => {
     const { SessionManager } = await getSdk();

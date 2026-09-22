@@ -149,7 +149,7 @@ export function Sidebar({
   onNewSession: (project: Project) => void;
   onNewSessionAny: () => void;
   onSelectSession: (project: Project, session: PiSession) => void;
-  onImport: (project: Project, path: string) => Promise<void>;
+  onImport: (project: Project, session: PiSession) => void;
   onOpenSettings: () => void;
   onPrefetchSettings: () => void;
   onSessionsChanged: (
@@ -441,11 +441,15 @@ export function Sidebar({
                 <Button
                   className="h-auto w-full min-w-0 flex-col items-start gap-0 rounded-md px-3 py-2 text-left font-normal sm:h-auto"
                   key={session.path}
-                  onClick={async () => {
+                  onClick={() => {
                     if (!importProject) {
                       return;
                     }
-                    await onImport(importProject, session.path);
+                    onImport(importProject, session);
+                    setExpandedSessionLists((current) => ({
+                      ...current,
+                      [importProject.id]: true,
+                    }));
                     setImportProject(null);
                   }}
                   variant="ghost"

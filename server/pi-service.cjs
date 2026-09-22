@@ -482,6 +482,43 @@ class PiService {
     );
   }
 
+  async deleteSession(sessionPath) {
+    const resolvedSessionPath =
+      await this.sessionWorkspace.resolveExisting(sessionPath);
+    const manager = (await this.adapter()).openSessionDocument(
+      resolvedSessionPath
+    );
+    const sessionId = manager.getSessionId();
+    const eventSessionIds = new Set(
+      this.sessionHandles.get(sessionId)?.sessionIds ?? [sessionId]
+    );
+    if (this.nativeAttached(sessionId)) {
+      throw new PiServiceError(
+        409,
+        "session_native_attached",
+        "Close the native Pi session before deleting it"
+      );
+    }
+    if (this.hasRuntime(sessionId)) {
+      if (this.isRuntimeStreaming(sessionId)) {
+        throw new PiServiceError(
+          409,
+          "session_running",
+          "Wait for the session to finish before deleting it"
+        );
+      }
+      await this.releaseIdleRuntime(sessionId);
+    }
+    const watcher = this.fileWatchers.get(resolvedSessionPath);
+    watcher?.close();
+    this.fileWatchers.delete(resolvedSessionPath);
+    await fs.promises.unlink(resolvedSessionPath);
+    this.history.delete(sessionId);
+    for (const eventSessionId of eventSessionIds) {
+      this.events.deleteSession?.(eventSessionId);
+    }
+  }
+
   dispose() {
     for (const watcher of this.fileWatchers.values()) {
       watcher.close();

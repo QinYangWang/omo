@@ -20,8 +20,8 @@ export const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 const PI_BIN_KEY = "pi";
 const PI_VERSION_PATTERN = /^(\d+)\.(\d+)(?:\.|$)/;
 
-/** Pi major/minor pinned by `packages/pi-runtime` (`0.85.0`). */
-export const EXPECTED_PI_MAJOR_MINOR = "0.85";
+/** Pi major/minor pinned by `packages/pi-runtime` (`0.86.1`). */
+export const EXPECTED_PI_MAJOR_MINOR = "0.86";
 export const EXTENSION_RELATIVE_PATH = "packages/pi-extension/index.js";
 
 /** Remediation shared by every missing/unreadable project-locked Pi install. */

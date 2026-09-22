@@ -188,8 +188,8 @@ export function installWebPreviewApi() {
       clone: async () => previewSessions[0].path,
       context: async () =>
         "## User\n\nPreview\n\n## Assistant\n\nPreview response\n",
+      delete: async () => true,
       details: async () => ({ branch: "main", cost: 0.12 }),
-      import: async () => previewSessions[0].path,
       list: async () => previewSessions,
       rename: async () => true,
     },

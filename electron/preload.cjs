@@ -109,10 +109,10 @@ contextBridge.exposeInMainWorld("omo", {
       ipcRenderer.invoke("sessions:clone", { sessionPath }),
     context: (sessionPath) =>
       ipcRenderer.invoke("sessions:context", { sessionPath }),
+    delete: (sessionPath) =>
+      ipcRenderer.invoke("sessions:delete", { sessionPath }),
     details: (sessionPath, cwd) =>
       ipcRenderer.invoke("sessions:details", { cwd, sessionPath }),
-    import: (sourcePath, cwd) =>
-      ipcRenderer.invoke("sessions:import", { cwd, sourcePath }),
     list: (cwd) => ipcRenderer.invoke("sessions:list", cwd),
     rename: (sessionPath, name) =>
       ipcRenderer.invoke("sessions:rename", { name, sessionPath }),

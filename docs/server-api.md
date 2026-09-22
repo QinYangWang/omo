@@ -42,13 +42,9 @@ JSON 请求体上限为 16MB。错误响应格式：
 
 返回 cwd 位于允许 workspace 内的全部 Pi Session。
 
-### `POST /sessions/import`
+### `DELETE /sessions?path=<session-jsonl>`
 
-```json
-{ "sourcePath": "/pi/session.jsonl", "cwd": "/workspace/project" }
-```
-
-通过 `SessionManager.forkFrom` 导入 Session。
+永久删除 Session JSONL，并清理该 Session 在 Host SQLite 中的事件记录。正在运行或由原生 Pi TUI attach 的 Session 返回 `409`，避免删除仍在写入的文件。
 
 ### `POST /sessions/rename`
 
@@ -186,7 +182,7 @@ JSON 请求体上限为 16MB。错误响应格式：
 }
 ```
 
-Provider 认证事件使用保留的 `sessionId=__providers`。Session JSONL 文件被外部进程（如 Pi TUI）修改时推送 `type=omo_session_file`，payload 含文件 `path`；客户端随后调用 `POST /pi/sync` 拉取增量。
+Provider 认证事件使用保留的 `sessionId=__providers`。该流永不重放历史：超出最新 sequence 的游标会被钳制到队尾（而非像 Session 流那样从头重放），避免仅打开设置页就重新打开过期的 OAuth 流程。Session JSONL 文件被外部进程（如 Pi TUI）修改时推送 `type=omo_session_file`，payload 含文件 `path`；客户端随后调用 `POST /pi/sync` 拉取增量。
 
 ## Browser
 

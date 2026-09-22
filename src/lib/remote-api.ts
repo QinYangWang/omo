@@ -480,11 +480,14 @@ export function createRemoteApi(baseUrl: string, token: string): omoApi {
             `/sessions/context?${query({ path: sessionPath })}`
           )
         ).markdown,
+      delete: async (sessionPath) => {
+        await request(`/sessions?${query({ path: sessionPath })}`, {
+          method: "DELETE",
+        });
+        return true;
+      },
       details: (sessionPath, cwd) =>
         request(`/sessions/details?${query({ cwd, path: sessionPath })}`),
-      import: async (sourcePath, cwd) =>
-        (await post<{ path: string }>("/sessions/import", { cwd, sourcePath }))
-          .path,
       list: (cwd) => hostClient.listSessions(cwd),
       rename: async (sessionPath, name) => {
         await post("/sessions/rename", { name, path: sessionPath });

@@ -55,12 +55,12 @@ const NATIVE_LEGACY_CONFLICT_PATTERN = /select different local TUIs/;
 const INVALID_OMO_TUI_PATTERN = /expected "native" or "legacy"/;
 const REGISTRY_CONNECT_PATTERN = /Unable to connect to registry Host/;
 const NATIVE_LAUNCH_PATTERN = /launching project-locked Pi/;
-const VERSION_LINE_PATTERN = /0\.85/;
+const VERSION_LINE_PATTERN = /0\.86/;
 const PIN_LOCATION_PATTERN = /packages\/pi-runtime/;
 const ESCAPE_HATCH_PATTERN = /--legacy-tui/;
 const STARTUP_FAILURE_PATTERN = /failed during startup/;
 const DAEMON_SHARED_PATTERN = /same local omo daemon/;
-const VERSION_MISMATCH_PATTERN = /Unsupported Pi version "0\.86\.0"/;
+const VERSION_MISMATCH_PATTERN = /Unsupported Pi version "0\.87\.0"/;
 const PI_CLI_PATH_PATTERN = /\/repo\/node_modules\/pi\/cli\.js/;
 const EXIT_CODE_42_PATTERN = /code 42/;
 const SPAWN_FAILURE_PATTERN = /Unable to start the native Pi TUI/;
@@ -85,20 +85,20 @@ test("parseArguments recognizes --native without disturbing other options", () =
 });
 
 test("parseMajorMinor extracts the compatibility line", () => {
-  assert.equal(parseMajorMinor("0.85.0"), "0.85");
-  assert.equal(parseMajorMinor("0.85"), "0.85");
-  assert.equal(parseMajorMinor("0.85.0-beta.1"), "0.85");
+  assert.equal(parseMajorMinor("0.86.1"), "0.86");
+  assert.equal(parseMajorMinor("0.86"), "0.86");
+  assert.equal(parseMajorMinor("0.86.1-beta.1"), "0.86");
   assert.equal(parseMajorMinor("1.2.3"), "1.2");
   assert.equal(parseMajorMinor("garbage"), null);
   assert.equal(parseMajorMinor(undefined), null);
 });
 
 test("assertSupportedPiVersion accepts the pinned line and rejects drift", () => {
-  assert.equal(assertSupportedPiVersion("0.85.0"), "0.85.0");
-  assert.equal(assertSupportedPiVersion("0.85.7"), "0.85.7");
-  assert.throws(() => assertSupportedPiVersion("0.86.0"), UNSUPPORTED_PATTERN);
+  assert.equal(assertSupportedPiVersion("0.86.0"), "0.86.0");
+  assert.equal(assertSupportedPiVersion("0.86.7"), "0.86.7");
+  assert.throws(() => assertSupportedPiVersion("0.87.0"), UNSUPPORTED_PATTERN);
   assert.throws(() => assertSupportedPiVersion("1.0.0"), UNSUPPORTED_PATTERN);
-  assert.throws(() => assertSupportedPiVersion("0.84.9"), UNSUPPORTED_PATTERN);
+  assert.throws(() => assertSupportedPiVersion("0.85.1"), UNSUPPORTED_PATTERN);
   assert.throws(() => assertSupportedPiVersion("nope"), UNSUPPORTED_PATTERN);
 });
 
@@ -140,7 +140,7 @@ test("resolvePiBinary fails loudly when the resolved bin entry is missing", () =
   const fakeManifest = JSON.stringify({
     bin: { pi: "dist/bundle/cli.js" },
     name: PI_PACKAGE_NAME,
-    version: "0.85.0",
+    version: "0.86.1",
   });
   assert.throws(
     () =>
@@ -157,7 +157,7 @@ test("resolvePiBinary fails loudly when the resolved bin entry is missing", () =
       resolvePiBinary({
         exists: (candidate) => String(candidate).endsWith("package.json"),
         readFile: () =>
-          JSON.stringify({ name: PI_PACKAGE_NAME, version: "0.85.0" }),
+          JSON.stringify({ name: PI_PACKAGE_NAME, version: "0.86.1" }),
         resolveEntry: () =>
           "/repo/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
       }),
@@ -169,7 +169,7 @@ test("resolvePiBinary stops when the locked version drifts", () => {
   const fakeManifest = JSON.stringify({
     bin: { pi: "dist/bundle/cli.js" },
     name: PI_PACKAGE_NAME,
-    version: "0.86.0",
+    version: "0.87.0",
   });
   assert.throws(
     () =>
@@ -218,13 +218,13 @@ test("buildNativeSpawnConfig injects the resolved daemon wiring and strips inher
     daemonSocket: resolveDaemonSocket(endpoint),
     extensionPath,
     passthroughArgs: ["--help"],
-    piVersion: "0.85.0",
+    piVersion: "0.86.1",
   });
   assert.equal(config.command, binaryPath);
   assert.equal(config.cwd, "/tmp/work");
   assert.deepEqual(config.args, ["--extension", extensionPath, "--help"]);
   assert.equal(config.env.OMO_DAEMON_SOCKET, "/x.sock");
-  assert.equal(config.env.OMO_PI_VERSION, "0.85.0");
+  assert.equal(config.env.OMO_PI_VERSION, "0.86.1");
   assert.equal(config.env.HOME, "/home/me");
   // The retired spike channel and every inherited daemon override are gone.
   assert.equal("OMO_EXTENSION_EVENTS_URL" in config.env, false);
@@ -571,7 +571,7 @@ function writeLaunchScript(directory, name, body) {
 }
 
 test("version mismatch names the resolved version, pin, fix and escape hatch", () => {
-  const message = captureErrorMessage(() => assertSupportedPiVersion("0.86.0"));
+  const message = captureErrorMessage(() => assertSupportedPiVersion("0.87.0"));
   assert.match(message, VERSION_MISMATCH_PATTERN);
   assert.match(message, VERSION_LINE_PATTERN);
   assert.match(message, PIN_LOCATION_PATTERN);

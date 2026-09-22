@@ -170,7 +170,18 @@ function streamEvents(req, res, sessionId, after) {
   // log. Replaying from the beginning resyncs the client instead of silently
   // skipping every event up to the stale cursor. `after === latest` is the
   // normal tail case and still replays nothing.
-  const cursor = after > events.latestSequence(sessionId) ? 0 : after;
+  const latest = events.latestSequence(sessionId);
+  // The reserved `__providers` stream carries transient OAuth / device-code
+  // UI actions: replaying history re-opens stale browser flows in every
+  // client that merely visits Settings. Clients subscribe with a far-future
+  // cursor precisely to skip history, so clamp it to the tail instead of
+  // rewinding to the beginning.
+  let cursor = after;
+  if (sessionId === "__providers") {
+    cursor = Math.min(after, latest);
+  } else if (after > latest) {
+    cursor = 0;
+  }
   res.writeHead(200, {
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
@@ -335,13 +346,9 @@ async function projectRoutes(req, res, url) {
     json(res, 200, list);
     return true;
   }
-  if (route(req, url, "POST", "/api/v1/sessions/import")) {
-    const input = await body(req);
-    const cwd = await workspace.resolveExisting(input.cwd);
-    const sourcePath = await sessionWorkspace.resolveExisting(input.sourcePath);
-    json(res, 200, {
-      path: piRuntime.forkSession(sourcePath, cwd),
-    });
+  if (route(req, url, "DELETE", "/api/v1/sessions")) {
+    await pi.deleteSession(url.searchParams.get("path"));
+    json(res, 200, { ok: true });
     return true;
   }
   if (route(req, url, "POST", "/api/v1/sessions/rename")) {

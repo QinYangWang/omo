@@ -24,7 +24,7 @@ test("a daemon-side generation change fences old commands and acks", {
   });
   try {
     await withEnv(
-      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.85.0" },
+      { OMO_DAEMON_SOCKET: daemon.socketPath, OMO_PI_VERSION: "0.86.1" },
       async () => {
         const { api, emit } = createMockPi();
         createExtension(api);

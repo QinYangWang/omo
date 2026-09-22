@@ -33,7 +33,7 @@ PRAGMA synchronous=NORMAL;
 omo:event-sequence:<server-url>:<session-id>
 ```
 
-连接 `/events` 时传入 `after`。Server 查询所有 `sequence > after` 的记录，按 sequence 排序重放，然后继续发送实时事件。
+连接 `/events` 时传入 `after`。Server 查询所有 `sequence > after` 的记录，按 sequence 排序重放，然后继续发送实时事件。游标超出存储队尾时（例如 SQLite 事件日志被重建后），Session 流会从头重放以重新同步客户端；保留的 `__providers` 流除外，其游标会被钳制到队尾——Provider 认证事件是临时 UI 动作，重放历史会让仅打开设置页的客户端重新打开过期的 OAuth 页面。
 
 SSE 每 15 秒发送注释心跳，并发送 `retry: 1000`。客户端断线后按以下规则重连：
 

@@ -76,7 +76,7 @@ async function readSseStream(stream, onData) {
 
 /**
  * Native Pi events forwarded to the omo test receiver (E0-002 spike). Keeping
- * this list explicit makes the spike contract auditable against Pi 0.85.0.
+ * this list explicit makes the spike contract auditable against Pi 0.86.1.
  */
 const STREAM_EVENTS = [
   "agent_start",
@@ -1019,7 +1019,7 @@ function createDaemonAttachment({
     // possible `started`; a synchronous dispatch failure is then rejected.
     await sendAck({ commandSequence, requestId, status: "accepted" });
     try {
-      // Native Pi capability (0.85.0): `sendUserMessage` starts a real user
+      // Native Pi capability (0.86.1): `sendUserMessage` starts a real user
       // turn. A `started` ack is only emitted once `agent_start` actually
       // fires, never optimistically here.
       pi.sendUserMessage(text);

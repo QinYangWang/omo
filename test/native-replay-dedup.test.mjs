@@ -133,7 +133,13 @@ function createMockRuntime(sessionId) {
  * handler through a spawned Host.
  */
 function streamSessionEvents(events, req, res, sessionId, after) {
-  const cursor = after > events.latestSequence(sessionId) ? 0 : after;
+  const latest = events.latestSequence(sessionId);
+  let cursor = after;
+  if (sessionId === "__providers") {
+    cursor = Math.min(after, latest);
+  } else if (after > latest) {
+    cursor = 0;
+  }
   res.writeHead(200, {
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
@@ -385,6 +391,59 @@ async function collectRawSse(
     clearTimeout(timer);
     controller.abort();
   }
+}
+
+/**
+ * Collects SSE frames for a fixed window and returns them. Unlike
+ * `collectRawSse`, reaching the timeout with zero frames is the expected
+ * outcome, so the abort is swallowed instead of failing the read.
+ */
+async function readSseFor(localFetch, sessionId, after, durationMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), durationMs);
+  const records = [];
+  const query = new URLSearchParams({ after: String(after), sessionId });
+  try {
+    const response = await localFetch(
+      `http://localhost/api/v1/events?${query}`,
+      {
+        headers: { Accept: "text/event-stream" },
+        signal: controller.signal,
+      }
+    );
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      // biome-ignore lint/performance/noAwaitInLoops: frames are ordered.
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const dataLine = block
+          .split("\n")
+          .find((line) => line.startsWith("data: "));
+        if (dataLine) {
+          records.push(JSON.parse(dataLine.slice(6)));
+        }
+        boundary = buffer.indexOf("\n\n");
+      }
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      throw error;
+    }
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+  return records;
 }
 
 async function waitFor(predicate, timeoutMs = 3000) {
@@ -1046,6 +1105,61 @@ test("a stale cursor across a wiped event-log epoch resyncs with a full replay",
       replayed.map((record) => record.type),
       [EXECUTION_EVENT_TYPE, "session_start", "agent_start"]
     );
+  } finally {
+    await stopChild(host.child);
+    fs.rmSync(layout.root, { force: true, recursive: true });
+  }
+});
+
+test("the __providers stream never replays transient auth events", {
+  skip: SKIP_WINDOWS,
+}, async () => {
+  const layout = createLayout("providers");
+  // Seed the durable log with historical OAuth events, as a previous login
+  // attempt would have left behind.
+  const seed = new EventStore(layout.dataDir);
+  seed.append("__providers", {
+    event: { type: "auth_url", url: "https://example.com/oauth" },
+    kind: "notify",
+    providerId: "anthropic",
+  });
+  seed.append("__providers", {
+    event: { message: "Waiting for browser", type: "progress" },
+    kind: "notify",
+    providerId: "anthropic",
+  });
+  seed.close();
+
+  const endpoint = resolveLocalEndpoint({
+    dataDir: layout.dataDir,
+    platform: process.platform,
+  });
+  const host = spawnHost(layout);
+  try {
+    const localFetch = createLocalEndpointFetch(endpoint.path);
+    await waitForSocketHealth(localFetch, host.child, host.logs);
+
+    // A normal cursor still replays history, proving the stream works.
+    const replayed = await collectRawSse(localFetch, "__providers", 0, 2);
+    assert.deepEqual(
+      replayed.map((record) => record.sequence),
+      [1, 2]
+    );
+
+    // The far-future cursor the web client sends on its first subscription
+    // must skip history instead of being rewound to a full replay (which
+    // re-opened a stale OAuth tab merely by visiting Settings).
+    const skipped = await readSseFor(
+      localFetch,
+      "__providers",
+      Number.MAX_SAFE_INTEGER,
+      800
+    );
+    assert.deepEqual(skipped, []);
+
+    // A stale cursor from a wiped epoch is clamped to the tail, not rewound.
+    const clamped = await readSseFor(localFetch, "__providers", 42, 800);
+    assert.deepEqual(clamped, []);
   } finally {
     await stopChild(host.child);
     fs.rmSync(layout.root, { force: true, recursive: true });
