@@ -1,0 +1,96 @@
+{
+  "@@locale": "zh-Hans",
+
+  "agentUnconfigured": "尚未配置 Agent（P2 接入 ACP）",
+
+  "appTagline": "Go 原生 AI Coding IDE，通过 ACP 接入 Agent",
+
+  "changesCount": "{count, plural, =0 {无改动} other {# 处改动}}",
+  "changesEmpty": "没有改动的文件",
+  "changesRefresh": "刷新",
+
+  "chatHint": "ACP 对话将在 P2 接入。",
+  "chatTerminalHint": "在那之前，可在终端里启动 Agent：它改动的文件会出现在「改动」里。",
+  "chatTitle": "对话",
+
+  "cmdCloseFolder": "关闭工作区",
+  "cmdNewTerminal": "新建终端",
+  "cmdOpenFolder": "打开工作区…",
+  "cmdQuit": "退出 omo",
+  "cmdRefreshChanges": "刷新改动",
+  "cmdReviewFile": "审查改动",
+  "cmdSaveFile": "保存",
+  "cmdToggleChat": "显示/隐藏对话",
+  "chatHide": "关闭",
+  "cmdTogglePanel": "显示/隐藏底部面板",
+
+  "conflictCancel": "继续编辑",
+  "conflictMessage": "编辑器有未保存内容时，{path} 被外部修改。",
+  "conflictOverwrite": "覆盖磁盘文件",
+  "conflictReload": "从磁盘重新加载",
+  "conflictTitle": "文件已在磁盘上改变",
+
+  "dialogOpen": "打开",
+
+  "diffApply": "应用审查结果",
+
+  "explorerNoFolder": "打开一个文件夹以浏览文件。",
+  "explorerEmpty": "工作区为空。",
+
+  "gitPlaceholder": "不是 git 仓库。",
+
+  "menuFile": "文件",
+  "menuEdit": "编辑",
+  "menuView": "视图",
+
+  "noticeActionFailed": "操作失败：{err}",
+  "noticeCommandFailed": "命令执行失败：{err}",
+  "noticeFileFailed": "无法打开 {path}：{err}",
+  "noticeFileSaved": "已保存 {path}",
+  "noticeFileTooLarge": "{path} 超过 8 MB，未打开。",
+  "noticeNeedWorkspace": "请先打开工作区。",
+  "noticeNoChanges": "{path} 没有改动",
+  "noticeNoWorkspaceChosen": "未选择文件夹。",
+  "noticeReady": "就绪",
+  "noticeReloaded": "已从磁盘重新加载 {path}",
+  "noticeReviewSaved": "已把审查结果写入 {path}",
+  "noticeSaveFailed": "保存失败：{err}",
+  "noticeTerminalFailed": "无法启动终端：{err}",
+  "noticeWatchFailed": "文件监听已关闭：{err}",
+  "noticeWorkspaceFailed": "无法打开工作区：{err}",
+  "noticeWorkspaceOpened": "已打开工作区 {name}",
+
+
+  "panelHide": "隐藏",
+  "panelOutput": "输出",
+  "panelOutputHint": "P2：这里显示 Agent 的 stderr 与 ACP 诊断。",
+  "panelProblems": "问题",
+  "panelProblemsHint": "P5：这里显示语言服务诊断。",
+  "panelToggle": "面板",
+  "panelTerminal": "终端",
+
+  "reviewHint": "逐处回退或保留，然后应用。",
+
+  "searchPlaceholder": "工作区搜索尚未接入。",
+
+  "sectionChanges": "改动",
+  "sectionExplorer": "资源管理器",
+  "sectionSearch": "搜索",
+
+  "statusLineCol": "第 {line} 行，第 {col} 列",
+  "statusNoRepo": "无 git",
+  "statusNoWorkspace": "未打开工作区",
+  "statusPlainText": "纯文本",
+  "statusSpaces": "空格: {n}",
+
+  "tabDiffTitle": "差异：{path}",
+
+  "terminalClose": "终止",
+  "terminalEmpty": "没有打开的终端。",
+  "terminalExited": "终端 {num}（退出码 {code}）",
+  "terminalNew": "新建终端",
+  "terminalTitle": "终端 {num}",
+
+  "welcomeHint": "P1：真实文件树、编辑器、差异审查与终端。",
+  "welcomeOpenFolder": "打开工作区…"
+}

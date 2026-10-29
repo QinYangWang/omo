@@ -1,0 +1,106 @@
+{
+  "@@locale": "en",
+
+  "agentUnconfigured": "No agent configured yet (ACP arrives in P2)",
+  "@agentUnconfigured": { "description": "Chat panel, until an agent is configured." },
+
+  "appTagline": "Go native AI coding IDE with ACP agents",
+  "@appTagline": { "description": "Welcome screen, under the app name." },
+
+  "changesCount": "{count, plural, =0 {no changes} one {# change} other {# changes}}",
+  "@changesCount": {
+    "description": "Status bar, number of files differing from HEAD.",
+    "placeholders": { "count": { "type": "int", "example": "3" } }
+  },
+  "changesEmpty": "No changed files",
+  "changesRefresh": "Refresh",
+
+  "chatHint": "ACP chat arrives in P2.",
+  "chatTerminalHint": "Until then, start your agent in the terminal: files it edits show up under Changes.",
+  "chatTitle": "Chat",
+
+  "cmdCloseFolder": "Close Workspace",
+  "cmdNewTerminal": "New Terminal",
+  "cmdOpenFolder": "Open Workspace…",
+  "cmdQuit": "Quit omo",
+  "cmdRefreshChanges": "Refresh Changes",
+  "cmdReviewFile": "Review Changes",
+  "cmdSaveFile": "Save",
+  "cmdToggleChat": "Toggle Chat",
+  "chatHide": "Close",
+  "cmdTogglePanel": "Toggle Bottom Panel",
+
+  "conflictCancel": "Keep editing",
+  "conflictMessage": "{path} changed on disk while the editor had unsaved text.",
+  "@conflictMessage": {
+    "description": "Conflict dialog, naming the file that changed under the buffer.",
+    "placeholders": { "path": { "type": "String", "example": "internal/app/app.go" } }
+  },
+  "conflictOverwrite": "Overwrite disk",
+  "conflictReload": "Reload from disk",
+  "conflictTitle": "File changed on disk",
+
+  "dialogOpen": "Open",
+
+  "diffApply": "Apply review",
+
+  "explorerNoFolder": "Open a folder to browse its files.",
+  "explorerEmpty": "This workspace is empty.",
+
+  "gitPlaceholder": "Not a git repository.",
+
+  "menuFile": "File",
+  "menuEdit": "Edit",
+  "menuView": "View",
+
+  "noticeActionFailed": "Could not complete that: {err}",
+  "noticeCommandFailed": "Command failed: {err}",
+  "noticeFileFailed": "Could not open {path}: {err}",
+  "noticeFileSaved": "Saved {path}",
+  "noticeFileTooLarge": "{path} is larger than 8 MB, so it was not opened.",
+  "noticeNeedWorkspace": "Open a workspace first.",
+  "noticeNoChanges": "No changes in {path}",
+  "noticeNoWorkspaceChosen": "No folder chosen.",
+  "noticeReady": "Ready",
+  "noticeReloaded": "Reloaded {path} from disk",
+  "noticeReviewSaved": "Applied the review to {path}",
+  "noticeSaveFailed": "Could not save: {err}",
+  "noticeTerminalFailed": "Could not start a terminal: {err}",
+  "noticeWatchFailed": "File watching is off: {err}",
+  "noticeWorkspaceFailed": "Could not open the workspace: {err}",
+  "noticeWorkspaceOpened": "Workspace {name} opened",
+
+
+  "panelHide": "Hide",
+  "panelOutput": "Output",
+  "panelOutputHint": "P2: agent stderr and ACP diagnostics show here.",
+  "panelProblems": "Problems",
+  "panelProblemsHint": "P5: language server diagnostics show here.",
+  "panelToggle": "Panel",
+  "panelTerminal": "Terminal",
+
+  "reviewHint": "Revert or keep each change, then apply.",
+
+  "searchPlaceholder": "Workspace search is not wired up yet.",
+
+  "sectionChanges": "Changes",
+  "sectionExplorer": "Explorer",
+  "sectionSearch": "Search",
+
+  "statusLineCol": "Ln {line}, Col {col}",
+  "statusNoRepo": "no git",
+  "statusNoWorkspace": "No workspace open",
+  "statusPlainText": "Plain Text",
+  "statusSpaces": "Spaces: {n}",
+
+  "tabDiffTitle": "Diff: {path}",
+
+  "terminalClose": "Kill",
+  "terminalEmpty": "No terminal open.",
+  "terminalExited": "Terminal {num} (exit {code})",
+  "terminalNew": "New Terminal",
+  "terminalTitle": "Terminal {num}",
+
+  "welcomeHint": "P1: real file tree, editor, diff review and terminal.",
+  "welcomeOpenFolder": "Open Workspace…"
+}
