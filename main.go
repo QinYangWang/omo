@@ -23,6 +23,10 @@ func main() {
 			Height:    800,
 			MinWidth:  720,
 			MinHeight: 480,
+			// The view draws the title bar, its menu and the window's own
+			// controls' room (Context.TitleBar), so the chrome is one piece.
+			TitleBarStyle:  mygo.TitleBarHidden,
+			TitleBarHeight: 38,
 			// Reopens where the user left it.
 			StateKey: "main",
 			// Content shows the interface MyGo draws itself; there is no web

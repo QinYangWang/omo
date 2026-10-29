@@ -17,7 +17,7 @@
 
   "chatHint": "ACP chat arrives in P2.",
   "chatTerminalHint": "Until then, start your agent in the terminal: files it edits show up under Changes.",
-  "chatTitle": "Chat",
+  "sessionHeading": "What are we building?",
 
   "cmdCloseFolder": "Close Workspace",
   "cmdNewTerminal": "New Terminal",
@@ -26,9 +26,34 @@
   "cmdRefreshChanges": "Refresh Changes",
   "cmdReviewFile": "Review Changes",
   "cmdSaveFile": "Save",
-  "cmdToggleChat": "Toggle Chat",
-  "chatHide": "Close",
+  "cmdToggleLeft": "Toggle Sessions",
+  "cmdToggleRight": "Toggle Sidebar",
   "cmdTogglePanel": "Toggle Bottom Panel",
+
+  "sessionsTitle": "Sessions",
+  "sessionsSearch": "Filter sessions",
+  "sessionsOpen": "Open",
+  "sessionsEmpty": "Nothing open yet.",
+
+  "sidebarFiles": "Files",
+  "sidebarSearch": "Search",
+  "sidebarGit": "Changes",
+  "sidebarRun": "Run and Debug",
+  "sidebarBrowser": "Browser",
+  "sidebarRight": "Sidebar",
+
+  "runQuick": "Quick commands",
+  "runHint": "Each command runs in a terminal in the workspace root.",
+  "runNothing": "No quick command for this workspace yet.",
+  "runBuild": "Build",
+  "runTest": "Test",
+  "runVet": "Vet",
+  "runMake": "make",
+
+  "browserAddress": "Address",
+  "browserHint": "example.com",
+  "browserOpen": "Open",
+  "browserOpenHint": "Opens in your default browser.",
 
   "conflictCancel": "Keep editing",
   "conflictMessage": "{path} changed on disk while the editor had unsaved text.",
@@ -53,6 +78,8 @@
   "menuEdit": "Edit",
   "menuView": "View",
 
+  "noticeURLFailed": "Could not open {url}: {err}",
+  "noticeURLInvalid": "Enter an address, e.g. example.com",
   "noticeActionFailed": "Could not complete that: {err}",
   "noticeCommandFailed": "Command failed: {err}",
   "noticeFileFailed": "Could not open {path}: {err}",
@@ -93,6 +120,8 @@
   "statusPlainText": "Plain Text",
   "statusSpaces": "Spaces: {n}",
 
+  "tabSession": "Session",
+  "tabClose": "Close {name}",
   "tabDiffTitle": "Diff: {path}",
 
   "terminalClose": "Kill",
@@ -102,5 +131,6 @@
   "terminalTitle": "Terminal {num}",
 
   "welcomeHint": "P1: real file tree, editor, diff review and terminal.",
-  "welcomeOpenFolder": "Open Workspace…"
+  "welcomeOpenFolder": "Open Workspace…",
+  "welcomeStart": "Start"
 }

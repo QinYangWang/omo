@@ -11,7 +11,7 @@
 
   "chatHint": "ACP 对话将在 P2 接入。",
   "chatTerminalHint": "在那之前，可在终端里启动 Agent：它改动的文件会出现在「改动」里。",
-  "chatTitle": "对话",
+  "sessionHeading": "我们在构建什么？",
 
   "cmdCloseFolder": "关闭工作区",
   "cmdNewTerminal": "新建终端",
@@ -20,9 +20,34 @@
   "cmdRefreshChanges": "刷新改动",
   "cmdReviewFile": "审查改动",
   "cmdSaveFile": "保存",
-  "cmdToggleChat": "显示/隐藏对话",
-  "chatHide": "关闭",
+  "cmdToggleLeft": "显示/隐藏会话列表",
+  "cmdToggleRight": "显示/隐藏右侧栏",
   "cmdTogglePanel": "显示/隐藏底部面板",
+
+  "sessionsTitle": "会话",
+  "sessionsSearch": "筛选会话",
+  "sessionsOpen": "已打开",
+  "sessionsEmpty": "还没有打开任何会话。",
+
+  "sidebarFiles": "文件",
+  "sidebarSearch": "搜索",
+  "sidebarGit": "改动",
+  "sidebarRun": "运行和调试",
+  "sidebarBrowser": "浏览器",
+  "sidebarRight": "侧栏",
+
+  "runQuick": "快捷指令",
+  "runHint": "每条指令在项目根目录的终端里运行。",
+  "runNothing": "这个项目还没有可用的快捷指令。",
+  "runBuild": "构建",
+  "runTest": "测试",
+  "runVet": "检查",
+  "runMake": "make",
+
+  "browserAddress": "地址",
+  "browserHint": "example.com",
+  "browserOpen": "打开",
+  "browserOpenHint": "用系统默认浏览器打开。",
 
   "conflictCancel": "继续编辑",
   "conflictMessage": "编辑器有未保存内容时，{path} 被外部修改。",
@@ -43,6 +68,8 @@
   "menuEdit": "编辑",
   "menuView": "视图",
 
+  "noticeURLFailed": "无法打开 {url}：{err}",
+  "noticeURLInvalid": "请输入地址，例如 example.com",
   "noticeActionFailed": "操作失败：{err}",
   "noticeCommandFailed": "命令执行失败：{err}",
   "noticeFileFailed": "无法打开 {path}：{err}",
@@ -83,6 +110,8 @@
   "statusPlainText": "纯文本",
   "statusSpaces": "空格: {n}",
 
+  "tabSession": "会话窗",
+  "tabClose": "关闭 {name}",
   "tabDiffTitle": "差异：{path}",
 
   "terminalClose": "终止",
@@ -92,5 +121,6 @@
   "terminalTitle": "终端 {num}",
 
   "welcomeHint": "P1：真实文件树、编辑器、差异审查与终端。",
-  "welcomeOpenFolder": "打开工作区…"
+  "welcomeOpenFolder": "打开工作区…",
+  "welcomeStart": "开始"
 }

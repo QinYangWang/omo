@@ -14,7 +14,8 @@ agent runtimes over the [Agent Client Protocol](https://agentclientprotocol.com)
   overwriting the agent's write
 - see what differs from git HEAD, review it in a split diff with per-hunk revert/keep, apply the result
 - run a real native terminal (Ghostty VT) in the workspace root, several sessions side by side
-- use the platform's own menu bar (File / Edit / View) with accelerators
+- a window that draws its own title bar, with the project's sessions on the left, the conversation in
+  the middle and the project's files, changes, quick commands and browser on the right
 
 Not yet: workspace search, LSP, and ACP chat. Agents can already run in the terminal — the files they
 edit show up under Changes. See [docs/roadmap.md](docs/roadmap.md).
@@ -46,14 +47,17 @@ CGO_ENABLED=0 go build -o build/omo .
 ```
 
 Baseline numbers and their caveats: [docs/benchmarks.md](docs/benchmarks.md).
-Screenshots of the UI, and how to reproduce them: [docs/ui.md](docs/ui.md).
+Screenshots of the UI (generated, not hand-taken) and the current layout: [docs/ui.md](docs/ui.md).
+The UI design system (tokens and components): [docs/kit.md](docs/kit.md).
+Working in this repo as an agent: [AGENTS.md](AGENTS.md).
 
 ## Layout
 
 ```
 main.go              assembly only: app.New, window, Run
 internal/app         state, intents, commands, terminals, startup benchmark
-internal/view        the view layer (rail, panels, editor, diff, terminal, status bar)
+internal/view        panels and the window (sessions, editor, session window, status bar)
+internal/kit         design system: tokens, components, icons (docs/kit.md)
 internal/workspace   os.Root boundary, reads/writes, watcher
 internal/documents   editor buffers, atomic save, disk conflicts
 internal/git         system git: branch, changed files, HEAD text
@@ -64,8 +68,8 @@ docs/                architecture, dependencies, interfaces, security, roadmap, 
 ```
 
 Rules that the design depends on: code comments and identifiers are English, all user-visible
-text goes through `internal/i18n`, the view layer never imports an ACP SDK or opens a process,
-and app state is written on the main thread only.
+text goes through `internal/i18n`, everything drawn in a panel comes from `internal/kit`, the view
+layer never imports an ACP SDK or opens a process, and app state is written on the main thread only.
 
 ## Docs
 

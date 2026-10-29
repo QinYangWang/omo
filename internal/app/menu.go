@@ -26,6 +26,7 @@ func (a *App) Menu() *mygo.Menu {
 			},
 		},
 		{
+			ID:    "file",
 			Label: t("menuFile"),
 			Submenu: []*mygo.MenuItem{
 				{Label: t("cmdOpenFolder"), Accelerator: "CmdOrCtrl+Shift+O", Click: run(CmdOpenFolder)},
@@ -36,6 +37,7 @@ func (a *App) Menu() *mygo.Menu {
 			},
 		},
 		{
+			ID:    "edit",
 			Label: t("menuEdit"),
 			Submenu: []*mygo.MenuItem{
 				{Role: mygo.RoleUndo},
@@ -48,10 +50,12 @@ func (a *App) Menu() *mygo.Menu {
 			},
 		},
 		{
+			ID:    "view",
 			Label: t("menuView"),
 			Submenu: []*mygo.MenuItem{
+				{Label: t("cmdToggleLeft"), Click: run(CmdToggleLeft)},
+				{Label: t("cmdToggleRight"), Accelerator: "CmdOrCtrl+Shift+C", Click: run(CmdToggleRight)},
 				{Label: t("cmdTogglePanel"), Accelerator: "CmdOrCtrl+J", Click: run(CmdTogglePanel)},
-				{Label: t("cmdToggleChat"), Accelerator: "CmdOrCtrl+Shift+C", Click: run(CmdToggleChat)},
 				{Label: t("cmdNewTerminal"), Accelerator: "CmdOrCtrl+Shift+T", Click: run(CmdNewTerminal)},
 				mygo.Separator(),
 				{Label: t("cmdRefreshChanges"), Click: run(CmdRefreshChanges)},

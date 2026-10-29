@@ -248,3 +248,35 @@ func TestNoteFrameIsInertWithoutBenchMode(t *testing.T) {
 		t.Fatalf("firstFrame = %v, want 0", a.firstFrame)
 	}
 }
+
+func TestBrowserURLAlwaysGetsAScheme(t *testing.T) {
+	for raw, want := range map[string]string{
+		"example.com":           "https://example.com",
+		"https://example.com/a": "https://example.com/a",
+		"  localhost:3000  ":    "https://localhost:3000",
+	} {
+		got, ok := browserURL(raw)
+		if !ok || got != want {
+			t.Errorf("browserURL(%q) = %q, %v; want %q", raw, got, ok, want)
+		}
+	}
+	if _, ok := browserURL("   "); ok {
+		t.Error("an empty address was accepted")
+	}
+}
+
+func TestSidebarIntents(t *testing.T) {
+	a, _ := newTestApp(t)
+	a.Dispatch(ToggleLeft{})
+	if a.LeftOpen() {
+		t.Fatal("the sessions panel did not close")
+	}
+	a.Dispatch(ToggleRight{})
+	if a.RightOpen() {
+		t.Fatal("the right sidebar did not close")
+	}
+	a.Dispatch(ShowPanel{Name: "git"})
+	if !a.RightOpen() || a.Layout.RightSel != "git" {
+		t.Fatalf("ShowPanel = open %v, page %q", a.RightOpen(), a.Layout.RightSel)
+	}
+}

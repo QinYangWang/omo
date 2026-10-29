@@ -24,6 +24,9 @@ func newWorkspaceApp(t *testing.T) (*app.App, string) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(dir, "internal"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -36,23 +39,13 @@ func newWorkspaceApp(t *testing.T) (*app.App, string) {
 	return a, dir
 }
 
-func TestIconsParse(t *testing.T) {
-	for name, icon := range map[string]*ui.SVG{
-		"files": iconFiles, "search": iconSearch, "git": iconGit, "terminal": iconTerminal,
-	} {
-		if icon == nil {
-			t.Errorf("icon %q did not parse", name)
-		}
-	}
-}
-
 func TestShellRendersEveryRegion(t *testing.T) {
 	a, _ := newWorkspaceApp(t)
 	tt := newTester(t, a)
 	tt.Frame()
 
 	for _, want := range []string{
-		"Explorer", "Chat", "Panel", "main.go", "internal",
+		"Sessions", "Files", "Sidebar", "main.go", "internal", "What are we building?",
 	} {
 		if !tt.HasText(want) {
 			t.Errorf("missing %q; texts = %v", want, tt.Texts())
@@ -97,6 +90,31 @@ func TestClickFileOpensTabAndShowsCaret(t *testing.T) {
 	}
 }
 
+// TestSessionTabReturnsHome checks the strip's first tab: the session pane, back
+// from any open document.
+func TestSessionTabReturnsHome(t *testing.T) {
+	a, _ := newWorkspaceApp(t)
+	tt := newTester(t, a)
+	tt.Frame()
+	if err := tt.Click("main.go"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tt.HasText("What are we building?") {
+		t.Fatal("the session pane is still drawn over the editor")
+	}
+	if err := tt.Click("Session"); err != nil {
+		t.Fatalf("click session tab: %v", err)
+	}
+	tt.Frame()
+	if a.ActiveTab() != -1 {
+		t.Fatalf("ActiveTab = %d, want none", a.ActiveTab())
+	}
+	if !tt.HasText("What are we building?") {
+		t.Errorf("the session pane is not back; texts = %v", tt.Texts())
+	}
+}
+
 func TestDirtyFileIsMarkedAndCloseReturnsToWelcome(t *testing.T) {
 	a, _ := newWorkspaceApp(t)
 	tt := newTester(t, a)
@@ -116,8 +134,8 @@ func TestDirtyFileIsMarkedAndCloseReturnsToWelcome(t *testing.T) {
 	if len(a.Tabs()) != 0 {
 		t.Fatalf("tabs = %d after closing", len(a.Tabs()))
 	}
-	if !tt.HasText("Open Workspace…") {
-		t.Errorf("welcome screen missing; texts = %v", tt.Texts())
+	if !tt.HasText("What are we building?") {
+		t.Errorf("the session window should be back; texts = %v", tt.Texts())
 	}
 }
 
@@ -180,10 +198,10 @@ func TestZhLocaleRenders(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { Shell(c, a) }, 1400, 860)
 	tt.SetLocale("zh-Hans")
 	tt.Frame()
-	if !tt.HasText("资源管理器") {
+	if !tt.HasText("会话") {
 		t.Errorf("zh-Hans catalog not used; texts = %v", tt.Texts())
 	}
-	if !tt.HasText("未打开工作区") && !tt.HasText("面板") {
+	if !tt.HasText("侧栏") && !tt.HasText("面板") {
 		t.Errorf("status bar not translated; texts = %v", tt.Texts())
 	}
 }
@@ -224,8 +242,8 @@ func TestGitPanelListsChangeAndReviewReverts(t *testing.T) {
 	tt := newTester(t, a)
 	tt.Frame()
 
-	// The git rail entry switches the side panel to Changes.
-	a.Layout.ActivitySel = "git"
+	// The git sidebar page lists the changed path.
+	a.Layout.RightSel = "git"
 	tt.Frame()
 	if !tt.HasText("1 change") {
 		t.Errorf("changes count missing; texts = %v", tt.Texts())
@@ -265,30 +283,82 @@ func TestGitPanelListsChangeAndReviewReverts(t *testing.T) {
 	}
 }
 
-// TestActivityRailSwitchesPanels clicks the icon rail itself. The coordinates
-// depend on the theme's row height, so a spacing change fails loudly here rather
-// than silently breaking navigation.
-func TestActivityRailSwitchesPanels(t *testing.T) {
+// TestRightSidebarSwitchesPages clicks the sidebar's icon strip, by the label
+// each icon gives itself.
+func TestRightSidebarSwitchesPages(t *testing.T) {
 	a, _ := newWorkspaceApp(t)
 	tt := newTester(t, a)
 	tt.Frame()
 
-	if a.Layout.ActivitySel != "explorer" {
-		t.Fatalf("rail starts on %q", a.Layout.ActivitySel)
+	if a.Layout.RightSel != "files" {
+		t.Fatalf("the sidebar starts on %q", a.Layout.RightSel)
 	}
-	tt.ClickAt(20, 70) // second icon
-	tt.Frame()
-	if a.Layout.ActivitySel != "search" {
-		t.Fatalf("second rail item = %q, want search", a.Layout.ActivitySel)
+	if err := tt.Click("Search"); err != nil {
+		t.Fatalf("click search: %v", err)
 	}
-	tt.ClickAt(20, 120) // third icon
 	tt.Frame()
-	if a.Layout.ActivitySel != "git" {
-		t.Fatalf("third rail item = %q, want git", a.Layout.ActivitySel)
+	if a.Layout.RightSel != "search" {
+		t.Fatalf("second icon = %q, want search", a.Layout.RightSel)
 	}
-	tt.ClickAt(20, 20) // back to the first
+	if err := tt.Click("Changes"); err != nil {
+		t.Fatalf("click changes: %v", err)
+	}
 	tt.Frame()
-	if a.Layout.ActivitySel != "explorer" {
-		t.Fatalf("first rail item = %q, want explorer", a.Layout.ActivitySel)
+	if a.Layout.RightSel != "git" {
+		t.Fatalf("third icon = %q, want git", a.Layout.RightSel)
+	}
+	if err := tt.Click("Files"); err != nil {
+		t.Fatalf("click files: %v", err)
+	}
+	tt.Frame()
+	if a.Layout.RightSel != "files" {
+		t.Fatalf("first icon = %q, want files", a.Layout.RightSel)
+	}
+}
+
+// TestRunPageOffersTheWorkspaceQuickCommands checks the run page of a Go
+// workspace: build, test and vet, each a terminal command.
+func TestRunPageOffersTheWorkspaceQuickCommands(t *testing.T) {
+	a, _ := newWorkspaceApp(t)
+	tt := newTester(t, a)
+	tt.Frame()
+
+	if err := tt.Click("Run and Debug"); err != nil {
+		t.Fatalf("click run: %v", err)
+	}
+	tt.Frame()
+	if a.Layout.RightSel != "run" {
+		t.Fatalf("page = %q, want run", a.Layout.RightSel)
+	}
+	for _, want := range []string{"Build", "Test", "Vet", "go build ./...", "go test ./..."} {
+		if !tt.HasText(want) {
+			t.Errorf("missing %q; texts = %v", want, tt.Texts())
+		}
+	}
+}
+
+// TestHeaderTogglesCollapseTheSidebars checks the two header buttons: each one
+// hides and shows its column.
+func TestHeaderTogglesCollapseTheSidebars(t *testing.T) {
+	a, _ := newWorkspaceApp(t)
+	tt := newTester(t, a)
+	tt.Frame()
+
+	if err := tt.Click("Toggle Sessions"); err != nil {
+		t.Fatalf("click sessions toggle: %v", err)
+	}
+	tt.Frame()
+	if a.LeftOpen() {
+		t.Fatal("the sessions panel is still open")
+	}
+	if err := tt.Click("Toggle Sidebar"); err != nil {
+		t.Fatalf("click sidebar toggle: %v", err)
+	}
+	tt.Frame()
+	if a.RightOpen() {
+		t.Fatal("the right sidebar is still open")
+	}
+	if !tt.HasText("What are we building?") {
+		t.Errorf("the middle column did not take the room; texts = %v", tt.Texts())
 	}
 }

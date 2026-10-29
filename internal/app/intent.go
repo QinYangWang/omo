@@ -2,9 +2,11 @@ package app
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/QinYangWang/omo/internal/diff"
 	"github.com/QinYangWang/omo/internal/workspace"
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 )
@@ -49,8 +51,23 @@ const (
 // TogglePanel shows or hides the bottom panel.
 type TogglePanel struct{}
 
-// ToggleChat shows or hides the chat panel.
-type ToggleChat struct{}
+// ToggleLeft shows or hides the sessions panel.
+type ToggleLeft struct{}
+
+// ToggleRight shows or hides the right sidebar.
+type ToggleRight struct{}
+
+// ShowPanel opens the right sidebar on one of its pages.
+type ShowPanel struct{ Name string }
+
+// SelectTerminal shows the bottom panel on one terminal session.
+type SelectTerminal struct{ Index int }
+
+// RunCommand runs argv in a new terminal in the workspace root.
+type RunCommand struct{ Args []string }
+
+// OpenURL opens a URL in the user's browser.
+type OpenURL struct{ URL string }
 
 // NewTerminal starts a shell in the bottom panel.
 type NewTerminal struct{}
@@ -74,7 +91,12 @@ func (OpenDiff) isIntent()        {}
 func (ApplyReview) isIntent()     {}
 func (ResolveConflict) isIntent() {}
 func (TogglePanel) isIntent()     {}
-func (ToggleChat) isIntent()      {}
+func (ToggleLeft) isIntent()      {}
+func (ToggleRight) isIntent()     {}
+func (ShowPanel) isIntent()       {}
+func (SelectTerminal) isIntent()  {}
+func (RunCommand) isIntent()      {}
+func (OpenURL) isIntent()         {}
 func (NewTerminal) isIntent()     {}
 func (CloseTerminal) isIntent()   {}
 func (RefreshChanges) isIntent()  {}
@@ -102,8 +124,19 @@ func (a *App) Dispatch(in Intent) {
 		a.resolveConflict(v.Choice)
 	case TogglePanel:
 		a.panelOpen = !a.panelOpen
-	case ToggleChat:
-		a.chatOpen = !a.chatOpen
+	case ToggleLeft:
+		a.leftOpen = !a.leftOpen
+	case ToggleRight:
+		a.rightOpen = !a.rightOpen
+	case ShowPanel:
+		a.Layout.RightSel = v.Name
+		a.rightOpen = true
+	case SelectTerminal:
+		a.selectTerminal(v.Index)
+	case RunCommand:
+		a.startTerminal(v.Args)
+	case OpenURL:
+		a.openURL(v.URL)
 	case NewTerminal:
 		a.newTerminal()
 	case CloseTerminal:
@@ -314,6 +347,33 @@ func (a *App) resolveConflict(choice ConflictChoice) {
 
 // ChangesCount is the number of paths that differ from HEAD.
 func (a *App) ChangesCount() int { return len(a.changes) }
+
+// browserURL is the address to open for what the user typed: a bare host is
+// taken as https, anything with a scheme is kept.
+func browserURL(raw string) (string, bool) {
+	u := strings.TrimSpace(raw)
+	if u == "" {
+		return "", false
+	}
+	if !strings.Contains(u, "://") {
+		u = "https://" + u
+	}
+	return u, true
+}
+
+// openURL opens the browser panel's address in the user's browser.
+func (a *App) openURL(raw string) {
+	u, ok := browserURL(raw)
+	if !ok {
+		a.setNotice(Notice{Key: "noticeURLInvalid"})
+		return
+	}
+	if err := mygo.Shell.OpenExternal(u); err != nil {
+		a.setNotice(Notice{Key: "noticeURLFailed", Args: map[string]any{"url": u, "err": err.Error()}})
+		return
+	}
+	a.Layout.BrowserURL = u
+}
 
 // changeStatus returns the git status letter of a path, or "".
 func (a *App) changeStatus(rel string) string {

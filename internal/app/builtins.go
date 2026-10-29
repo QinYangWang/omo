@@ -19,7 +19,8 @@ const (
 	CmdRefreshChanges commands.ID = "git.refresh"
 	CmdNewTerminal    commands.ID = "terminal.new"
 	CmdTogglePanel    commands.ID = "view.togglePanel"
-	CmdToggleChat     commands.ID = "view.toggleChat"
+	CmdToggleLeft     commands.ID = "view.toggleSessions"
+	CmdToggleRight    commands.ID = "view.toggleSidebar"
 )
 
 // registerCommands runs once, from New, during startup. After that the table is
@@ -137,10 +138,19 @@ func (a *App) registerCommands() {
 	})
 
 	register(commands.Command{
-		ID:    CmdToggleChat,
-		Title: "cmdToggleChat",
+		ID:    CmdToggleLeft,
+		Title: "cmdToggleLeft",
 		Run: func(context.Context) error {
-			a.Dispatch(ToggleChat{})
+			a.Dispatch(ToggleLeft{})
+			return nil
+		},
+	})
+
+	register(commands.Command{
+		ID:    CmdToggleRight,
+		Title: "cmdToggleRight",
+		Run: func(context.Context) error {
+			a.Dispatch(ToggleRight{})
 			return nil
 		},
 	})

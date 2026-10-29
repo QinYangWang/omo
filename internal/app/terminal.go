@@ -18,7 +18,11 @@ type Terminal struct {
 
 // newTerminal starts a shell in the workspace root, or the home directory when
 // no workspace is open.
-func (a *App) newTerminal() {
+func (a *App) newTerminal() { a.startTerminal(nil) }
+
+// startTerminal runs argv in a new session in the workspace root, or the user's
+// shell when argv is empty, and shows the bottom panel.
+func (a *App) startTerminal(argv []string) {
 	dir := ""
 	if a.ws != nil {
 		dir = a.ws.Path()
@@ -26,8 +30,9 @@ func (a *App) newTerminal() {
 	a.termSeq++
 	sess := &Terminal{Num: a.termSeq}
 	t, err := terminal.New(terminal.Options{
-		Dir:  dir,
-		Font: terminal.Font{Size: 12.5},
+		Command: argv,
+		Dir:     dir,
+		Font:    terminal.Font{Size: 12.5},
 		OnExit: func(code int) {
 			a.post(func() {
 				sess.Exited = true
@@ -44,9 +49,17 @@ func (a *App) newTerminal() {
 	t.Resize(100, 30)
 	sess.Term = t
 	a.terms = append(a.terms, sess)
-	a.Layout.ActiveTerm = len(a.terms) - 1
-	a.panelOpen = true
+	a.selectTerminal(len(a.terms) - 1)
+}
+
+// selectTerminal shows one session in the bottom panel.
+func (a *App) selectTerminal(i int) {
+	if i < 0 || i >= len(a.terms) {
+		return
+	}
+	a.Layout.ActiveTerm = i
 	a.Layout.PanelTab = 0
+	a.panelOpen = true
 }
 
 // closeTerminal kills one session and drops it.

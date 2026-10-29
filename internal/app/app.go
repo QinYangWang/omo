@@ -61,15 +61,18 @@ type Tab struct {
 // The widgets keep a *float32, *string, *bool or *int between frames, so these
 // fields must live in a stable object: a field of App, never a local variable.
 type Layout struct {
-	ActivitySel  string
+	// RightSel is the page of the right sidebar: files, search, git, run or
+	// browser.
+	RightSel     string
 	PanelItemSel string
 	ExplorerOpen bool
 	OutlineOpen  bool
-	EditorCols   float32 // editor pane as a percentage of the middle row (0-100)
 	MainRows     float32 // main area as a percentage of the window (0-100)
 	ActiveTab    int
 	PanelTab     int
 	ActiveTerm   int
+	SessionQuery string // the sessions panel's filter
+	BrowserURL   string
 }
 
 // Notice is a localizable status message: a catalog key plus its arguments.
@@ -102,7 +105,8 @@ type App struct {
 
 	Layout       Layout
 	panelOpen    bool
-	chatOpen     bool
+	leftOpen     bool
+	rightOpen    bool
 	conflict     string
 	conflictOpen bool
 
@@ -126,16 +130,16 @@ func New() *App {
 		cancel: cancel,
 		cmds:   commands.NewRegistry(),
 		Layout: Layout{
-			ActivitySel:  "explorer",
+			RightSel:     "files",
 			ExplorerOpen: true,
 			OutlineOpen:  false,
-			EditorCols:   76,
 			MainRows:     72,
 			ActiveTab:    0,
 			PanelTab:     0,
 		},
 		panelOpen:   false,
-		chatOpen:    true,
+		leftOpen:    true,
+		rightOpen:   true,
 		notice:      Notice{Key: "noticeReady"},
 		agentNotice: Notice{Key: "agentUnconfigured"},
 		bench:       benchEnabled(),
@@ -224,9 +228,11 @@ func (a *App) Terminals() []*Terminal { return a.terms }
 // PanelOpen reports whether the bottom panel is shown.
 func (a *App) PanelOpen() bool { return a.panelOpen }
 
-// ChatOpen reports whether the chat panel is shown. It shares the middle row with
-// the editor through a draggable split.
-func (a *App) ChatOpen() bool { return a.chatOpen }
+// LeftOpen reports whether the sessions panel is shown.
+func (a *App) LeftOpen() bool { return a.leftOpen }
+
+// RightOpen reports whether the right sidebar is shown.
+func (a *App) RightOpen() bool { return a.rightOpen }
 
 // ConflictPath is the file whose disk change needs a decision, if any.
 func (a *App) ConflictPath() string { return a.conflict }
