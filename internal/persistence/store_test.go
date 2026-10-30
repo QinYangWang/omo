@@ -157,30 +157,36 @@ func TestPruneEventsHonoursBothLimits(t *testing.T) {
 	ctx := context.Background()
 	store := openMemory(t)
 	now := time.Now()
-	batch := make([]Event, 0, 20)
-	for i := 0; i < 20; i++ {
-		at := now.Add(-time.Duration(20-i) * time.Hour)
-		batch = append(batch, Event{SessionID: "s1", Kind: "turn_end", Summary: "ok", At: at})
+
+	// Ages are unambiguous: the age limit alone must remove exactly the two old
+	// rows below, and the keep limit must then stand on its own.
+	old := []Event{
+		{SessionID: "s1", Kind: "turn_end", Summary: "old", At: now.Add(-3 * time.Hour)},
+		{SessionID: "s1", Kind: "turn_end", Summary: "old", At: now.Add(-2 * time.Hour)},
 	}
-	if err := store.AppendEvents(ctx, batch); err != nil {
+	fresh := []Event{
+		{SessionID: "s1", Kind: "turn_end", Summary: "fresh", At: now},
+		{SessionID: "s1", Kind: "turn_end", Summary: "fresh", At: now.Add(-time.Minute)},
+		{SessionID: "s1", Kind: "turn_end", Summary: "fresh", At: now.Add(-2 * time.Minute)},
+	}
+	if err := store.AppendEvents(ctx, append(append([]Event(nil), old...), fresh...)); err != nil {
 		t.Fatal(err)
 	}
-	if count, err := store.CountEvents(ctx); err != nil || count != 20 {
+	if count, err := store.CountEvents(ctx); err != nil || count != len(old)+len(fresh) {
 		t.Fatalf("count = %d, %v", count, err)
 	}
-	if err := store.PruneEvents(ctx, 5, time.Hour); err != nil {
+
+	if err := store.PruneEvents(ctx, 100, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	count, err := store.CountEvents(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 { // only the newest row is younger than an hour and within keep=5
-		t.Fatalf("count after prune = %d, want 1", count)
+	if count != len(fresh) {
+		t.Fatalf("count after the age limit = %d, want %d", count, len(fresh))
 	}
-	if err := store.AppendEvents(ctx, batch[:2]); err != nil {
-		t.Fatal(err)
-	}
+
 	if err := store.PruneEvents(ctx, 2, 24*365*time.Hour); err != nil {
 		t.Fatal(err)
 	}
