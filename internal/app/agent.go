@@ -98,6 +98,85 @@ func (a *App) AgentDefinitions() []agent.Definition {
 	return a.agentCatalog.List()
 }
 
+// DetectAgents adds the known ACP agents it finds on PATH as untrusted
+// definitions, so an installed CLI shows up without being typed in. It runs
+// once at startup: an agent the user already configured, by id or by
+// executable, is left alone, and a found one still asks for trust before it
+// runs. Deleting a detected agent lasts until the next start, as long as its
+// CLI is still installed.
+func (a *App) DetectAgents() {
+	if a.agentCatalog == nil {
+		return
+	}
+	seen := make(map[string]bool)
+	for _, def := range a.agentCatalog.List() {
+		seen[def.ID] = true
+		if preset, ok := agent.PresetFor(def.Executable); ok {
+			seen[preset.ID] = true
+		}
+	}
+	for _, preset := range agent.Presets() {
+		if seen[preset.ID] {
+			continue
+		}
+		executable := lookExecutable(preset.Bins)
+		if executable == "" {
+			continue
+		}
+		def := agent.Definition{ID: preset.ID, Name: preset.Name, Executable: executable, Args: preset.Args}
+		if err := a.agentCatalog.Upsert(def); err != nil {
+			continue
+		}
+		seen[preset.ID] = true
+		if a.activeAgentID == "" {
+			a.activeAgentID = preset.ID
+		}
+	}
+}
+
+// lookExecutable returns the first of names on PATH, or "".
+func lookExecutable(names []string) string {
+	for _, name := range names {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+// AgentUpdatable reports whether the agent comes from npm, so the UI can offer
+// to update it.
+func (a *App) AgentUpdatable(id string) bool {
+	def, ok := a.agentDefinition(id)
+	if !ok {
+		return false
+	}
+	preset, ok := agent.PresetFor(def.Executable)
+	return ok && preset.Package != ""
+}
+
+// updateAgent runs the package's latest version in a terminal, where the user
+// sees what npm does. The new executable is a different file, so the trust
+// check asks again before the agent starts.
+func (a *App) updateAgent(id string) {
+	def, ok := a.agentDefinition(id)
+	if !ok {
+		return
+	}
+	preset, ok := agent.PresetFor(def.Executable)
+	if !ok || preset.Package == "" {
+		a.setNotice(Notice{Key: "agentNoPackage"})
+		return
+	}
+	npm := lookExecutable([]string{"npm"})
+	if npm == "" {
+		a.setNotice(Notice{Key: "agentNoNpm"})
+		return
+	}
+	a.startTerminal([]string{npm, "install", "--global", preset.Package + "@latest"})
+	a.setNotice(Notice{Key: "agentUpdating", Args: map[string]any{"name": def.Name}})
+}
+
 // AgentState is the current connection/turn state.
 func (a *App) AgentState() agent.State { return a.agentState }
 

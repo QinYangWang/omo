@@ -25,9 +25,11 @@ agent runtimes over the [Agent Client Protocol](https://agentclientprotocol.com)
   a local SQLite database
 - use the platform's own menu bar (File / Edit / View) with accelerators
 
-Use **Agents…** in the chat panel to add an executable and its arguments (one per line). The first
-start shows the exact launch details and requires trust. Agent file changes show up under Changes,
-with **Review** opening the list of files it touched.
+omo looks for the ACP agents it knows (Codex, Claude Code, Pi) on `PATH` at startup and lists the
+ones it finds under **Agents…**; each still shows its exact launch details and asks for trust the
+first time it starts. Add another executable and its arguments (one per line) from the same dialog,
+or use **Update CLI** to run the known package's `npm install --global …@latest` in a terminal. Agent
+file changes show up under Changes, with **Review** opening the list of files it touched.
 
 Not yet: workspace search and LSP. See
 [docs/roadmap.md](docs/roadmap.md).

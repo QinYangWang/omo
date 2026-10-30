@@ -546,7 +546,11 @@ create table if not exists ui_state(key text primary key, value blob not null);
 - 所有值都是绑定参数；测试里有一条路径字面量带 `'; drop table workspaces; --`，断言它原样往返。
 - `permission_grants` 表已建但还没有写入方：`allow_always` 仍在 UI 里隐藏，等按
   (agent, workspace, risk) 收窄的授权流程再接。
-- Agent 定义仍在 `<config>/omo/agents.json`（见 roadmap §9.4 的偏差说明）。
+- Agent 定义仍在 `<config>/omo/agents.json`（见 roadmap §9.4 的偏差说明）。启动时
+  `App.DetectAgents` 在 `PATH` 上找 `internal/agent/presets.go` 里的已知适配器
+  （`codex-acp`、`claude-code-acp`、`pi-acp`），找到就写一条**未信任**定义；已有同 id 或同可执行文件的
+  定义不动，所以用户改过的名字和信任状态不会被覆盖。更新命令（npm 包）只在 preset 里有，
+  点击「更新 CLI」时以 argv 形式在新终端里运行，不拼 shell。
 
 **不存**：完整对话、Agent 内部消息、工具输出全文。ACP 的会话历史归 Agent；IDE 只存映射与摘要。
 

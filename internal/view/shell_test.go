@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/QinYangWang/omo/internal/app"
@@ -163,6 +164,33 @@ func TestPanelToggleShowsTerminalPage(t *testing.T) {
 	tt.Frame()
 	if a.PanelOpen() {
 		t.Fatal("panel did not close")
+	}
+}
+
+func TestAgentsDialogOffersUpdateForDetectedCLI(t *testing.T) {
+	a, _ := newWorkspaceApp(t)
+	// A known adapter on PATH is found at startup, as main.go does it.
+	name := "codex-acp"
+	if runtime.GOOS == "windows" {
+		name += ".cmd"
+	}
+	bin := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a.DetectAgents()
+
+	tt := newTester(t, a)
+	tt.Frame()
+	if err := tt.Click("Agents…"); err != nil {
+		t.Fatalf("click Agents…: %v", err)
+	}
+	tt.Frame()
+	// A detected agent can be updated, because its npm package is known; an
+	// arbitrary executable (the trust test) offers no such action.
+	if !tt.HasText("Update CLI") {
+		t.Errorf("update action missing; texts = %v", tt.Texts())
 	}
 }
 

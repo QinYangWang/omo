@@ -63,8 +63,10 @@ OMO_SCREENSHOT_TERMINAL=1 OMO_SCREENSHOT_MS=2600 ./build/omo.exe
   标签页或终端，所以这一栏是「回到任何东西」的入口。
 - **中间 `sessionPane`**：标签条第一个标签是会话（标题 `omo`），从任何文件都能点回来；
   没有标签页时中间就是 ACP 会话窗口：Agent 选择/启动/重启、流式文本与思考、工具活动、计划、
-  输入框和取消按钮。权限审批、首次信任与 Agent 配置使用原生 Modal。打开文件后是标签条 +
-  编辑器/差异审查，底部面板仍在这一列下方。
+  输入框和取消按钮。权限审批、首次信任与 Agent 配置使用原生 Modal；启动时在 `PATH` 上找到的
+  已知 Agent（Codex / Claude Code / Pi，见 `internal/agent/presets.go`）自动进入「Agents…」列表，
+  仍是未信任状态，列表里还能「更新 CLI」（在终端里跑该包的 `npm install --global …@latest`）。
+  打开文件后是标签条 + 编辑器/差异审查，底部面板仍在这一列下方。
 - **右侧栏 `rightSidebar`**：标头是一排图标（`kit.IconTabs`），依次是文件、搜索、改动（git）、
   运行和调试、浏览器。文件/搜索/改动看的是当前项目的内容；改动页的 `+` 把工作区里的每一条
   改动 `git add` 进索引（只暂存工作区内的路径，不会波及上级仓库），暂存后的状态字母用成功色；
