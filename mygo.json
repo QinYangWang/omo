@@ -1,0 +1,7 @@
+{
+  "name": "omo",
+  "identifier": "dev.omo.ide",
+  "version": "0.1.0",
+  "out": "build",
+  "i18n": { "dir": "internal/i18n/locales", "source": "en" }
+}

@@ -1,0 +1,10 @@
+# Store text with LF on every platform; the repo is cross-compiled and read on
+# all three, so line-ending churn would only produce noise in diffs.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.dll binary
+*.dylib binary
+*.so binary
