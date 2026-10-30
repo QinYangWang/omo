@@ -44,8 +44,13 @@ jobs:
 
       # No dependency may pull cgo: the whole point of the stack is that
       # CGO_ENABLED=0 builds everywhere (docs/dependencies.md §2).
+      # The list must be taken with cgo off: with it on, the standard library's
+      # own cgo variants (net, os/user, runtime/cgo) answer, and on a runner
+      # with a C toolchain that is every leg.
       - name: assert no cgo packages
         shell: bash
+        env:
+          CGO_ENABLED: "0"
         run: |
           out=$(go list -deps -f '{{if .CgoFiles}}{{.ImportPath}}{{end}}' ./...)
           if [ -n "$out" ]; then
