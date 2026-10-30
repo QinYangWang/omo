@@ -330,8 +330,9 @@ Pi 1.4.0、`pi-acp` 0.0.34。真实测试保留在 `internal/agent/runtime_integ
 - 基准只覆盖 `tool_call` 报出的路径。Agent 通过自己的 shell 工具写文件时没有路径可抓，这类改动不进审查
   （`shortcut: shell 写入的文件无法取基准，等 ACP 提供 watch/snapshot 再补`）。
 - 「全部回退」删除 Agent 新建的文件，而不是把它清空：基准只记录「当时不存在」。
-- 本机没有 GCC，`CGO_ENABLED=1 go test -race ./...` **本轮未跑**（P2 时跑过全仓）；普通 `go test ./...`、
-  `go vet`、`mygo vet`、六平台 `CGO_ENABLED=0` 构建通过。
+- 本机没有 GCC，`CGO_ENABLED=1 go test -race ./...` 没有本地跑；CI 的 `test` 作业在
+  Linux/macOS/Windows 上跑 `-race`，三个平台全绿。普通 `go test ./...`、`go vet`、`mygo vet`、
+  六平台 `CGO_ENABLED=0` 构建也通过。
 
 ## 9.5 P4 完成记录（2026-10-30，终端 + Git）
 
