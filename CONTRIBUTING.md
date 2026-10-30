@@ -80,7 +80,8 @@ PR 描述会成为提交正文。所以 PR 标题必须写成下面这种规范�
 
 ## 3. PR
 
-- 标题 = 规范提交标题（见上）；描述用仓库模板（`.github/PULL_REQUEST_TEMPLATE.md`）：
+- 标题 = 规范提交标题（见上）；CI 的 `pr-title` 会按 `^(feat|fix|…)(\(scope\))?: ` 检查，不符合就红。
+  描述用仓库模板（`.github/PULL_REQUEST_TEMPLATE.md`）：
   做了什么 / 为什么 / 怎么验证 / 截图（UI 改动必附，来自 `docs/ui/*.png` 的重生成结果）。
 - 一个 PR 只解决一件事；顺手发现的问题另开 issue/PR。
 - 提交前本地跑完检查（见 §5），CI 会在 Linux/macOS/Windows 上再跑一遍。

@@ -1,0 +1,29 @@
+name: pr-title
+
+# Merges are squashed, and the PR title becomes the commit on main, so the title
+# is checked like a commit message (CONTRIBUTING.md §2, §3).
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  conventional:
+    name: conventional commit title
+    runs-on: ubuntu-latest
+    steps:
+      - name: check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # <type>(<scope>): <subject>, subject at most 72 characters.
+          pattern='^(feat|fix|refactor|perf|docs|test|build|ci|style|revert)(\([a-z0-9._-]+\))?: [^ ].{0,71}$'
+          if ! printf '%s' "$TITLE" | grep -Eq "$pattern"; then
+            echo "PR title: $TITLE" >&2
+            echo "must look like 'fix(view): repaint when the watcher reloads'" >&2
+            echo "types: feat fix refactor perf docs test build ci style revert" >&2
+            exit 1
+          fi
+          echo "ok: $TITLE"
