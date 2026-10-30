@@ -355,8 +355,8 @@ omo/
 │   │   ├── sessions/       // P2 AgentSessionManager + 状态机
 │   │   ├── events/         // P2 AgentEventNormalizer + 诊断环形缓冲
 │   │   └── permissions/    // P2 PermissionManager
-│   ├── (terminal lives in internal/app) // ★P1 终端会话（PTY）
-│   ├── git/                // ★P1 系统 git CLI：分支、改动列表、HEAD 文本
+│   ├── (terminal lives in internal/app) // ★P1 终端会话（PTY，上限 4，退出时等待）
+│   ├── git/                // ★P1 系统 git CLI：分支、改动列表、HEAD 文本、暂存
 │   ├── config/             // P3 配置模型 + 校验
 │   └── persistence/        // P3 SQLite schema/迁移/保留
 ├── docs/

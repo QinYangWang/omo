@@ -17,6 +17,7 @@ const (
 	CmdSaveFile       commands.ID = "file.save"
 	CmdReviewFile     commands.ID = "file.review"
 	CmdRefreshChanges commands.ID = "git.refresh"
+	CmdStageChanges   commands.ID = "git.stage"
 	CmdNewTerminal    commands.ID = "terminal.new"
 	CmdTogglePanel    commands.ID = "view.togglePanel"
 	CmdToggleLeft     commands.ID = "view.toggleSessions"
@@ -115,6 +116,18 @@ func (a *App) registerCommands() {
 		},
 		Run: func(context.Context) error {
 			a.Dispatch(RefreshChanges{})
+			return nil
+		},
+	})
+
+	register(commands.Command{
+		ID:    CmdStageChanges,
+		Title: "cmdStageChanges",
+		Enabled: func() bool {
+			return a.repo != nil && len(a.changes) > 0
+		},
+		Run: func(context.Context) error {
+			a.Dispatch(StageChanges{})
 			return nil
 		},
 	})

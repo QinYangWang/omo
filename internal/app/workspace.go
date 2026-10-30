@@ -120,6 +120,21 @@ func (a *App) refreshGit(force bool) {
 	}
 }
 
+// stageChanges stages every change under the workspace. It is `git add -A`
+// scoped to the workspace's pathspec, not from the repository root: a workspace
+// in a subdirectory must not stage its parent.
+func (a *App) stageChanges() {
+	if a.repo == nil || len(a.changes) == 0 {
+		return
+	}
+	if err := a.repo.AddAll(a.ctx); err != nil {
+		a.setNotice(Notice{Key: "noticeStageFailed", Args: map[string]any{"err": err.Error()}})
+		return
+	}
+	a.refreshGit(true)
+	a.setNotice(Notice{Key: "noticeStaged", Args: map[string]any{"count": len(a.changes)}})
+}
+
 // startWatch forwards file events to the main thread. The events are hints: the
 // handler below re-reads whatever it cares about.
 func (a *App) startWatch() {

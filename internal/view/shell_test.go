@@ -277,6 +277,18 @@ func TestGitPanelListsChangeAndReviewReverts(t *testing.T) {
 		t.Errorf("changed path or status missing from the panel; texts = %v", tt.Texts())
 	}
 
+	// Stage all, then the status bar says so and the change reports staged.
+	if err := tt.Click("Stage all changes"); err != nil {
+		t.Fatalf("click stage: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("Staged 1 file") {
+		t.Errorf("staging result missing; texts = %v", tt.Texts())
+	}
+	if changes := a.Changes(); len(changes) != 1 || !changes[0].Staged {
+		t.Fatalf("changes after stage = %v, want one staged", changes)
+	}
+
 	a.Dispatch(app.OpenDiff{Path: "main.go"})
 	tt.Frame()
 	tab := a.TabAt(a.ActiveTab())

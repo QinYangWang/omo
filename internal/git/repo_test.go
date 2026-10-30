@@ -138,3 +138,115 @@ func TestWorkspaceInSubdirectory(t *testing.T) {
 		t.Fatalf("subdirectory head text = %q, inHead=%v, %v", text, inHead, err)
 	}
 }
+
+func TestAddAllStagesWithoutShellOrParentPaths(t *testing.T) {
+	dir := newRepo(t)
+	sub := filepath.Join(dir, "internal")
+	repo, err := Detect(context.Background(), sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Names a shell would split, expand or execute, and one that reads as an
+	// option.
+	names := []string{
+		"space name.txt",
+		"quote ' name.txt",
+		"semi ; touch pwned.txt",
+		"$(touch pwned2).txt",
+		"-dash.txt",
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(sub, name), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "parent.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	changes, err := repo.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := make(map[string]bool, len(changes))
+	for _, c := range changes {
+		staged[c.Path] = c.Staged
+	}
+	for _, name := range names {
+		if !staged[name] {
+			t.Errorf("%q was not staged; changes = %v", name, changes)
+		}
+	}
+	// The pathspec kept the parent directory out of the index.
+	root, err := Detect(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := root.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range all {
+		if c.Path == "parent.txt" && c.Staged {
+			t.Errorf("a workspace in a subdirectory staged its parent's file: %v", all)
+		}
+	}
+	for _, injected := range []string{"pwned.txt", "pwned2", ".txt"} {
+		if _, err := os.Stat(filepath.Join(sub, injected)); err == nil {
+			t.Errorf("a file name reached a shell: %q exists", injected)
+		}
+	}
+}
+
+func TestAddAllStagesARename(t *testing.T) {
+	dir := newRepo(t)
+	repo, err := Detect(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "internal", "a.go"), filepath.Join(dir, "internal", "b.go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := repo.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Path != "internal/b.go" || changes[0].Status != "R" || !changes[0].Staged {
+		t.Fatalf("rename = %v, want one staged R at internal/b.go", changes)
+	}
+}
+
+func TestStatusReportsStagedAndUnstaged(t *testing.T) {
+	dir := newRepo(t)
+	repo, err := Detect(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "internal", "a.go")
+	if err := os.WriteFile(file, []byte("package a // x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := repo.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].Staged {
+		t.Fatalf("before add = %v, want one unstaged change", changes)
+	}
+	if err := repo.AddAll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	changes, err = repo.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || !changes[0].Staged || changes[0].Status != "M" {
+		t.Fatalf("after add = %v, want one staged M", changes)
+	}
+}

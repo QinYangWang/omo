@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -278,5 +279,57 @@ func TestSidebarIntents(t *testing.T) {
 	a.Dispatch(ShowPanel{Name: "git"})
 	if !a.RightOpen() || a.Layout.RightSel != "git" {
 		t.Fatalf("ShowPanel = open %v, page %q", a.RightOpen(), a.Layout.RightSel)
+	}
+}
+
+// runGit runs one git command with a test identity, for tests that need a real
+// repository.
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com",
+		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
+
+func TestStageChangesStagesEveryChangedPath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	a, dir := newTestApp(t)
+	runGit(t, dir, "init", "--initial-branch=main", ".")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "initial")
+	// Reopen so the app detects the repository that did not exist at startup.
+	a.Dispatch(OpenWorkspace{Path: dir})
+	if a.repo == nil {
+		t.Fatal("repository not detected after reopening the workspace")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main // edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new file.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.Dispatch(RefreshChanges{})
+	if n := a.ChangesCount(); n != 2 {
+		t.Fatalf("changes = %d, want 2", n)
+	}
+
+	a.Dispatch(StageChanges{})
+	if a.Notice().Key != "noticeStaged" {
+		t.Fatalf("notice = %q", a.Notice().Key)
+	}
+	for _, ch := range a.Changes() {
+		if !ch.Staged {
+			t.Errorf("%q not staged; changes = %v", ch.Path, a.Changes())
+		}
 	}
 }

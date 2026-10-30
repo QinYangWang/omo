@@ -1,6 +1,6 @@
 # 实施路线图（roadmap）
 
-> 状态：**P0/P1 已完成，P2 核心与 codex/pi 实机互操作已验收**；Pi 的工具权限转发限制见 §9.2.1。
+> 状态：**P0/P1 已完成，P2 核心与 codex/pi 实机互操作已验收，P4（终端 + Git）已交付**；P3 的持久化尚未开始；Pi 的工具权限转发限制见 §9.2.1。
 > 阶段顺序按依赖关系排，不按重要性排。
 > 每个阶段结束时必须能 `go build`（6 平台）、`go vet ./...`、`go test ./...`、`go test -race ./...` 全绿。
 
@@ -298,11 +298,37 @@ Pi 1.4.0、`pi-acp` 0.0.34。真实测试保留在 `internal/agent/runtime_integ
 本机安装 WinLibs 后，`CGO_ENABLED=1 go test -race ./...` **全仓通过**。普通 `go test ./...`、
 `go vet ./...`、六平台无 cgo 构建也通过。
 
-## 9.3 下一步候选（P3 / P4）
+## 9.3 下一步候选（P3 / P4 后续 / P5）
 
-- **P3 Diff 审查 + 持久化**：把 Agent 改动与 SQLite 元数据/会话恢复接到既有 ACP 主干。
-- **P4 Git 深化**：stage/unstage、提交、分支切换；当前只有状态列表与 HEAD 对比。
+- **P3 持久化**：SQLite schema/迁移、会话恢复；Diff 审查已随 P1 交付。
+- **P4 后续**：unstage、逐文件暂存、提交、分支切换；当前是状态列表、HEAD 对比与工作区范围内的整批暂存。
 - **P5 LSP**（选项 B）：自写子集客户端，接 `editor.State.OnCompletion/OnHover/OnDefinition`。
+
+## 9.4 P4 完成记录（2026-10-30，终端 + Git）
+
+| 交付 | 落点 | 验证 |
+|---|---|---|
+| 终端会话、cwd = 工作区根、Problems/Output 页切换 | `internal/app/terminal.go`、`internal/view/terminal.go` | P1 已有；headless 不创建 PTY（AGENTS.md） |
+| 同时最多 4 个终端，超出只提示不启动 | `internal/app/terminal.go`（`maxTerminals`） | 手测；无 PTY headless 测试 |
+| 关闭工作区/退出：`Close()` 后等 `Done()`，忽略 SIGHUP 的程序由插件在 2 s 后 kill | `internal/app/terminal.go` | 同上 |
+| 改动带 staged 标记；分支、HEAD 文本 | `internal/git/repo.go` | `repo_test.go` |
+| 工作区范围内的整批暂存 | `repo.AddAll`、`App.stageChanges`、changes 页 `+`、View 菜单 | `repo_test.go`（奇怪文件名、重命名、子目录）、`app_test.go`、`shell_test.go` |
+| 状态栏分支/改动数、非仓库提示、watcher 驱动刷新 | 既有 P1 实现 | `shell_test.go` |
+| 截图重生成 | `docs/ui/05-changes-light.png` | `TestWriteScreenshots` |
+
+与路线图原计划的差异：
+
+- 状态用 `--porcelain=v1 -z`，不是 v2：XY 两列已够区分索引/工作区，v2 的 submodule 与 hash 不显示；
+  `-z` 让空格、引号等文件名不经 C 转义。
+- 没有加 `git diff` / `git log`：差异审查用 `show HEAD:path` 取整份文本交给 `internal/diff`，
+  目前没有消费 patch 或提交历史的界面；等提交/历史界面出现时再加。
+- 暂存是整个工作区的全部改动，没有逐文件与 unstage。命令是 `git add -A -- <工作区 pathspec>`，
+  不是从仓库根跑：子目录工作区不会暂存上级，同时覆盖删除与重命名的两侧，且工作区文件名不进 argv。
+
+验收对照：终端 cwd 与会话上限、关闭时挂断并等待、watcher → `refreshGit`、非仓库的
+`gitPlaceholder`/`statusNoRepo`；文件名为空格、单引号、`;`、`$()`、前导 `-` 时正常进索引且无
+shell 副作用，重命名整体进索引，子目录工作区不暂存上级（`repo_test.go`）。
+`go build` / `go vet` / `go test` / `mygo vet` 全绿。
 
 
 - [ ] `internal/workspace`：`os.OpenRoot` + `ReadFile/WriteFile(原子)/Stat/List/Canonical` + 大小与非普通文件限制。
