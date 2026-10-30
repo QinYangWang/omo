@@ -137,6 +137,9 @@ type SaveAgentConfig struct{}
 // DeleteAgent removes a definition and stops it if active.
 type DeleteAgent struct{ ID string }
 
+// UpdateAgent installs the latest version of a known agent's package.
+type UpdateAgent struct{ ID string }
+
 func (OpenFile) isIntent()          {}
 func (CloseTab) isIntent()          {}
 func (SaveFile) isIntent()          {}
@@ -172,6 +175,7 @@ func (EditAgentConfig) isIntent()   {}
 func (CloseAgentConfig) isIntent()  {}
 func (SaveAgentConfig) isIntent()   {}
 func (DeleteAgent) isIntent()       {}
+func (UpdateAgent) isIntent()       {}
 
 // Dispatch applies an intent on the main thread. View callbacks call it
 // directly.
@@ -260,6 +264,8 @@ func (a *App) Dispatch(in Intent) {
 		a.saveAgentConfig()
 	case DeleteAgent:
 		a.deleteAgent(v.ID)
+	case UpdateAgent:
+		a.updateAgent(v.ID)
 	}
 	a.invalidate()
 }

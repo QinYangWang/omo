@@ -15,6 +15,8 @@ import (
 
 func main() {
 	a := app.New()
+	// A known ACP agent on PATH shows up in Agents… without being typed in.
+	a.DetectAgents()
 	// Puts back the last workspace, its open files and the agent sessions it
 	// used. A missing or unreadable database only costs that history.
 	if err := a.Restore(); err != nil {

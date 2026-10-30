@@ -113,6 +113,11 @@ func agentDialogs(c *ui.Context, a *app.App, st kit.Theme) {
 					st.ActionRow(c, kit.IconChat, i18n.T(loc, "agentEdit"), "", func() {
 						a.Dispatch(app.EditAgentConfig{ID: a.ActiveAgentID()})
 					})
+					if a.AgentUpdatable(a.ActiveAgentID()) {
+						st.ActionRow(c, kit.IconRefresh, i18n.T(loc, "agentUpdate"), "", func() {
+							a.Dispatch(app.UpdateAgent{ID: a.ActiveAgentID()})
+						})
+					}
 					st.ActionRow(c, kit.IconTrash, i18n.T(loc, "agentDelete"), "", func() {
 						a.Dispatch(app.DeleteAgent{ID: a.ActiveAgentID()})
 					})
