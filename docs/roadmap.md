@@ -1,6 +1,7 @@
 # 实施路线图（roadmap）
 
-> 状态：**P0 已完成，P1 已完成**，下一步 P2（ACP）或 P4（Git 深化）。阶段顺序按依赖关系排，不按重要性排。
+> 状态：**P0/P1 已完成，P2 核心与 codex/pi 实机互操作已验收**；Pi 的工具权限转发限制见 §9.2.1。
+> 阶段顺序按依赖关系排，不按重要性排。
 > 每个阶段结束时必须能 `go build`（6 平台）、`go vet ./...`、`go test ./...`、`go test -race ./...` 全绿。
 
 ## 0. 阶段总览
@@ -177,7 +178,7 @@ Skills 目录、Pi Durable Harness 接入（只是 `AgentDef` 的一条定义）
 | # | 风险 | 影响 | 缓解 / 验证 | 阶段 |
 |---|---|---|---|---|
 | R1 | MyGo v0.7.3 是较新的框架，API 可能在小版本变动（`ui` 有 `mygo migrate-ui` 迁移工具，说明确实会变） | 返工 | 锁定 v0.7.3；UI 层薄；`mygo vet` 进 CI；升级前读 migration.md | 持续 |
-| R2 | 未知 `sessionUpdate` 变体被 SDK 丢弃（**已实测复现**） | 兼容性 | 诊断记录 + ADR-0002 逃生舱（改用 `acp.NewConnection` + 自写 handler） | P2 |
+| R2 | 未知 `sessionUpdate` 变体被 SDK 丢弃（**已实测复现**） | 兼容性 | P2 已改用 raw `MethodHandler`；未知变体进入有界脱敏诊断 | P2 |
 | R3 | ACP 能力声明与实际不符（声明了未实现的能力） | 协议不可信 | 默认全 false；SDK 自动 `method-not-found`；`TestCapabilitiesHonest` | P2 |
 | R4 | 权限请求阻塞 SDK handler 导致流停顿 | 卡死 | `Ask` 只在 handler goroutine 阻塞，UI 主线程不阻塞；有单测 | P2 |
 | R5 | 终端/Ghostty 插件在目标平台的行为差异 | 平台缺陷 | P4 三平台手测；PTY 清理断言 | P4 |
@@ -262,9 +263,44 @@ P1 实测（`docs/benchmarks.md`）：首帧中位 38.9 ms；稳定态 116.3 MB 
 - 每个标签页独立的光标恢复（目前只在重载时保持当前 caret）。
 - 终端 tab 的 shell 标题跟随（`OnTitle` 已可用，未接）。
 
-## 9.2 下一步候选（P2 / P4）
+## 9.2 P2 核心实装记录（2026-10-29）
 
-- **P2 ACP**：与 P1 无耦合，`internal/agent/*` 可独立开工，先 Fake（`net.Pipe`）后真机（codex、pi）。
+| 交付 | 落点 | 验证 |
+|---|---|---|
+| Agent JSON Catalog、argv/env 校验、原子保存、首次信任弹窗；信任绑定可执行文件 SHA-256 与完整 argv/env，变化后重新确认 | `internal/agent/catalog.go`、`internal/app/agent.go`、`internal/view/chat.go` | Catalog、二进制替换、启动参数变化与 App/View 测试 |
+| 子进程 + ACP v1 initialize/new/load/prompt/cancel；协议版本门禁；fs/terminal 能力均 false | `internal/agent/manager.go` | argv 门控的真实测试子进程，覆盖 loadSession true/false |
+| raw `MethodHandler`、文本/思考/工具/计划归一化、未知变体与 stderr 有界诊断 | `internal/agent/protocol.go` | 流式合批、未知变体、迟到更新测试 |
+| 串行 turn、取消（忽略取消约 2 秒后断连）、权限默认拒绝/超时拒绝与结束事件、崩溃 turn=Unknown、用户触发重启 | `internal/agent/manager.go` | 权限、取消竞态、超时、崩溃、重启与连续运行测试 |
+| 中央原生 Session/Chat、kit Modal、权限详情、取消/重启、Agent 管理与 Output 诊断；单 outstanding UI drain | `internal/app/agent.go`、`internal/view/{chat,terminal}.go` | App 状态、重复发送、权限结束、会话替换与 headless View 测试 |
+
+已验证：`go test ./...`、`go vet ./...`、`mygo vet ./...`、`CGO_ENABLED=0 go build ./...`、
+依赖图无 cgo。unknown 变体测试通过真实 ACP 子进程，不再只依赖 `net.Pipe`。
+
+### 9.2.1 真实 Runtime 与 race 验收（2026-10-30）
+
+安装并固定：WinLibs GCC 16.2.0、Codex CLI 0.166.0、`@agentclientprotocol/codex-acp` 2.5.0、
+Pi 1.4.0、`pi-acp` 0.0.34。真实测试保留在 `internal/agent/runtime_integration_test.go`，
+默认跳过，设 `OMO_ACP_INTEGRATION=1` 与两个适配器脚本路径后运行。
+
+| Runtime | 实测结果 |
+|---|---|
+| Codex | initialize/new/Prompt 流式返回 `OMO_CODEX_OK`；`loadSession=true` 且重启恢复同 ID；read-only 模式下权限拒绝后文件未创建；一次取消超时在 2.03 s 断连并标 `Unknown` |
+| Pi | initialize/new/Prompt 流式返回 `OMO_PI_OK`；`loadSession=true` 且重启恢复同 ID；取消在约 36 ms 完成 |
+
+补充结论：显式 per-Agent env 现在可以覆盖继承白名单（用于 `INITIAL_AGENT_MODE=read-only` 等），
+继承的凭据仍默认不透传。取消后的下一次 Prompt 会先重启连接并恢复 Session，避免 Pi 适配器
+取消后仍持续旧流时污染新 turn。
+
+**上游限制**：`pi-acp` 0.0.34 不转发 bash/write 的工具权限请求（只转发扩展 UI 权限），
+因此 Pi 真机权限项无法由客户端强制验收；权限协议路径由 Fake Agent 覆盖。ACP 连接本身也不是
+沙箱（见 security.md §1）。`allow_always` 在 P3 持久化按 Agent/Workspace/风险收窄的授权前暂不显示。
+
+本机安装 WinLibs 后，`CGO_ENABLED=1 go test -race ./...` **全仓通过**。普通 `go test ./...`、
+`go vet ./...`、六平台无 cgo 构建也通过。
+
+## 9.3 下一步候选（P3 / P4）
+
+- **P3 Diff 审查 + 持久化**：把 Agent 改动与 SQLite 元数据/会话恢复接到既有 ACP 主干。
 - **P4 Git 深化**：stage/unstage、提交、分支切换；当前只有状态列表与 HEAD 对比。
 - **P5 LSP**（选项 B）：自写子集客户端，接 `editor.State.OnCompletion/OnHover/OnDefinition`。
 
@@ -285,7 +321,7 @@ P1 实测（`docs/benchmarks.md`）：首帧中位 38.9 ms；稳定态 116.3 MB 
 | 起步阶段 | P0 已完成，进入 P1；P2 的 ACP 层可与 P1 **并行**（`internal/agent/*` 不依赖视图与文件层） | P2 可独立开工 |
 | P2 真机验证 Runtime | **codex** 与 **pi** | 两个 Runtime 用来覆盖 `loadSession`/能力差异；ADR/验收要分别记录 |
 | P5 LSP | **选项 B**：自写 LSP 子集客户端（stdlib `encoding/json`） | 不引入 `go-json-experiment/json` 伪版本依赖 |
-| 未知 `sessionUpdate` 变体 | P2 先「只记诊断」，P3 再评估 raw handler 改造 | P2 验收需包含该诊断记录 |
+| 未知 `sessionUpdate` 变体 | P2 使用 raw handler，未知变体保留有界诊断，不猜 UI 语义 | 已有子进程测试覆盖 |
 
 仍待确认（不阻塞 P1）：
 

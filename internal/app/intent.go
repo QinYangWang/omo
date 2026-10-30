@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/QinYangWang/omo/internal/agent"
 	"github.com/QinYangWang/omo/internal/diff"
 	"github.com/QinYangWang/omo/internal/workspace"
 	"github.com/egoist/mygo"
@@ -84,24 +85,76 @@ type OpenWorkspace struct{ Path string }
 // CloseWorkspace closes the current workspace.
 type CloseWorkspace struct{}
 
-func (OpenFile) isIntent()        {}
-func (CloseTab) isIntent()        {}
-func (SaveFile) isIntent()        {}
-func (OpenDiff) isIntent()        {}
-func (ApplyReview) isIntent()     {}
-func (ResolveConflict) isIntent() {}
-func (TogglePanel) isIntent()     {}
-func (ToggleLeft) isIntent()      {}
-func (ToggleRight) isIntent()     {}
-func (ShowPanel) isIntent()       {}
-func (SelectTerminal) isIntent()  {}
-func (RunCommand) isIntent()      {}
-func (OpenURL) isIntent()         {}
-func (NewTerminal) isIntent()     {}
-func (CloseTerminal) isIntent()   {}
-func (RefreshChanges) isIntent()  {}
-func (OpenWorkspace) isIntent()   {}
-func (CloseWorkspace) isIntent()  {}
+// SelectAgent selects a configured agent without starting it.
+type SelectAgent struct{ ID string }
+
+// StartAgent starts the selected agent after the first-run trust check.
+type StartAgent struct{ ID string }
+
+// SendPrompt sends the current input, starting the agent when necessary.
+type SendPrompt struct{}
+
+// CancelTurn cancels the active turn and all pending approvals.
+type CancelTurn struct{}
+
+// RestartAgent reconnects and restores the session when supported.
+type RestartAgent struct{}
+
+// ResolvePermission answers the pending request with one of its ACP options.
+type ResolvePermission struct{ OptionID string }
+
+// TrustAgent confirms execution of a third-party local program.
+type TrustAgent struct{ ID string }
+
+// ShowAgents opens the agent catalog.
+type ShowAgents struct{}
+
+// CloseAgents closes the agent catalog without changing the selection.
+type CloseAgents struct{}
+
+// EditAgentConfig opens a new or existing agent definition.
+type EditAgentConfig struct{ ID string }
+
+// CloseAgentConfig dismisses the definition form.
+type CloseAgentConfig struct{}
+
+// SaveAgentConfig validates and saves the form.
+type SaveAgentConfig struct{}
+
+// DeleteAgent removes a definition and stops it if active.
+type DeleteAgent struct{ ID string }
+
+func (OpenFile) isIntent()          {}
+func (CloseTab) isIntent()          {}
+func (SaveFile) isIntent()          {}
+func (OpenDiff) isIntent()          {}
+func (ApplyReview) isIntent()       {}
+func (ResolveConflict) isIntent()   {}
+func (TogglePanel) isIntent()       {}
+func (ToggleLeft) isIntent()        {}
+func (ToggleRight) isIntent()       {}
+func (ShowPanel) isIntent()         {}
+func (SelectTerminal) isIntent()    {}
+func (RunCommand) isIntent()        {}
+func (OpenURL) isIntent()           {}
+func (NewTerminal) isIntent()       {}
+func (CloseTerminal) isIntent()     {}
+func (RefreshChanges) isIntent()    {}
+func (OpenWorkspace) isIntent()     {}
+func (CloseWorkspace) isIntent()    {}
+func (SelectAgent) isIntent()       {}
+func (StartAgent) isIntent()        {}
+func (SendPrompt) isIntent()        {}
+func (CancelTurn) isIntent()        {}
+func (RestartAgent) isIntent()      {}
+func (ResolvePermission) isIntent() {}
+func (TrustAgent) isIntent()        {}
+func (ShowAgents) isIntent()        {}
+func (CloseAgents) isIntent()       {}
+func (EditAgentConfig) isIntent()   {}
+func (CloseAgentConfig) isIntent()  {}
+func (SaveAgentConfig) isIntent()   {}
+func (DeleteAgent) isIntent()       {}
 
 // Dispatch applies an intent on the main thread. View callbacks call it
 // directly.
@@ -147,6 +200,41 @@ func (a *App) Dispatch(in Intent) {
 		a.openWorkspace(v.Path)
 	case CloseWorkspace:
 		a.closeWorkspace()
+	case SelectAgent:
+		if _, ok := a.agentDefinition(v.ID); ok && a.activeAgentID != v.ID {
+			a.closeAgent()
+			a.activeAgentID = v.ID
+			a.chatItems = nil
+		}
+		a.agentPicker = false
+	case StartAgent:
+		a.startAgent(v.ID)
+	case SendPrompt:
+		a.sendPrompt()
+	case CancelTurn:
+		a.cancelTurn()
+	case RestartAgent:
+		if a.AgentState() == agent.StateStarting || a.AgentState() == agent.StatePrompting || a.AgentState() == agent.StateCancelling {
+			a.setNotice(Notice{Key: "agentBusy"})
+		} else if def, ok := a.agentDefinition(a.activeAgentID); ok && def.Trusted && a.WorkspacePath() != "" {
+			a.runAgent(def, "", true)
+		}
+	case ResolvePermission:
+		a.resolvePermission(v.OptionID)
+	case TrustAgent:
+		a.trustAgent(v.ID)
+	case ShowAgents:
+		a.agentPicker = true
+	case CloseAgents:
+		a.agentPicker = false
+	case EditAgentConfig:
+		a.editAgentConfig(v.ID)
+	case CloseAgentConfig:
+		a.agentConfig.Open = false
+	case SaveAgentConfig:
+		a.saveAgentConfig()
+	case DeleteAgent:
+		a.deleteAgent(v.ID)
 	}
 	a.invalidate()
 }

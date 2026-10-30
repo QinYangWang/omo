@@ -39,6 +39,7 @@ func Shell(c *ui.Context, a *app.App) {
 		statusBar(c, a, st)
 	})
 	conflictDialog(c, a, st)
+	agentDialogs(c, a, st)
 }
 
 // appHeader is the window's title bar, drawn by the window itself because the

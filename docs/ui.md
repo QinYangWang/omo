@@ -27,6 +27,7 @@ OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots
 | `09-browser-dark.png` | 右侧「浏览器」页 |
 | `10-panel-dark.png` | 底部面板打开（终端页空状态） |
 | `11-collapsed-dark.png` | 两侧栏都收起，中间满宽 |
+| `12-agent-trust-dark.png` | ACP Agent 首次启动信任弹窗（完整启动边界） |
 
 真实窗口 + 真终端（headless 跑不了 PTY）用 `internal/app/capture.go` 的截图模式，
 默认关闭：
@@ -56,8 +57,9 @@ OMO_SCREENSHOT_TERMINAL=1 OMO_SCREENSHOT_MS=2600 ./build/omo.exe
   点一下把右侧栏切回「文件」）、已打开的文件/差异审查标签页、终端会话。点行即回到对应的
   标签页或终端，所以这一栏是「回到任何东西」的入口。
 - **中间 `sessionPane`**：标签条第一个标签是会话（标题 `omo`），从任何文件都能点回来；
-  没有标签页时中间就是会话窗口（ACP 对话在 P2，当前说明现状并给出终端入口）。打开文件后
-  是标签条 + 编辑器/差异审查，底部面板仍在这一列下方。
+  没有标签页时中间就是 ACP 会话窗口：Agent 选择/启动/重启、流式文本与思考、工具活动、计划、
+  输入框和取消按钮。权限审批、首次信任与 Agent 配置使用原生 Modal。打开文件后是标签条 +
+  编辑器/差异审查，底部面板仍在这一列下方。
 - **右侧栏 `rightSidebar`**：标头是一排图标（`kit.IconTabs`），依次是文件、搜索、改动（git）、
   运行和调试、浏览器。文件/搜索/改动看的是当前项目的内容；「运行和调试」按项目根目录的
   标记文件给出快捷指令（`go.mod` → Build/Test/Vet，`Makefile` → make），每条在项目根目录的
@@ -66,7 +68,8 @@ OMO_SCREENSHOT_TERMINAL=1 OMO_SCREENSHOT_MS=2600 ./build/omo.exe
 - 活动栏（46 DIP 图标条）和右侧 Chat 面板都去掉了：前者变成右侧栏的图标标头，后者变成中间
   的会话窗口。
 
-仍是占位：搜索页还没有工作区搜索，会话窗口等 P2 的 ACP。
+仍是占位：搜索页还没有工作区搜索。ACP 当前是一个工作区一个活跃 Agent/Session，
+会话元数据持久化与恢复在 P3。
 
 ## 视觉层：`internal/kit`
 
@@ -130,7 +133,7 @@ OMO_SCREENSHOT_TERMINAL=1 OMO_SCREENSHOT_MS=2600 ./build/omo.exe
 
 ## 仍然粗糙的地方（下一轮）
 
-1. 会话窗口还只有空态：等 P2 接 ACP 才有会话列表与输入框；左侧「会话」目前列的是标签页和终端。
+1. ACP 已接入中央会话窗口，但还没有多 Agent 并行与持久化 transcript；左侧「会话」目前列的是标签页和终端。
 2. 搜索页仍是占位（没有工作区搜索）。
 3. 两侧栏宽度固定，不能拖拽；窗口很窄时中间会被挤。
 4. 终端配色跟随窗口主题，但没做独立的终端主题（例如浅色 IDE + 深色终端）。

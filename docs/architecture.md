@@ -11,8 +11,8 @@
 |---|---|---|
 | C1 | 主应用是 Go，UI 必须原生（无 WebView/Electron/React/TS） | MyGo `ui`：自绘（Metal/D3D11/GL/CPU），`WindowOptions.Content` |
 | C2 | 低内存、低空闲 CPU、快启动 | 单窗口、按需启动子进程、虚拟化列表、有界缓存、事件合并；无轮询 |
-| C3 | Agent 是独立子进程，走 ACP；IDE 不依赖 Node | `stdio.StartClient` + 进程树清理；IDE 二进制不含 Node |
-| C4 | ACP 是唯一协议边界，不耦合任何具体 Agent 内部 | `internal/agent/acpclient` 是唯一 import ACP SDK 的包 |
+| C3 | Agent 是独立子进程，走 ACP；IDE 不依赖 Node | `stdio.Start` + raw `MethodHandler` + 进程树清理；IDE 二进制不含 Node |
+| C4 | ACP 是唯一协议边界，不耦合任何具体 Agent 内部 | `internal/agent` 是唯一 import ACP SDK 的包 |
 | C5 | 用稳定 ACP v1 | `acp.WireProtocolVersion = 1`（SDK 版本 v1.5.1，类型生成自 schema-v1.26.0） |
 | C6 | 复用 MyGo 的 Editor/Terminal/Watch/SQLite | 见 dependencies.md §4 |
 | C7 | `CGO_ENABLED=0` | 已实测 6 个平台通过 |
@@ -92,7 +92,7 @@ internal/config        ← 配置模型与校验
 
 1. `internal/view` **禁止** import `acp-go-sdk`、`plugins/sqlite`、`os/exec`。
 2. 服务包 **禁止** import `github.com/egoist/mygo/ui`（它们不能碰 UI 类型，也就在任何 goroutine 里都安全）。
-3. 只有 `internal/agent/acpclient` 可以 import `github.com/caelis-labs/acp-go-sdk`；
+3. 只有 `internal/agent` 可以 import `github.com/caelis-labs/acp-go-sdk`；
    只有 `internal/persistence` 可以 import `plugins/sqlite`。
 4. `internal/app` 只依赖**接口**（`docs/interfaces.md` 里的 `WorkspaceService` 等），便于注入 Fake。
 
@@ -172,7 +172,7 @@ sequenceDiagram
   UI->>APP: Intent{StartAgent, agentID}
   APP->>SM: EnsureRunning(agentID, workspaceID)
   SM->>PC: Start(executable, args, cwd, env)
-  PC->>SDK: stdio.StartClient(ctx, client, Command{Executable,Args})
+  PC->>SDK: stdio.Start + acp.NewConnectionWithOptions(raw MethodHandler)
   SDK->>AG: spawn（argv，无 shell；Win Job Object / Unix 进程组）
   PC->>SDK: Initialize(ProtocolVersion=1, ClientCapabilities{})
   SDK->>AG: initialize

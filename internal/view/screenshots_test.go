@@ -22,6 +22,7 @@ func TestWriteScreenshots(t *testing.T) {
 	if os.Getenv("OMO_SCREENSHOTS") == "" {
 		t.Skip("set OMO_SCREENSHOTS=1 to rewrite docs/ui")
 	}
+	t.Setenv("OMO_CONFIG_DIR", t.TempDir())
 	out, err := filepath.Abs(filepath.Join("..", "..", "docs", "ui"))
 	if err != nil {
 		t.Fatal(err)
@@ -78,6 +79,13 @@ func TestWriteScreenshots(t *testing.T) {
 	shoot("11-collapsed-dark.png", true, with(openShell, func(a *app.App) {
 		a.Dispatch(app.ToggleLeft{})
 		a.Dispatch(app.ToggleRight{})
+	}))
+	shoot("12-agent-trust-dark.png", true, with(func(a *app.App) {
+		a.Dispatch(app.EditAgentConfig{})
+		d := a.AgentConfigForm()
+		d.Name, d.Executable, d.Args = "Demo agent", os.Args[0], "--acp"
+		a.Dispatch(app.SaveAgentConfig{})
+		a.Dispatch(app.StartAgent{ID: a.ActiveAgentID()})
 	}))
 }
 

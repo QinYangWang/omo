@@ -3,7 +3,7 @@
 给在本仓库里干活的 agent 的入口：先读什么、怎么验证、什么规矩不能破。
 
 `omo` 是一个**Go 原生**桌面 AI 编码 IDE：没有 Electron、没有 Node 运行时、没有 web view。
-UI 用 [MyGo](https://mygo.egoist.dev)（自绘），Agent 走 ACP（P2 未接）。
+UI 用 [MyGo](https://mygo.egoist.dev)（自绘），Agent 走 ACP v1（P2 核心已接）。
 
 ## 1. 文档索引
 
@@ -37,15 +37,17 @@ OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots  # 重写 do
 ```
 
 - Go 版本 **1.27.3**（`go.mod`），`CGO_ENABLED=0`：**不允许**引入需要 cgo 的依赖。
-- `go test -race ./...` 需要 cgo，本机（Windows）跑不了，CI 上跑；本机至少跑 `go test ./...`。
+- `go test -race ./...` 需要 cgo 与 GCC；本机已装 WinLibs（新 shell 刷新 PATH 后可用），
+  用 `CGO_ENABLED=1 go test -race ./...`。发布构建仍必须 `CGO_ENABLED=0`。
 - 终端插件（Ghostty VT）首次运行会下载原生库；headless 测试里不要创建终端。
 
 ## 3. 代码地图
 
 ```
 main.go              装配：app.New → 窗口（TitleBarHidden）→ view.Shell → Run
-internal/app         状态、intent（Dispatch）、命令表、终端会话、工作区、截图模式
-internal/view        窗口与面板：shell / editor / chat(会话页) / terminal / statusbar
+internal/app         状态、intent（Dispatch）、命令表、终端/Agent 会话、工作区、截图模式
+internal/agent       Agent Catalog、ACP raw 协议适配、进程/turn/权限治理
+internal/view        窗口与面板：shell / editor / chat(ACP 会话页) / terminal / statusbar
 internal/kit         UI 设计系统：token（theme.go）、组件（components.go）、图标（icons.go）
 internal/workspace   os.Root 边界、读写、大小上限、watcher
 internal/documents   编辑器缓冲、原子保存、磁盘冲突

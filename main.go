@@ -1,7 +1,7 @@
 // Command omo is a native Go AI coding IDE with ACP agent support.
 //
-// P0 scope: real native layout, command routing and a startup benchmark.
-// See docs/roadmap.md for the phases and docs/architecture.md for the design.
+// The UI, workspace and ACP client are assembled here; their implementations
+// stay behind internal packages. See docs/roadmap.md and docs/architecture.md.
 package main
 
 import (

@@ -1,6 +1,6 @@
 # 依赖与构建基线（dependencies）
 
-> 状态：P0 已落地。`go.mod` 只引入 mygo（ACP SDK 在 P2 引入）。
+> 状态：P2 已引入并锁定 mygo v0.7.3 与 ACP Go SDK v1.5.1。
 > 本文所有版本号、许可证、`go` 指令、跨平台构建结论均在 2026-10-29 于本机实测得到，
 > 命令与结果见文末「验证记录」。模块路径：`github.com/QinYangWang/omo`。
 

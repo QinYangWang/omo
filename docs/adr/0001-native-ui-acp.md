@@ -71,9 +71,9 @@
 
 - 类型化 `Client.SessionUpdate` 联合在遇到**未知变体**时直接丢弃（**我们已实测复现**：
   回调不被调用，SDK 记 WARN `no matching variant for union`，连接存活）。
-  这不满足「不得丢弃未知 ACP 内容」。缓解：P2 先记录诊断 + 保留 `_meta`；
-  P3 评估改用 `acp.NewConnectionWithOptions` + 自写 `MethodHandler`（出站用 SDK 已导出的
-  `acp.SendRequest[T]`）。因为 UI 从不接触 SDK 类型，这个改造是**局部**的。
+  这不满足「不得丢弃未知 ACP 内容」。P2 实装已改用 `acp.NewConnectionWithOptions` +
+  项目内 raw `MethodHandler`（出站仍用 `acp.SendRequest[T]`）：已知变体在内部归一化，
+  未知变体进入有界、脱敏的诊断流，不再经过会丢弃它们的类型化联合解码。
 
 ### D3：每个 Agent Runtime 跑在独立子进程，走 stdio
 
@@ -125,7 +125,7 @@
 - 模块路径 `github.com/QinYangWang/omo`。
 - P2 的首个真机验证对象：**codex** 与 **pi**（两个，以覆盖能力差异）。
 - P5 LSP 采**选项 B**：自写子集客户端，不引入 `go.lsp.dev/*` 及其伪版本依赖。
-- 接受 P2 的已知妥协：未知 `sessionUpdate` 变体先只记诊断，P3 再评估 raw handler 改造。
+- P2 已采用 raw handler：未知 `sessionUpdate` 变体保留有界诊断，不做 UI 语义猜测。
 - P0 已实现：原生布局（Sidebar + 双 Split + Tabs + 真实 editor）、命令表、
   i18n（en / zh-Hans）、启动与空闲基准。
 
@@ -142,7 +142,8 @@
 
 1. MyGo 年轻，API 会变；锁版本 + 薄 UI 层。
 2. 打包依赖 `mygo build`（SQLite 原生库）。
-3. 未知 ACP 更新变体会被 SDK 丢弃（已实测），需要 P3 的 raw handler 改造。
+3. 未知 ACP 更新变体不再进入 SDK 类型化联合解码；P2 raw handler 只保证诊断保留，
+   新变体的 UI 语义仍需逐个实现。
 4. 编辑器没有内建 LSP Client（只有钩子），LSP 必须自研（P5）。
 5. 终端不允许 Agent 直接驱动 UI 状态：Agent 的命令执行必须经 `Terminal/Execution Service`
    （架构要求，不是框架限制）。

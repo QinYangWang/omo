@@ -20,6 +20,7 @@ func newTester(t *testing.T, a *app.App) *ui.Tester {
 // newWorkspaceApp opens a temporary directory as the workspace.
 func newWorkspaceApp(t *testing.T) (*app.App, string) {
 	t.Helper()
+	t.Setenv("OMO_CONFIG_DIR", t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -190,6 +191,30 @@ func TestConflictDialogShowsAndResolves(t *testing.T) {
 	}
 	if got := a.TabAt(0).Editor.Buffer.String(); got != "package main // agent\n" {
 		t.Fatalf("buffer = %q", got)
+	}
+}
+
+func TestAgentConfigurationRequiresExplicitTrust(t *testing.T) {
+	a, _ := newWorkspaceApp(t)
+	tt := newTester(t, a)
+	tt.Frame()
+	if err := tt.Click("Add agent"); err != nil {
+		t.Fatalf("click Add agent: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("Configure ACP agent") {
+		t.Fatalf("configuration dialog missing: %v", tt.Texts())
+	}
+	a.AgentConfigForm().Name = "Helper"
+	a.AgentConfigForm().Executable = os.Args[0]
+	a.AgentConfigForm().Args = "--acp"
+	a.Dispatch(app.SaveAgentConfig{})
+	a.Dispatch(app.StartAgent{ID: a.ActiveAgentID()})
+	tt.Frame()
+	for _, want := range []string{"Trust this agent?", os.Args[0], "--acp", a.WorkspacePath()} {
+		if !tt.HasText(want) {
+			t.Errorf("trust dialog missing %q; texts = %v", want, tt.Texts())
+		}
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/QinYangWang/omo/internal/agent"
 	"github.com/QinYangWang/omo/internal/commands"
 	"github.com/QinYangWang/omo/internal/diff"
 	"github.com/QinYangWang/omo/internal/documents"
@@ -113,6 +114,27 @@ type App struct {
 	notice      Notice
 	agentNotice Notice
 
+	agentCatalog      *agent.Catalog
+	agentCatalogErr   error
+	agents            agentRuntime
+	agentCtx          context.Context
+	agentCancel       context.CancelFunc
+	agentOperation    uint64
+	activeAgentID     string
+	trustAgentID      string
+	trustDetails      AgentTrustDetails
+	agentState        agent.State
+	agentCanLoad      bool
+	agentNeedsRestart bool
+	agentInput        string
+	chatItems         []ChatItem
+	chatSeal          bool
+	permission        *AgentPermission
+	permissionQueue   []AgentPermission
+	agentDiagnostics  []string
+	agentConfig       AgentConfigDraft
+	agentPicker       bool
+
 	lastGitRefresh time.Time
 
 	// Startup benchmark; only used when bench mode is on (bench.go).
@@ -125,6 +147,8 @@ type App struct {
 // thread.
 func New() *App {
 	ctx, cancel := context.WithCancel(context.Background())
+	agentCtx, agentCancel := context.WithCancel(ctx)
+	catalog, catalogErr := loadAgentCatalog()
 	a := &App{
 		ctx:    ctx,
 		cancel: cancel,
@@ -137,13 +161,52 @@ func New() *App {
 			ActiveTab:    0,
 			PanelTab:     0,
 		},
-		panelOpen:   false,
-		leftOpen:    true,
-		rightOpen:   true,
-		notice:      Notice{Key: "noticeReady"},
-		agentNotice: Notice{Key: "agentUnconfigured"},
-		bench:       benchEnabled(),
-		startedAt:   time.Now(),
+		panelOpen:       false,
+		leftOpen:        true,
+		rightOpen:       true,
+		notice:          Notice{Key: "noticeReady"},
+		agentNotice:     Notice{Key: "agentDisconnected"},
+		agentState:      agent.StateDisconnected,
+		agentCatalog:    catalog,
+		agentCatalogErr: catalogErr,
+		agentCtx:        agentCtx,
+		agentCancel:     agentCancel,
+		bench:           benchEnabled(),
+		startedAt:       time.Now(),
+	}
+	if catalogErr != nil {
+		a.agentNotice = Notice{Key: "agentCatalogFailed"}
+		a.notice = Notice{Key: "agentCatalogFailed", Args: map[string]any{"err": catalogErr.Error()}}
+	}
+	manager := agent.NewManager()
+	a.agents = manager
+	go func() {
+		for {
+			select {
+			case ev := <-manager.Events():
+				// Only one main-thread drain is outstanding. Further events stay
+				// in the manager's bounded channel instead of an unbounded UI queue.
+				done := make(chan struct{})
+				if !a.post(func() {
+					a.onAgentEvent(ev)
+					close(done)
+				}) {
+					return
+				}
+				select {
+				case <-done:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	if a.agentCatalog != nil {
+		if defs := a.agentCatalog.List(); len(defs) > 0 {
+			a.activeAgentID = defs[0].ID
+		}
 	}
 	a.registerCommands()
 	return a
@@ -159,11 +222,12 @@ func (a *App) Attach(win *mygo.Window) { a.win = win }
 // Without a window there is no main thread to reach: tests run headless and the
 // work is dropped rather than writing state from a background goroutine, which
 // would be a data race by construction.
-func (a *App) post(fn func()) {
+func (a *App) post(fn func()) bool {
 	if a.closed.Load() || a.win == nil {
-		return
+		return false
 	}
 	a.win.Update(fn)
+	return true
 }
 
 // invalidate asks for one repaint. State that changed outside an input event — a

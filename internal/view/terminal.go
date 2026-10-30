@@ -39,7 +39,18 @@ func bottomPane(c *ui.Context, a *app.App, st kit.Theme) {
 		case 1:
 			ui.Text(c, i18n.T(loc, "panelProblemsHint")).FontSize(st.FontMeta).TextColor(st.Muted).Padding(st.Pad)
 		default:
-			ui.Text(c, i18n.T(loc, "panelOutputHint")).FontSize(st.FontMeta).TextColor(st.Muted).Padding(st.Pad)
+			diagnostics := a.AgentDiagnostics()
+			if len(diagnostics) == 0 {
+				ui.Text(c, i18n.T(loc, "panelOutputHint")).FontSize(st.FontMeta).TextColor(st.Muted).Padding(st.Pad)
+			} else {
+				ui.Scroll(c).Grow(1).Children(func() {
+					ui.Column(c).Padding(st.Pad).Gap(st.Gap).Children(func() {
+						for _, line := range diagnostics {
+							ui.Text(c, line).FontSize(st.FontMeta).TextColor(st.Muted)
+						}
+					})
+				})
+			}
 		}
 	})
 }

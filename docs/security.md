@@ -90,7 +90,8 @@
      `AWS_*`、`GOOGLE_*` 等，除非用户为该 Agent 单独开启（逐项勾选）。
 3. **首次信任**：`AgentDef.Trusted == false` 时，启动前弹原生确认框，展示
    **可执行文件绝对路径 + 完整 argv + cwd + 将被透传的环境变量名**。
-   确认后写 `agents.trusted = 1`；路径或其内容变化（mtime/hash 变化）时**重新确认**。
+   确认时绑定解析后的绝对路径、内容 SHA-256 与完整 argv/env；启动前重新校验，
+   任一项变化都必须**重新确认**。
 4. **不自动重启**：Agent 崩溃后不自动重启（避免崩溃循环）。用户点「重启」才重启，
    且这是新进程 + 新连接（见架构 §5.3）。
 5. **进程清理**：优先 `ClientProcess.Shutdown(ctx)`；Windows 子进程被放进 kill-on-close
@@ -129,10 +130,12 @@ Agent 发起 session/request_permission
 
 1. **默认拒绝**：对话框默认焦点在拒绝；Esc = 拒绝；关闭窗口 = 拒绝。
 2. **不因超时自动授权**：`Ask` 内部的超时只能导致「拒绝/取消」，永远不能导致「允许」。
-   实现上不给 `Ask` 设自动允许路径；连接断开 → 返回 error。
+   实现上不给 `Ask` 设自动允许路径；超时/取消/断连会向 UI 发权限结束事件并撤销对应弹窗。
 3. **取消即取消**：用户取消 turn 时，`CancelAll(session)` 立即把挂起请求以 `DecisionCancelled`
    结束，SDK 回 `RequestPermissionOutcomeCancelled`（ACP 规定取消时对所有挂起权限请求必须如此）。
-4. **风险分类**（M2 的映射表，基于 `ToolCallUpdate` 的 `kind`/`locations`/`rawInput`）：
+4. **知情审批**：弹窗同时展示 `kind`、受影响路径和可用的 argv；无结构 argv 时展示脱敏、
+   截断的 `rawInput`，不能只显示 Agent 自己提供的标题。
+5. **风险分类**（M2 的映射表，基于 `ToolCallUpdate` 的 `kind`/`locations`/`rawInput`）：
 
    | Risk | 判定 | UI 措辞 |
    |---|---|---|
@@ -140,10 +143,14 @@ Agent 发起 session/request_permission
    | 文件修改 | 有写/创建/删除的路径 | 「修改 N 个文件」+ 列表 |
    | 执行命令 | 含命令 argv | 「运行命令」+ 逐行 argv |
    | 其它 | 无法归类 | 「未分类请求」+ 原始摘要（脱敏、截断） |
-5. **`allow_always` 收窄**：作用域 `(AgentID, WorkspaceID, Risk)`，可在设置里逐条撤销；
+6. **`allow_always` 收窄**：作用域 `(AgentID, WorkspaceID, Risk)`，可在设置里逐条撤销；
    不提供「永远允许任意命令」。
-6. **命令预览不做 shell 转义展示**：直接显示 argv 数组（每个元素一行），
+7. **命令预览不做 shell 转义展示**：直接显示 argv 数组（每个元素一行），
    避免用户被 `sh -c` 字符串误导。
+
+Agent 忽略 `session/cancel` 时，客户端等待约 2 秒后断开连接，活跃 turn 标为 `Unknown`，
+不能把一个仍在执行的旧 turn 当作已取消后开始新 turn。即使收到正常 cancelled 响应，下一次
+Prompt 也先重启连接并恢复 Session，防止不兼容 Runtime 把旧流继续送进新 turn。
 
 ## 5. 日志、诊断与数据保留
 

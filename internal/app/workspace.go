@@ -38,6 +38,8 @@ func (a *App) openWorkspace(dir string) {
 
 // closeWorkspace tears the workspace down. It is safe to call twice.
 func (a *App) closeWorkspace() {
+	a.closeAgent()
+	a.chatItems = nil
 	a.closeTerminals()
 	if a.docs != nil {
 		a.docs.CloseAll()
@@ -56,6 +58,7 @@ func (a *App) closeWorkspace() {
 	a.panelOpen = false
 	a.conflict = ""
 	a.conflictOpen = false
+	a.permission = nil
 }
 
 // reloadRoot reads the workspace root's entries.
