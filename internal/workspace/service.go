@@ -129,7 +129,7 @@ func (s *Service) Canonical(rel string) (string, error) {
 	if r == "" {
 		return "", ErrOutside
 	}
-	if path.IsAbs(r) || strings.HasPrefix(r, "/") || filepath.VolumeName(r) != "" {
+	if path.IsAbs(r) || strings.HasPrefix(r, "/") || filepath.VolumeName(r) != "" || hasDriveLetter(r) {
 		return "", ErrOutside
 	}
 	clean := path.Clean(r)
@@ -137,6 +137,17 @@ func (s *Service) Canonical(rel string) (string, error) {
 		return "", ErrOutside
 	}
 	return clean, nil
+}
+
+// hasDriveLetter reports a "C:/..." prefix. filepath.VolumeName knows only the
+// running platform's volumes, so on Linux it reads a Windows path as a file
+// name; a path that names another volume is never inside the workspace.
+func hasDriveLetter(r string) bool {
+	if len(r) < 2 || r[1] != ':' {
+		return false
+	}
+	c := r[0] | 0x20 // ASCII lower case, so A-Z all match
+	return c >= 'a' && c <= 'z'
 }
 
 // List reads one directory level. Children are not walked: the Explorer loads a
@@ -194,6 +205,14 @@ func (s *Service) Read(rel string) ([]byte, FileStamp, error) {
 	c, err := s.Canonical(rel)
 	if err != nil {
 		return nil, FileStamp{}, err
+	}
+	// Stat before opening: opening a FIFO blocks on Linux until something
+	// writes to it, which would hang the main thread. The stat after Open
+	// still decides, in case the path changed between the two calls.
+	if info, err := s.root.Stat(c); err != nil {
+		return nil, FileStamp{}, err
+	} else if !info.Mode().IsRegular() {
+		return nil, FileStamp{}, ErrNotRegular
 	}
 	f, err := s.root.Open(c)
 	if err != nil {
