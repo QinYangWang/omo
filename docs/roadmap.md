@@ -273,7 +273,7 @@ P1 实测（`docs/benchmarks.md`）：首帧中位 38.9 ms；稳定态 116.3 MB 
 | 串行 turn、取消（忽略取消约 2 秒后断连）、权限默认拒绝/超时拒绝与结束事件、崩溃 turn=Unknown、用户触发重启 | `internal/agent/manager.go` | 权限、取消竞态、超时、崩溃、重启与连续运行测试 |
 | 中央原生 Session/Chat、kit Modal、权限详情、取消/重启、Agent 管理与 Output 诊断；单 outstanding UI drain | `internal/app/agent.go`、`internal/view/{chat,terminal}.go` | App 状态、重复发送、权限结束、会话替换与 headless View 测试 |
 
-已验证：`go test ./...`、`go vet ./...`、`mygo vet ./...`、`CGO_ENABLED=0 go build ./...`、
+已验证：`go test ./...`、`go vet ./...`、`mygo vet .`、`CGO_ENABLED=0 go build ./...`、
 依赖图无 cgo。unknown 变体测试通过真实 ACP 子进程，不再只依赖 `net.Pipe`。
 
 ### 9.2.1 真实 Runtime 与 race 验收（2026-10-30）

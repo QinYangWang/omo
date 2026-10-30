@@ -61,7 +61,7 @@ jobs:
 
       # mygo vet checks UI element lifetimes, which the compiler cannot.
       - name: mygo vet
-        run: go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet ./...
+        run: go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet .
 
   cross-build:
     name: build (${{ matrix.goos }}/${{ matrix.goarch }})

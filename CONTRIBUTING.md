@@ -103,7 +103,7 @@ git config commit.cleanup strip  # 提交信息去掉注释行
 gofmt -l internal main.go                                  # 必须为空
 go build ./... && go vet ./... && go test ./...
 CGO_ENABLED=1 go test -race ./...                          # 需要 GCC；CI 也跑
-go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet ./...    # UI 元素生命周期
+go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet .    # UI 元素生命周期
 ```
 
 - 改了 UI：`OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots` 并检查 `docs/ui/*.png` 的 diff。

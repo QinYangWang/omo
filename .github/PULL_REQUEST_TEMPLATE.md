@@ -12,7 +12,7 @@
 
 ```sh
 go build ./... && go vet ./... && go test ./...
-go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet ./...
+go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet .
 ```
 
 ## Screenshots

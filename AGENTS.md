@@ -28,7 +28,7 @@ UI 用 [MyGo](https://mygo.egoist.dev)（自绘），Agent 走 ACP v1（P2 核�
 
 ```sh
 go build ./... && go vet ./... && go test ./...          # 提 PR 前的最低要求
-go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet ./...  # UI 元素生命周期检查（必跑）
+go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet .  # UI 元素生命周期检查（必跑）
 gofmt -l internal main.go                                # 必须为空
 
 CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build ./...    # 交叉编译（6 平台由 CI 跑）

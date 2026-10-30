@@ -37,7 +37,7 @@ go build -o build/omo .        # or: go run .
 
 ```sh
 go build ./... && go vet ./... && go test ./... && go test -race ./...
-go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet ./...   # UI element lifetime checks
+go run github.com/egoist/mygo/cmd/mygo@v0.7.3 vet .   # UI element lifetime checks
 ```
 
 ## Measure

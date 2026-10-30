@@ -142,7 +142,7 @@
 3. 加 token 时三处一起改：`palette` + `Theme` 字段 + `newTheme()`；明暗两套都给值。
 4. 加图标：`mustIcon("lucide-name")` + `./scripts/lucide-icons.sh` + `TestIconsParse`。
 5. 文案走 i18n 两个目录；键名 camelCase。
-6. 验证：`go build ./... && go vet ./... && go test ./...`、`mygo vet ./...`、`gofmt -l`，
+6. 验证：`go build ./... && go vet ./... && go test ./...`、`mygo vet .`、`gofmt -l`，
    然后 `OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots` 重生成截图并肉眼比对 diff。
 7. 收尾自检（按顺序）：焦点是否唯一 → 文案能否一眼看懂 → 有没有多余的框/线/图标可以删 →
    间距是否只用了允许的值 → 明暗两套是否等价 → 键盘与无障碍是否完整。
