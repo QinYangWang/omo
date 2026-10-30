@@ -79,6 +79,9 @@ type CloseTerminal struct{ Index int }
 // RefreshChanges re-reads git status.
 type RefreshChanges struct{}
 
+// StageChanges adds every changed path to the git index.
+type StageChanges struct{}
+
 // OpenWorkspace opens a workspace directory.
 type OpenWorkspace struct{ Path string }
 
@@ -140,6 +143,7 @@ func (OpenURL) isIntent()           {}
 func (NewTerminal) isIntent()       {}
 func (CloseTerminal) isIntent()     {}
 func (RefreshChanges) isIntent()    {}
+func (StageChanges) isIntent()      {}
 func (OpenWorkspace) isIntent()     {}
 func (CloseWorkspace) isIntent()    {}
 func (SelectAgent) isIntent()       {}
@@ -196,6 +200,8 @@ func (a *App) Dispatch(in Intent) {
 		a.closeTerminal(v.Index)
 	case RefreshChanges:
 		a.refreshGit(true)
+	case StageChanges:
+		a.stageChanges()
 	case OpenWorkspace:
 		a.openWorkspace(v.Path)
 	case CloseWorkspace:

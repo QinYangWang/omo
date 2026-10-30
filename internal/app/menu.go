@@ -59,6 +59,7 @@ func (a *App) Menu() *mygo.Menu {
 				{Label: t("cmdNewTerminal"), Accelerator: "CmdOrCtrl+Shift+T", Click: run(CmdNewTerminal)},
 				mygo.Separator(),
 				{Label: t("cmdRefreshChanges"), Click: run(CmdRefreshChanges)},
+				{Label: t("cmdStageChanges"), Click: run(CmdStageChanges)},
 			},
 		},
 	})

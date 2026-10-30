@@ -77,6 +77,7 @@ func (r *Repo) Branch(ctx context.Context) (string, error) {
 type Change struct {
 	Path   string // relative to the workspace
 	Status string // "M", "A", "D", "R", "C", "?", "U", …: porcelain's XY, trimmed
+	Staged bool   // the index differs from HEAD; otherwise only the work tree does
 }
 
 // Status lists the changed paths under the workspace, untracked files included.
@@ -103,9 +104,28 @@ func (r *Repo) Status(ctx context.Context) ([]Change, error) {
 		if !ok {
 			continue
 		}
-		changes = append(changes, Change{Path: rel, Status: oneLetter(xy)})
+		changes = append(changes, Change{
+			Path:   rel,
+			Status: oneLetter(xy),
+			Staged: xy[0] != ' ' && xy[0] != '?',
+		})
 	}
 	return changes, nil
+}
+
+// AddAll stages every change under the workspace, deletions and renames
+// included. It passes no workspace file name to git: the only argument is the
+// fixed pathspec below (docs/security.md §3).
+func (r *Repo) AddAll(ctx context.Context) error {
+	// A pathspec limits `git add -A` to the workspace subtree, so a workspace in
+	// a subdirectory never stages its parent, while deletions and both sides of
+	// a rename inside it are staged.
+	spec := r.prefix
+	if spec == "" {
+		spec = "."
+	}
+	_, err := r.run(ctx, "add", "-A", "--", spec)
+	return err
 }
 
 // HeadText returns a file's text at HEAD, and whether it is there at all: a new

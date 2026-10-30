@@ -1,8 +1,15 @@
 package app
 
 import (
+	"sync"
+	"time"
+
 	"github.com/egoist/mygo/plugins/terminal"
 )
+
+// maxTerminals caps concurrent shells. Each one is a process tree with its own
+// memory, and a bottom panel full of them is not a feature.
+const maxTerminals = 4
 
 // Terminal is one shell session shown in the bottom panel.
 //
@@ -23,6 +30,10 @@ func (a *App) newTerminal() { a.startTerminal(nil) }
 // startTerminal runs argv in a new session in the workspace root, or the user's
 // shell when argv is empty, and shows the bottom panel.
 func (a *App) startTerminal(argv []string) {
+	if len(a.terms) >= maxTerminals {
+		a.setNotice(Notice{Key: "noticeTerminalLimit", Args: map[string]any{"max": maxTerminals}})
+		return
+	}
 	dir := ""
 	if a.ws != nil {
 		dir = a.ws.Path()
@@ -82,13 +93,27 @@ func (a *App) closeTerminal(i int) {
 }
 
 // closeTerminals kills every session, as when the workspace closes or the app
-// quits: no shell may outlive the window that started it.
+// quits: no shell may outlive the window that started it. Close hangs each
+// program up; the wait covers one that ignores the hangup, which the plugin
+// kills after two seconds.
 func (a *App) closeTerminals() {
+	var wg sync.WaitGroup
 	for _, t := range a.terms {
-		if t.Term != nil {
-			_ = t.Term.Close()
+		if t.Term == nil {
+			continue
 		}
+		done := t.Term.Done()
+		_ = t.Term.Close()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+			}
+		}()
 	}
+	wg.Wait()
 	a.terms = nil
 	a.Layout.ActiveTerm = 0
 }

@@ -7,13 +7,14 @@ agent runtimes over the [Agent Client Protocol](https://agentclientprotocol.com)
 - Go: **1.27.3** (required by MyGo), `CGO_ENABLED=0` on all targets
 - UI: [MyGo](https://mygo.egoist.dev) native toolkit (self-drawn, Metal / D3D11 / OpenGL / CPU)
 
-**Status: P2 core implemented.** Working today:
+**Status: P2 core and P4 (terminal, git) implemented.** Working today:
 
 - open a workspace with the native folder picker, browse a lazily loaded file tree
 - edit and save files (atomic writes); a file changed under you raises a conflict dialog instead of
   overwriting the agent's write
-- see what differs from git HEAD, review it in a split diff with per-hunk revert/keep, apply the result
-- run a real native terminal (Ghostty VT) in the workspace root, several sessions side by side
+- see what differs from git HEAD, review it in a split diff with per-hunk revert/keep, apply the result,
+  and stage every changed path under the workspace
+- run a real native terminal (Ghostty VT) in the workspace root, up to four sessions side by side
 - a window that draws its own title bar, with the project's sessions on the left, the conversation in
   the middle and the project's files, changes, quick commands and browser on the right
 - configure and trust a local ACP v1 agent, chat with streamed updates, approve or reject permissions,

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QinYangWang/omo/internal/app"
+	"github.com/QinYangWang/omo/internal/git"
 	"github.com/QinYangWang/omo/internal/i18n"
 	"github.com/QinYangWang/omo/internal/kit"
 	"github.com/egoist/mygo/ui"
@@ -329,6 +330,11 @@ func changesPanel(c *ui.Context, a *app.App, st kit.Theme) {
 	ui.Row(c).Height(st.RowH + 4).PaddingX(st.Pad).Gap(4).AlignItems(ui.Center).Children(func() {
 		st.SectionLabel(c, i18n.T(loc, "sectionChanges"))
 		ui.Spacer(c)
+		if len(a.Changes()) > 0 {
+			st.IconButton(c, kit.IconPlus, i18n.T(loc, "changesStage"), false, func() {
+				a.Dispatch(app.StageChanges{})
+			})
+		}
 		st.IconButton(c, kit.IconRefresh, i18n.T(loc, "changesRefresh"), false, func() {
 			a.Dispatch(app.RefreshChanges{})
 		})
@@ -346,7 +352,7 @@ func changesPanel(c *ui.Context, a *app.App, st kit.Theme) {
 				IconClr: clr,
 				Label:   rel,
 				Meta:    ch.Status,
-				MetaClr: changeColor(st, ch.Status),
+				MetaClr: changeColor(st, ch),
 				Tip:     rel,
 				OnClick: func() { a.Dispatch(app.OpenDiff{Path: rel}) },
 			})
@@ -354,15 +360,16 @@ func changesPanel(c *ui.Context, a *app.App, st kit.Theme) {
 	})
 }
 
-// changeColor colors a git status letter.
-func changeColor(st kit.Theme, status string) ui.Color {
-	switch status {
-	case "A":
-		return st.Success
-	case "D":
-		return st.Danger
-	case "?":
+// changeColor colors a git status letter: staged changes read as settled,
+// work-tree-only ones as pending.
+func changeColor(st kit.Theme, ch git.Change) ui.Color {
+	switch {
+	case ch.Status == "?":
 		return st.Muted
+	case ch.Status == "D":
+		return st.Danger
+	case ch.Staged:
+		return st.Success
 	}
 	return st.Warning
 }
