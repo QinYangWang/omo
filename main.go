@@ -15,6 +15,11 @@ import (
 
 func main() {
 	a := app.New()
+	// Puts back the last workspace, its open files and the agent sessions it
+	// used. A missing or unreadable database only costs that history.
+	if err := a.Restore(); err != nil {
+		log.Print(err)
+	}
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{

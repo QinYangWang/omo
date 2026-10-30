@@ -329,6 +329,15 @@ func (s *Service) Create(rel string) error {
 	return f.Close()
 }
 
+// Remove deletes a file under the root.
+func (s *Service) Remove(rel string) error {
+	c, err := s.Canonical(rel)
+	if err != nil {
+		return err
+	}
+	return s.root.Remove(c)
+}
+
 // Watch echoes the paths under the root that the system says changed.
 //
 // The returned slice is a hint: it may repeat, arrive late, or name a directory

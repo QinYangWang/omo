@@ -17,6 +17,7 @@ import (
 // app state tests independent of processes and the ACP SDK.
 type agentRuntime interface {
 	Start(context.Context, agent.Definition, string) error
+	StartSession(context.Context, agent.Definition, string, string) error
 	Prompt(context.Context, string) error
 	Cancel(context.Context) error
 	Restart(context.Context, agent.Definition, string) error
@@ -196,12 +197,19 @@ func (a *App) runAgent(def agent.Definition, prompt string, restart bool) {
 		a.setAgentState(agent.StateStarting)
 	}
 	a.Layout.ActiveTab = -1 // Show the central session pane.
+	// A session this workspace used before is asked for back; an agent without
+	// session/load answers with a new one and the manager says so.
+	restoreID := ""
+	if !restart {
+		restoreID = a.storedSession(def.ID)
+	}
 	go func() {
 		var err error
-		if restart {
+		switch {
+		case restart:
 			err = a.agents.Restart(ctx, def, cwd)
-		} else if state != agent.StateReady || prompt == "" {
-			err = a.agents.Start(ctx, def, cwd)
+		case state != agent.StateReady || prompt == "":
+			err = a.agents.StartSession(ctx, def, cwd, restoreID)
 		}
 		if err == nil && prompt != "" {
 			err = a.agents.Prompt(ctx, prompt)
@@ -215,7 +223,14 @@ func (a *App) runAgent(def agent.Definition, prompt string, restart bool) {
 				state, _, _ := a.agents.Snapshot()
 				a.setAgentState(state) // RPC failure does not imply connection failure.
 			})
+			return
 		}
+		a.post(func() {
+			if operation != a.agentOperation {
+				return
+			}
+			a.persistSession()
+		})
 	}()
 }
 
@@ -423,6 +438,7 @@ func (a *App) onAgentEvent(ev agent.Event) {
 		a.appendChat(ChatItem{Kind: ev.Kind, Text: ev.Text})
 	case agent.EventTool:
 		a.upsertToolChat(ev)
+		a.NoteAgentPaths(ev.Paths...)
 	case agent.EventPlan:
 		if ev.Text != "" {
 			a.appendChat(ChatItem{Kind: ev.Kind, Text: ev.Text})
@@ -432,6 +448,7 @@ func (a *App) onAgentEvent(ev agent.Event) {
 			RequestID: ev.RequestID, Title: ev.Title, Kind: ev.KindDetail,
 			Paths: ev.Paths, Command: ev.Command, Input: ev.Input, Options: ev.Options,
 		}
+		a.NoteAgentPaths(ev.Paths...)
 		if a.permission == nil {
 			a.permission = &request
 		} else if len(a.permissionQueue) < 32 {
@@ -447,6 +464,7 @@ func (a *App) onAgentEvent(ev agent.Event) {
 		a.chatSeal = false
 		a.setNotice(Notice{Key: "agentSessionReplaced"})
 		a.appendDiagnostic(firstNonempty(ev.Text, ev.Raw))
+		a.persistSession()
 	case agent.EventDiagnostic:
 		a.appendDiagnostic(firstNonempty(ev.Text, ev.Raw))
 	case agent.EventTurnEnd:
@@ -459,6 +477,8 @@ func (a *App) onAgentEvent(ev agent.Event) {
 		if ev.StopReason != "" {
 			a.appendDiagnostic("turn ended: " + ev.StopReason)
 		}
+		a.refreshReview()
+		a.recordTurn(ev.StopReason)
 		a.refreshGit(true)
 	}
 	if a.agents != nil {

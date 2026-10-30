@@ -246,6 +246,58 @@ func TestManagerRestartLoadsSessionWhenAdvertised(t *testing.T) {
 	}
 }
 
+func TestManagerStartSessionRestoresTheStoredSession(t *testing.T) {
+	cwd := t.TempDir()
+	m, events := newTestManager(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.StartSession(ctx, helperDefinition("load"), cwd, "session-from-last-run"); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	state, sessionID, canLoad := m.Snapshot()
+	if state != StateReady || !canLoad || sessionID != "session-from-last-run" {
+		t.Fatalf("Snapshot = %q, %q, %v", state, sessionID, canLoad)
+	}
+	for _, event := range events.all() {
+		if event.Kind == EventSessionReplaced {
+			t.Fatalf("a loaded session was reported as replaced: %#v", event)
+		}
+	}
+}
+
+func TestManagerStartSessionSaysWhenItCannotRestore(t *testing.T) {
+	cwd := t.TempDir()
+	m, events := newTestManager(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.StartSession(ctx, helperDefinition("basic"), cwd, "session-from-last-run"); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	state, sessionID, _ := m.Snapshot()
+	if state != StateReady || sessionID == "" || sessionID == "session-from-last-run" {
+		t.Fatalf("Snapshot = %q, %q: a new session was expected", state, sessionID)
+	}
+	replaced := events.waitFor(t, func(e Event) bool { return e.Kind == EventSessionReplaced })
+	if !strings.Contains(replaced.Text, "loadSession") {
+		t.Fatalf("replacement reason = %q", replaced.Text)
+	}
+}
+
+// newTestManager returns a manager with an event collector and cleanup, but no
+// started agent: the caller decides how it starts.
+func newTestManager(t *testing.T) (*Manager, *eventCollector) {
+	t.Helper()
+	m := NewManager()
+	events := collectEvents(m)
+	t.Cleanup(events.close)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = m.Close(ctx)
+	})
+	return m, events
+}
+
 func TestManagerRequiresTrustAndSingleTurn(t *testing.T) {
 	def := helperDefinition("basic")
 	def.Trusted = false

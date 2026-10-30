@@ -22,12 +22,20 @@ type fakeAgentRuntime struct {
 	closed    int
 	sessionID string
 	canLoad   bool
+	restoreID string
 }
 
 func (f *fakeAgentRuntime) Start(context.Context, agent.Definition, string) error {
+	return f.start("")
+}
+func (f *fakeAgentRuntime) StartSession(_ context.Context, _ agent.Definition, _, restoreID string) error {
+	return f.start(restoreID)
+}
+func (f *fakeAgentRuntime) start(restoreID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.starts++
+	f.restoreID = restoreID
 	f.state = agent.StateReady
 	f.sessionID = "session-1"
 	return nil
@@ -115,7 +123,7 @@ type blockingStartRuntime struct {
 	started chan struct{}
 }
 
-func (f *blockingStartRuntime) Start(ctx context.Context, _ agent.Definition, _ string) error {
+func (f *blockingStartRuntime) StartSession(ctx context.Context, _ agent.Definition, _, _ string) error {
 	close(f.started)
 	<-ctx.Done()
 	return ctx.Err()

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"testing"
 
 	"github.com/QinYangWang/omo/internal/app"
@@ -97,6 +98,27 @@ func TestWriteScreenshots(t *testing.T) {
 		d.Name, d.Executable, d.Args = "Demo agent", exe, "--acp"
 		a.Dispatch(app.SaveAgentConfig{})
 		a.Dispatch(app.StartAgent{ID: a.ActiveAgentID()})
+	}))
+
+	// The review of what an agent changed: the baseline is read before the write,
+	// then the write lands on disk, as an agent's own write does.
+	agentWrites := map[string]string{
+		"README.md":              "# demo\n\nA project for the screenshots.\n\nIt runs on a native window.\n",
+		"internal/view/shell.go": "package view\n\n// Shell draws the window.\nfunc Shell() {}\n\n// Session draws the middle column.\nfunc Session() {}\n",
+	}
+	agentRels := make([]string, 0, len(agentWrites))
+	for rel := range agentWrites {
+		agentRels = append(agentRels, rel)
+	}
+	sort.Strings(agentRels)
+	shoot("13-agent-review-dark.png", true, with(func(a *app.App) {
+		a.NoteAgentPaths(agentRels...)
+		for _, rel := range agentRels {
+			if err := os.WriteFile(filepath.Join(fixture, filepath.FromSlash(rel)), []byte(agentWrites[rel]), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		a.Dispatch(app.OpenReview{})
 	}))
 }
 

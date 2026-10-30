@@ -245,7 +245,8 @@ sequenceDiagram
 ```
 
 要点：**baseline 只在被触及的路径上保存**（有界），不存整个 Workspace 快照；超过上限
-（文件数/总字节）时降级为「只保留 hash + 提示重新读取」，必要时退回 Git 作为基准。
+（64 MiB / 1024 个文件）时**停止收录后续文件并提示**（`noticeReviewTooLarge`），不降级成 hash、
+也不退回 Git 作为基准——审查要么准确，要么不做。实测落点见 roadmap §9.4。
 
 ## 5. 生命周期
 

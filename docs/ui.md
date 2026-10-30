@@ -32,6 +32,7 @@ OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots
 | `10-panel-dark.png` | 底部面板打开（终端页空状态） |
 | `11-collapsed-dark.png` | 两侧栏都收起，中间满宽 |
 | `12-agent-trust-dark.png` | ACP Agent 首次启动信任弹窗（完整启动边界） |
+| `13-agent-review-dark.png` | Agent 改动审查列表（文件 + `+N −M`，Keep all / Revert all） |
 
 真实窗口 + 真终端（headless 跑不了 PTY）用 `internal/app/capture.go` 的截图模式，
 默认关闭：
@@ -70,14 +71,18 @@ OMO_SCREENSHOT_TERMINAL=1 OMO_SCREENSHOT_MS=2600 ./build/omo.exe
   「运行和调试」按项目根目录的
   标记文件给出快捷指令（`go.mod` → Build/Test/Vet，`Makefile` → make），每条在项目根目录的
   新终端里跑；「浏览器」把地址交给系统默认浏览器（`mygo.Shell.OpenExternal`），不在窗口里嵌
-  webview。
+  webview。「改动」页顶部在 Agent 改过文件时多一行「Agent 改动（N）+ 审查」，点进去是审查列表。
+- **审查列表（`TabReview`）**：Agent 碰过的文件，每行带 `+N −M`，点行进单文件 diff；表头有
+  「全部保留 / 全部回退」。审查基准是 Agent 动手前的文本（`internal/app/review.go`），与 git HEAD
+  无关，所以脏工作区也能审查。截图 `13-agent-review-dark.png` 用 `App.NoteAgentPaths` 在写真之前
+  抓基准，然后真写文件，和 Agent 自己的写入行为一致。
 - **底部面板**：终端页最多同时开 4 个会话，再开一个时状态栏提示先关闭一个；关闭工作区
   或退出应用时挂断 shell 并等它退出。
 - 活动栏（46 DIP 图标条）和右侧 Chat 面板都去掉了：前者变成右侧栏的图标标头，后者变成中间
   的会话窗口。
 
-仍是占位：搜索页还没有工作区搜索。ACP 当前是一个工作区一个活跃 Agent/Session，
-会话元数据持久化与恢复在 P3。
+仍是占位：搜索页还没有工作区搜索。ACP 当前是一个工作区一个活跃 Agent/Session；
+会话元数据（Workspace、标签页布局、`acp_session` 映射）已在 P3 落进本地 SQLite 并在启动时恢复。
 
 ## 视觉层：`internal/kit`
 

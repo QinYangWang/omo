@@ -399,3 +399,51 @@ func TestHeaderTogglesCollapseTheSidebars(t *testing.T) {
 		t.Errorf("the middle column did not take the room; texts = %v", tt.Texts())
 	}
 }
+
+func TestAgentReviewListsFilesAndOpensTheDiff(t *testing.T) {
+	a, dir := newWorkspaceApp(t)
+	a.NoteAgentPaths("main.go")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a.Dispatch(app.OpenReview{})
+
+	tt := newTester(t, a)
+	tt.Frame()
+	for _, want := range []string{"Agent changes (1)", "main.go", "+2 −0", "Keep all", "Revert all"} {
+		if !tt.HasText(want) {
+			t.Errorf("missing %q; texts = %v", want, tt.Texts())
+		}
+	}
+
+	// Opening the file from the list shows it against the pre-agent text.
+	a.Dispatch(app.OpenDiff{Path: "main.go"})
+	tt.Frame()
+	if tab := a.TabAt(a.Layout.ActiveTab); tab == nil || tab.Kind != app.TabDiff {
+		t.Fatalf("active tab = %+v, want a diff", tab)
+	}
+	if !tt.HasText("Diff: main.go") {
+		t.Errorf("diff pane missing; texts = %v", tt.Texts())
+	}
+
+	// Reverting everything puts the file back and empties the list.
+	a.Dispatch(app.RejectReview{})
+	data, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "package main\n" {
+		t.Fatalf("main.go = %q, want the baseline", data)
+	}
+
+	// The review tab stays open, empty, until it is closed.
+	for i := range a.Tabs() {
+		if a.Tabs()[i].Kind == app.TabReview {
+			a.Layout.ActiveTab = i
+		}
+	}
+	tt.Frame()
+	if !tt.HasText("The agent has not changed any file.") {
+		t.Errorf("review pane did not empty; texts = %v", tt.Texts())
+	}
+}

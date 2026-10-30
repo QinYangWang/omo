@@ -481,33 +481,37 @@ LSP 结果回来后调用 `State.ShowCompletions(start, items)`、`State.ShowHov
 
 ## 9. Persistence
 
+P3 已落地：`internal/persistence` 只有 `*Store`（一个 SQLite 连接），没有接口层——注入点靠 `Store` 本身
+和 `:memory:` 数据库，多一层接口只会多一层要维护的镜像。调用必须在 `Close` 之前停止（`App.Shutdown`
+先 `closeStore` 再关工作区）。
+
 ```go
 package persistence
 
-type Store interface {
-	Migrate(ctx context.Context) error
+func Open(ctx context.Context, path string) (*Store, error)      // 建目录 + 迁移
+func OpenMemory(ctx context.Context) (*Store, error)             // 测试用
+var SchemaVersion int                                            // = len(migrations)
 
-	SaveWorkspace(ctx context.Context, w app.Workspace) error
-	RecentWorkspaces(ctx context.Context, limit int) ([]app.Workspace, error)
+func (s *Store) Migrate(ctx context.Context) error               // 每条迁移一个事务
+func (s *Store) SchemaVersion(ctx context.Context) (int, error)
 
-	SaveAgent(ctx context.Context, d agent.AgentDef) error
-	Agents(ctx context.Context) ([]agent.AgentDef, error)
+func (s *Store) SaveWorkspace(ctx context.Context, path string, now time.Time) error // upsert
+func (s *Store) RecentWorkspaces(ctx context.Context, limit int) ([]Workspace, error)
 
-	SaveSession(ctx context.Context, s sessions.Session) error
-	Sessions(ctx context.Context, ws app.WorkspaceID) ([]sessions.Session, error)
-	DeleteSession(ctx context.Context, id app.SessionID) error
+func (s *Store) SaveSession(ctx context.Context, session Session) error // upsert by id
+func (s *Store) Sessions(ctx context.Context, workspacePath string) ([]Session, error)
 
-	SaveUILayout(ctx context.Context, blob []byte) ([]byte, error) // 返回时应为最新版本
-	UILayout(ctx context.Context) ([]byte, error)
+func (s *Store) SaveUI(ctx context.Context, key string, value []byte) error
+func (s *Store) UI(ctx context.Context, key string) ([]byte, bool, error)
 
-	// 高频事件批量写入 + 保留策略（行数与字节双上限）。
-	AppendEvents(ctx context.Context, batch []events.Event) error
-	PruneEvents(ctx context.Context, keep int, maxAge time.Duration) error
-	Close() error
-}
+func (s *Store) AppendEvents(ctx context.Context, batch []Event) error  // 一个事务
+func (s *Store) CountEvents(ctx context.Context) (int, error)
+func (s *Store) PruneEvents(ctx context.Context, keep int, maxAge time.Duration) error
+
+func (s *Store) Close() error
 ```
 
-Schema 草案（P1 落地，含 `schema_migrations` 表）：
+实际 schema（v1 建表，v2 为 `agent_events(at)` 建索引）：
 
 ```sql
 create table if not exists schema_migrations(version integer primary key, applied_at text not null);
@@ -516,35 +520,36 @@ create table if not exists workspaces(
   id text primary key, path text not null unique, name text not null,
   last_opened_at text not null);
 
-create table if not exists agents(
-  id text primary key, name text not null, json text not null,  -- AgentDef 序列化
-  trusted integer not null default 0, enabled integer not null default 1,
-  updated_at text not null);
-
 create table if not exists sessions(
-  id text primary key,
-  agent_id text not null references agents(id) on delete cascade,
-  workspace_id text not null references workspaces(id) on delete cascade,
+  id text primary key,               -- "<workspace path>|<agent id>"
+  agent_id text not null,
+  workspace_path text not null,
   acp_session text not null default '',
-  state integer not null,
   can_resume integer not null default 0,
-  created_at text not null, last_active_at text not null);
+  updated_at text not null);
 
 create table if not exists agent_events(   -- 仅诊断摘要，不是 transcript
   id integer primary key autoincrement,
-  session_id text not null, kind integer not null, at text not null,
+  session_id text not null, kind text not null, at text not null,
   summary text not null);
 
 create table if not exists permission_grants(
-  agent_id text not null, workspace_id text not null, risk integer not null,
-  granted_at text not null, primary key(agent_id, workspace_id, risk));
+  agent_id text not null, workspace_path text not null, risk integer not null,
+  granted_at text not null, primary key(agent_id, workspace_path, risk));
 
 create table if not exists ui_state(key text primary key, value blob not null);
 ```
 
+要点：
+
+- 时间列是定宽 RFC3339（微秒补齐），这样 `at < ?` 的文本比较与时间顺序一致，`PruneEvents` 才能用索引。
+- 所有值都是绑定参数；测试里有一条路径字面量带 `'; drop table workspaces; --`，断言它原样往返。
+- `permission_grants` 表已建但还没有写入方：`allow_always` 仍在 UI 里隐藏，等按
+  (agent, workspace, risk) 收窄的授权流程再接。
+- Agent 定义仍在 `<config>/omo/agents.json`（见 roadmap §9.4 的偏差说明）。
+
 **不存**：完整对话、Agent 内部消息、工具输出全文。ACP 的会话历史归 Agent；IDE 只存映射与摘要。
 
-## 10. 命令与 UI 意图
 
 ```go
 package commands
