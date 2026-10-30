@@ -91,8 +91,10 @@ func terminalPage(c *ui.Context, a *app.App, st kit.Theme) {
 		})
 	}
 	if t := activeTerminal(a); t != nil && t.Term != nil {
-		ui.Row(c).Grow(1).Padding(st.Gap).Children(func() {
-			terminal.View(c, t.Term).Grow(1)
+		// Fill, not Grow: a grown box in a row has no height to hit, so the
+		// terminal draws but never takes the pointer or the keyboard.
+		ui.Row(c).Fill().Padding(st.Gap).Children(func() {
+			terminal.View(c, t.Term).Fill()
 		})
 	}
 }
