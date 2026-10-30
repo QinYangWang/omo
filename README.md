@@ -7,7 +7,7 @@ agent runtimes over the [Agent Client Protocol](https://agentclientprotocol.com)
 - Go: **1.27.3** (required by MyGo), `CGO_ENABLED=0` on all targets
 - UI: [MyGo](https://mygo.egoist.dev) native toolkit (self-drawn, Metal / D3D11 / OpenGL / CPU)
 
-**Status: P2 core and P4 (terminal, git) implemented.** Working today:
+**Status: P3 and P4 (terminal, git) implemented.** Working today:
 
 - open a workspace with the native folder picker, browse a lazily loaded file tree
 - edit and save files (atomic writes); a file changed under you raises a conflict dialog instead of
@@ -19,12 +19,17 @@ agent runtimes over the [Agent Client Protocol](https://agentclientprotocol.com)
   the middle and the project's files, changes, quick commands and browser on the right
 - configure and trust a local ACP v1 agent, chat with streamed updates, approve or reject permissions,
   cancel a turn, and restart with session restore when the agent supports it
+- review what the agent changed: the files it touched, the lines it added and deleted, per-hunk
+  keep/revert, or revert every file to what it was before the agent touched it
+- reopen where you left off: the last workspace, its open files and the agent session mapping live in
+  a local SQLite database
 - use the platform's own menu bar (File / Edit / View) with accelerators
 
 Use **Agents…** in the chat panel to add an executable and its arguments (one per line). The first
-start shows the exact launch details and requires trust. Agent file changes show up under Changes.
+start shows the exact launch details and requires trust. Agent file changes show up under Changes,
+with **Review** opening the list of files it touched.
 
-Not yet: workspace search and LSP. Persistent sessions/metadata arrive in P3. See
+Not yet: workspace search and LSP. See
 [docs/roadmap.md](docs/roadmap.md).
 
 ## Run
@@ -72,6 +77,7 @@ internal/workspace   os.Root boundary, reads/writes, watcher
 internal/documents   editor buffers, atomic save, disk conflicts
 internal/git         system git: branch, changed files, HEAD text
 internal/diff        review baselines and applying a review
+internal/persistence SQLite: workspaces, layout, session mapping, bounded events
 internal/commands    command registry
 internal/i18n        message catalogs (en, zh-Hans) + lookup
 docs/                architecture, dependencies, interfaces, security, roadmap, ADR

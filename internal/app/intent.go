@@ -31,6 +31,16 @@ type SaveFile struct{}
 // OpenDiff opens a review of one file against its HEAD version.
 type OpenDiff struct{ Path string }
 
+// OpenReview lists the files the agent changed.
+type OpenReview struct{}
+
+// AcceptReview keeps the agent's changes and starts a new baseline.
+type AcceptReview struct{}
+
+// RejectReview puts every file the agent changed back, deleting the files it
+// created.
+type RejectReview struct{}
+
 // ApplyReview writes the reviewed text of the active diff tab to disk.
 type ApplyReview struct{}
 
@@ -131,6 +141,9 @@ func (OpenFile) isIntent()          {}
 func (CloseTab) isIntent()          {}
 func (SaveFile) isIntent()          {}
 func (OpenDiff) isIntent()          {}
+func (OpenReview) isIntent()        {}
+func (AcceptReview) isIntent()      {}
+func (RejectReview) isIntent()      {}
 func (ApplyReview) isIntent()       {}
 func (ResolveConflict) isIntent()   {}
 func (TogglePanel) isIntent()       {}
@@ -175,6 +188,12 @@ func (a *App) Dispatch(in Intent) {
 		a.saveActive()
 	case OpenDiff:
 		a.openDiff(v.Path)
+	case OpenReview:
+		a.openReview()
+	case AcceptReview:
+		a.acceptReview()
+	case RejectReview:
+		a.rejectReview()
 	case ApplyReview:
 		a.applyReview()
 	case ResolveConflict:
@@ -324,18 +343,24 @@ func (a *App) saveActive() {
 	a.refreshGit(true)
 }
 
-// openDiff shows a review of rel: against HEAD in a repository, else against
-// the saved version when the buffer has unsaved text.
+// openDiff shows a review of rel: against the text it had before the agent
+// touched it when the agent changed it, else against HEAD in a repository, else
+// against the saved version when the buffer has unsaved text.
 func (a *App) openDiff(rel string) {
 	if a.ws == nil {
 		a.setNotice(Notice{Key: "noticeNeedWorkspace"})
 		return
 	}
-	for i := range a.tabs {
-		if a.tabs[i].Kind == TabDiff && a.tabs[i].Rel == rel {
-			a.Layout.ActiveTab = i
-			return
-		}
+	if i := a.diffTabOf(rel); i >= 0 {
+		a.Layout.ActiveTab = i
+		return
+	}
+	if ch := a.changeFor(rel); ch != nil {
+		// The change's own diff state is reused, so per-hunk decisions survive
+		// closing and reopening the tab.
+		a.tabs = append(a.tabs, Tab{Kind: TabDiff, Rel: rel, Diff: ch.Diff, Review: ch.Review})
+		a.Layout.ActiveTab = len(a.tabs) - 1
+		return
 	}
 	review, err := a.buildReview(rel)
 	if err != nil {
@@ -405,6 +430,7 @@ func (a *App) applyReview() {
 	}
 	a.setNotice(Notice{Key: "noticeReviewSaved", Args: map[string]any{"path": t.Rel}})
 	t.Saveable = false
+	a.refreshReview()
 	a.refreshGit(true)
 }
 

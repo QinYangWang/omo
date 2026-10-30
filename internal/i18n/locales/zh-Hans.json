@@ -127,6 +127,11 @@
   "noticeReady": "就绪",
   "noticeReloaded": "已从磁盘重新加载 {path}",
   "noticeReviewSaved": "已把审查结果写入 {path}",
+  "noticeReviewEmpty": "没有需要审查的 Agent 改动。",
+  "noticeReviewAccepted": "已保留 Agent 对 {count} 个文件的改动",
+  "noticeReviewReverted": "已把 {count} 个文件恢复到 Agent 改动前",
+  "noticeReviewTooLarge": "审查基准已满，之后的 Agent 改动不再列出。",
+  "noticeStoreFailed": "历史记录已关闭：{err}",
   "noticeSaveFailed": "保存失败：{err}",
   "noticeStageFailed": "暂存失败：{err}",
   "noticeStaged": "{count, plural, other {已暂存 # 个文件}}",
@@ -146,10 +151,16 @@
   "panelTerminal": "终端",
 
   "reviewHint": "逐处回退或保留，然后应用。",
+  "reviewOpen": "审查",
+  "reviewTitle": "Agent 改动（{count}）",
+  "reviewAcceptAll": "全部保留",
+  "reviewRejectAll": "全部回退",
+  "reviewEmpty": "Agent 还没有改动任何文件。",
 
   "searchPlaceholder": "工作区搜索尚未接入。",
 
   "sectionChanges": "改动",
+  "sectionAgentChanges": "Agent 改动（{count}）",
   "sectionExplorer": "资源管理器",
   "sectionSearch": "搜索",
 
@@ -162,6 +173,7 @@
   "tabSession": "会话窗",
   "tabClose": "关闭 {name}",
   "tabDiffTitle": "差异：{path}",
+  "tabReview": "Agent 改动",
 
   "terminalClose": "终止",
   "terminalEmpty": "没有打开的终端。",

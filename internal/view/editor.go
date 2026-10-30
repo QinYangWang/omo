@@ -33,6 +33,8 @@ func editorPane(c *ui.Context, a *app.App, st kit.Theme) {
 		}
 		crumbs(c, a, st)
 		switch {
+		case t.Kind == app.TabReview:
+			reviewPane(c, a, st)
 		case t.Kind == app.TabDiff:
 			t.Diff.Theme = st.EditorTheme(c)
 			diffPane(c, a, st, t)
@@ -137,7 +139,9 @@ func tabEntry(c *ui.Context, st kit.Theme, v tabView) {
 // the folder, then the file.
 func crumbs(c *ui.Context, a *app.App, st kit.Theme) {
 	t := a.TabAt(a.Layout.ActiveTab)
-	if t == nil {
+	if t == nil || t.Kind == app.TabReview {
+		// A review is named by its own header; a breadcrumb of no path would
+		// just repeat it.
 		return
 	}
 	parts := strings.Split(t.Rel, "/")
@@ -161,7 +165,7 @@ func crumbs(c *ui.Context, a *app.App, st kit.Theme) {
 
 // tabIcon is a tab's file-type icon, or the diff mark for a review.
 func tabIcon(st kit.Theme, tab app.Tab) (*ui.SVG, ui.Color) {
-	if tab.Kind == app.TabDiff {
+	if tab.Kind == app.TabDiff || tab.Kind == app.TabReview {
 		return kit.IconDiff, st.Accent
 	}
 	return st.FileIcon(baseName(tab.Rel))
@@ -170,10 +174,52 @@ func tabIcon(st kit.Theme, tab app.Tab) (*ui.SVG, ui.Color) {
 // tabTitle is a tab's label. A diff tab is marked with a sign instead of the
 // words "Diff:", which the pane's own header already says.
 func tabTitle(a *app.App, tab app.Tab, locale string) string {
-	if tab.Kind == app.TabDiff {
+	switch tab.Kind {
+	case app.TabDiff:
 		return "± " + baseName(tab.Rel)
+	case app.TabReview:
+		return i18n.T(locale, "tabReview")
 	}
 	return baseName(tab.Rel)
+}
+
+// reviewPane lists the files the agent changed, with the lines it added and
+// deleted, and the two whole-review decisions.
+func reviewPane(c *ui.Context, a *app.App, st kit.Theme) {
+	loc := c.Locale()
+	changes := a.AgentChanges()
+	ui.Row(c).Height(st.TabH).PaddingX(st.Pad).Gap(st.Gap+2).AlignItems(ui.Center).Background(st.Panel).
+		BorderWidth(0, 0, 1, 0).BorderColor(st.Border).Children(func() {
+		ui.Icon(c, kit.IconDiff).FontSize(14).TextColor(st.Accent)
+		ui.Text(c, i18n.Tf(loc, "reviewTitle", map[string]any{"count": len(changes)})).
+			FontSize(st.FontUI).TextColor(st.Text)
+		ui.Spacer(c)
+		if ui.PrimaryButton(c, i18n.T(loc, "reviewAcceptAll")).Clicked() {
+			a.Dispatch(app.AcceptReview{})
+		}
+		if ui.Button(c, i18n.T(loc, "reviewRejectAll")).Clicked() {
+			a.Dispatch(app.RejectReview{})
+		}
+	})
+	if len(changes) == 0 {
+		st.EmptyState(c, kit.IconDiff, i18n.T(loc, "reviewEmpty"))
+		return
+	}
+	ui.Scroll(c).Grow(1).Children(func() {
+		for _, ch := range changes {
+			rel := ch.Rel
+			icon, iconClr := st.FileIcon(baseName(rel))
+			st.Row(c, kit.RowSpec{
+				Icon:    icon,
+				IconClr: iconClr,
+				Label:   rel,
+				Meta:    fmt.Sprintf("+%d −%d", ch.Added, ch.Deleted),
+				MetaClr: st.Muted,
+				Tip:     rel,
+				OnClick: func() { a.Dispatch(app.OpenDiff{Path: rel}) },
+			})
+		}
+	})
 }
 
 // diffPane is a review: a compact header with the change counts and the apply

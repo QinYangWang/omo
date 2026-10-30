@@ -181,8 +181,8 @@ Prompt 也先重启连接并恢复 Session，防止不兼容 Runtime 把旧流�
 | 通知队列 / 字节 | `MaxQueuedNotifications`、`MaxNotificationBytes` |
 | Agent stderr 环形缓冲 | 64 KiB / 进程 |
 | 诊断事件环形缓冲 | 2000 条 / 会话，超出丢最旧 |
-| SQLite `agent_events` | 每会话 5000 行 + 保留 7 天，后台 `PruneEvents` |
-| Diff baseline | 单文件 8 MiB、每 turn 合计 64 MiB；超限降级为 hash + 提示 |
+| SQLite `agent_events` | 保留最近 1000 行且不超过 7 天，启动时 `PruneEvents`（两个上限都要满足） |
+| Diff baseline | 单文件沿用 workspace 的 8 MiB 读上限，合计 64 MiB / 1024 个文件；超限即停止收录并提示（不降级为 hash） |
 | transcript 内存 | 只保留最近 N 条 + 可见窗口，滚动出窗口即释放 |
 
 ### 5.4 落盘内容

@@ -137,6 +137,11 @@
   "noticeReady": "Ready",
   "noticeReloaded": "Reloaded {path} from disk",
   "noticeReviewSaved": "Applied the review to {path}",
+  "noticeReviewEmpty": "No agent changes to review.",
+  "noticeReviewAccepted": "{count, plural, one {Kept # file} other {Kept # files}} with the agent's changes",
+  "noticeReviewReverted": "{count, plural, one {Reverted # file} other {Reverted # files}} to the state before the agent touched them",
+  "noticeReviewTooLarge": "The review baseline is full; further agent changes will not be listed.",
+  "noticeStoreFailed": "History is off: {err}",
   "noticeSaveFailed": "Could not save: {err}",
   "noticeStageFailed": "Could not stage: {err}",
   "noticeStaged": "{count, plural, one {Staged # file} other {Staged # files}}",
@@ -156,10 +161,16 @@
   "panelTerminal": "Terminal",
 
   "reviewHint": "Revert or keep each change, then apply.",
+  "reviewOpen": "Review",
+  "reviewTitle": "Agent changes ({count})",
+  "reviewAcceptAll": "Keep all",
+  "reviewRejectAll": "Revert all",
+  "reviewEmpty": "The agent has not changed any file.",
 
   "searchPlaceholder": "Workspace search is not wired up yet.",
 
   "sectionChanges": "Changes",
+  "sectionAgentChanges": "Agent changes ({count})",
   "sectionExplorer": "Explorer",
   "sectionSearch": "Search",
 
@@ -172,6 +183,7 @@
   "tabSession": "Session",
   "tabClose": "Close {name}",
   "tabDiffTitle": "Diff: {path}",
+  "tabReview": "Agent changes",
 
   "terminalClose": "Kill",
   "terminalEmpty": "No terminal open.",

@@ -323,6 +323,18 @@ func searchPanel(c *ui.Context, a *app.App, st kit.Theme) {
 // reviewing what a terminal agent changed.
 func changesPanel(c *ui.Context, a *app.App, st kit.Theme) {
 	loc := c.Locale()
+	// What the agent changed is measured against the files as they were before
+	// it touched them, so it is a different list from git's, and it comes first
+	// because it is a decision the user still has to make.
+	if n := a.AgentChangeCount(); n > 0 {
+		ui.Row(c).Height(st.RowH + 4).PaddingX(st.Pad).Gap(4).AlignItems(ui.Center).Children(func() {
+			st.SectionLabel(c, i18n.Tf(loc, "sectionAgentChanges", map[string]any{"count": n}))
+			ui.Spacer(c)
+			st.IconChip(c, kit.IconDiff, i18n.T(loc, "reviewOpen"), false, func() {
+				a.Dispatch(app.OpenReview{})
+			})
+		})
+	}
 	if a.WorkspaceName() != "" && a.Branch() == "" {
 		st.EmptyState(c, kit.IconGit, i18n.T(loc, "gitPlaceholder"))
 		return

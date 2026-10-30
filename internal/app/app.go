@@ -19,6 +19,7 @@ import (
 	"github.com/QinYangWang/omo/internal/diff"
 	"github.com/QinYangWang/omo/internal/documents"
 	"github.com/QinYangWang/omo/internal/git"
+	"github.com/QinYangWang/omo/internal/persistence"
 	"github.com/QinYangWang/omo/internal/workspace"
 	"github.com/egoist/mygo"
 )
@@ -43,6 +44,8 @@ const (
 	TabFile TabKind = iota + 1
 	// TabDiff is a review of one file's changes.
 	TabDiff
+	// TabReview is the list of files an agent changed.
+	TabReview
 )
 
 // Tab is one editor tab. A file tab owns its editor.State; a diff tab owns the
@@ -99,6 +102,12 @@ type App struct {
 	changes []git.Change
 	branch  string
 
+	// baseline is what the files the agent touched held before it touched
+	// them; agentChanges is what that makes of them now.
+	baseline     *diff.Baseline
+	agentChanges []AgentChange
+	reviewWarned bool
+
 	roots   []*FileNode
 	tabs    []Tab
 	terms   []*Terminal
@@ -136,6 +145,12 @@ type App struct {
 	agentPicker       bool
 
 	lastGitRefresh time.Time
+
+	// Persistence: the metadata store, the key its layout row uses, and the ACP
+	// sessions the open workspace had when it was last used.
+	store     *persistence.Store
+	layoutKey string
+	sessions  map[string]string
 
 	// Startup benchmark; only used when bench mode is on (bench.go).
 	bench      bool
@@ -327,6 +342,8 @@ func (a *App) Shutdown() {
 	if a.closed.Swap(true) {
 		return
 	}
+	// The layout is saved from the tabs, so it goes before the workspace does.
+	a.closeStore()
 	a.closeTerminals()
 	a.closeWorkspace()
 	a.cancel()

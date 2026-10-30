@@ -123,7 +123,11 @@ SQLite 走 purego 动态加载、不需要 cgo；不需要 Node.js 参与 IDE �
 `terminal: downloading .../libghostty-vt-windows-amd64.dll into %LOCALAPPDATA%\mygo
 atives\...`，
 之后 PowerShell 正常启动、输入回显正常。**离线首次运行会失败**，
-所以 CI 的 `go build` 无法覆盖这件事，必须靠 `mygo build` 打包验证（排在 P3）。
+所以 CI 的 `go build` 无法覆盖这件事，必须靠 `mygo build` 打包验证。
+
+P3 起 `plugins/sqlite` 在启动时就会被使用（`App.Restore` 打开 `<config>/omo/omo.db`），
+所以上面那条“首次运行下载”现在是启动路径的一部分：开发机上第一次 `go test ./internal/persistence`
+与第一次 `go run .` 都会先下载并校验 SQLite 库；仓库里的测试用 `:memory:`，仍然需要这个库。
 
 ### 5.3 Go 与工具链
 

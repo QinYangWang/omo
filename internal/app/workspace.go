@@ -33,6 +33,7 @@ func (a *App) openWorkspace(dir string) {
 	a.reloadRoot()
 	a.refreshGit(true)
 	a.startWatch()
+	a.workspaceOpened()
 	a.setNotice(Notice{Key: "noticeWorkspaceOpened", Args: map[string]any{"name": ws.Name()}})
 }
 
@@ -52,6 +53,9 @@ func (a *App) closeWorkspace() {
 	a.repo = nil
 	a.changes = nil
 	a.branch = ""
+	a.resetReview()
+	a.sessions = nil
+	a.layoutKey = ""
 	a.roots = nil
 	a.tabs = nil
 	a.Layout.ActiveTab = 0
@@ -160,7 +164,11 @@ func (a *App) onDiskChanged(paths []string) {
 		return // an event from a workspace that is already closed
 	}
 	seenDir := make(map[string]bool, len(paths))
+	reviewTouched := false
 	for _, rel := range paths {
+		if a.baseline.Has(rel) {
+			reviewTouched = true
+		}
 		if d := dirName(rel); !seenDir[d] {
 			seenDir[d] = true
 			a.invalidateDir(d)
@@ -186,6 +194,9 @@ func (a *App) onDiskChanged(paths []string) {
 			continue
 		}
 		a.reloadPreservingCaret(rel)
+	}
+	if reviewTouched {
+		a.refreshReview()
 	}
 	a.refreshGit(false)
 }
@@ -217,6 +228,16 @@ func (a *App) invalidateIn(nodes []*FileNode, rel string) bool {
 func (a *App) tabOf(rel string) int {
 	for i := range a.tabs {
 		if a.tabs[i].Kind == TabFile && a.tabs[i].Rel == rel {
+			return i
+		}
+	}
+	return -1
+}
+
+// diffTabOf finds the review tab showing rel's diff, or -1.
+func (a *App) diffTabOf(rel string) int {
+	for i := range a.tabs {
+		if a.tabs[i].Kind == TabDiff && a.tabs[i].Rel == rel {
 			return i
 		}
 	}

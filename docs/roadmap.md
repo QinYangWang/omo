@@ -298,13 +298,42 @@ Pi 1.4.0、`pi-acp` 0.0.34。真实测试保留在 `internal/agent/runtime_integ
 本机安装 WinLibs 后，`CGO_ENABLED=1 go test -race ./...` **全仓通过**。普通 `go test ./...`、
 `go vet ./...`、六平台无 cgo 构建也通过。
 
-## 9.3 下一步候选（P3 / P4 后续 / P5）
+## 9.3 下一步候选（P4 后续 / P5）
 
-- **P3 持久化**：SQLite schema/迁移、会话恢复；Diff 审查已随 P1 交付。
 - **P4 后续**：unstage、逐文件暂存、提交、分支切换；当前是状态列表、HEAD 对比与工作区范围内的整批暂存。
 - **P5 LSP**（选项 B）：自写子集客户端，接 `editor.State.OnCompletion/OnHover/OnDefinition`。
 
-## 9.4 P4 完成记录（2026-10-30，终端 + Git）
+## 9.4 P3 完成记录（2026-10-30）
+
+| 交付 | 落点 | 测试 |
+|---|---|---|
+| Agent 改动审查基准：`tool_call`/`permission` 的 `locations` 在被写之前抓一次文本（首见即定），单文件上限沿用 workspace 的 8 MiB、整体 64 MiB，超限即停止收录并提示 | `internal/diff/baseline.go`、`internal/app/review.go` | `baseline_test.go`、`app/review_test.go`（降级、外部路径） |
+| 审查列表（新 `TabReview`）：文件 + added/deleted 行数，行点击进单文件 Diff，头部「全部保留 / 全部回退」 | `internal/app/{app,review,intent}.go`、`internal/view/editor.go` | `review_test.go`、`shell_test.go`（布局文本） |
+| 逐 hunk 接受/拒绝写回：沿用 `editor.DiffState.Revert/Accept` + `ApplyReview`；「全部回退」删掉 Agent 新建的文件 | `internal/app/review.go`、`internal/workspace`（新增 `Remove`） | `TestAgentReviewPerHunkRevertWritesOnlyThatHunk`、`TestAgentReviewRejectRestoresEveryFile` |
+| SQLite 元数据：`schema_migrations`、workspaces / sessions / agent_events / permission_grants / ui_state，参数化 SQL，`PruneEvents`（行数 + 时长双上限），v1→v2 迁移 | `internal/persistence` | `store_test.go`（迁移保留数据、注入式路径、保留策略） |
+| 重启恢复：最近 Workspace、文件标签页与当前标签、Agent 的 `acp_session` 映射；下次启动把它交给 `session/load`，Agent 不支持时明确提示 | `internal/app/persist.go`、`internal/agent`（新增 `StartSession`）、`main.go` | `TestRestoreReopensTheWorkspaceAndItsTabs`、`TestRestoreRemembersTheAgentSession` |
+| Agent 事件摘要批量写 + 启动时裁剪（保留 1000 行 / 7 天） | `internal/app/{persist,agent}.go` | `TestPruneEventsHonoursBothLimits` |
+
+与验收条目的对应关系：
+
+1. 「3 个文件 + added/deleted」→ 审查列表；逐 hunk 写回由测试断言磁盘内容。
+2. 「未在 IDE 打开的文件也进审查」→ 基准取自 `tool_call` 的路径，与是否打开无关；watcher 事件只负责刷新（`onDiskChanged`）。
+3. 「baseline 超过 64 MiB 降级提示」→ `Baseline.Degraded()` + `noticeReviewTooLarge`，不再收录后续文件，不 OOM。
+4. 「重启恢复」→ `App.Restore`（`main.go` 启动时调用）；布局存文件标签页，Diff/审查标签页不存（它描述一个时刻，不是一个位置）。
+5. 「迁移不丢数据、参数化、PruneEvents」→ `store_test.go` 三项。
+6. 「退出后无孤儿 Agent」→ 沿用 P2 的 `closeAgent` → `Manager.Close` → ACP SDK 进程树清理；`Shutdown` 现在先 `closeStore` 再关工作区。
+
+**与路线图草案的偏差与限制（有意）**：
+
+- Agent 定义仍存 `<config>/omo/agents.json`，未迁到 SQLite：信任绑定的是可执行文件指纹，属于文件级的东西，
+  已经工作并有测试；迁库只增加回归面。`agents` 表暂不建（需要时作为一次迁移加入）。
+- 基准只覆盖 `tool_call` 报出的路径。Agent 通过自己的 shell 工具写文件时没有路径可抓，这类改动不进审查
+  （`shortcut: shell 写入的文件无法取基准，等 ACP 提供 watch/snapshot 再补`）。
+- 「全部回退」删除 Agent 新建的文件，而不是把它清空：基准只记录「当时不存在」。
+- 本机没有 GCC，`CGO_ENABLED=1 go test -race ./...` **本轮未跑**（P2 时跑过全仓）；普通 `go test ./...`、
+  `go vet`、`mygo vet`、六平台 `CGO_ENABLED=0` 构建通过。
+
+## 9.5 P4 完成记录（2026-10-30，终端 + Git）
 
 | 交付 | 落点 | 验证 |
 |---|---|---|
@@ -329,15 +358,6 @@ Pi 1.4.0、`pi-acp` 0.0.34。真实测试保留在 `internal/agent/runtime_integ
 `gitPlaceholder`/`statusNoRepo`；文件名为空格、单引号、`;`、`$()`、前导 `-` 时正常进索引且无
 shell 副作用，重命名整体进索引，子目录工作区不暂存上级（`repo_test.go`）。
 `go build` / `go vet` / `go test` / `mygo vet` 全绿。
-
-
-- [ ] `internal/workspace`：`os.OpenRoot` + `ReadFile/WriteFile(原子)/Stat/List/Canonical` + 大小与非普通文件限制。
-- [ ] `internal/workspace`：`mygo.WatchFiles`（`Ignore` 跳 `.git`/`node_modules`，`MaxEntries` 上限）→ 事件只当提示。
-- [ ] `internal/documents`：Buffer 权威源、`Save`、`ReloadFromDisk`、冲突状态（三选一对话框）。
-- [ ] `internal/view`：真实懒加载文件树（`ListState` 虚拟化）、每 Tab 真实 `editor.Buffer`、脏标记、`Cmd/Ctrl+S`。
-- [ ] 路径安全测试集：`../`、绝对路径、根外符号链接、FIFO、设备文件、超大文件。
-- [ ] 冲突测试：干净 Buffer 自动重载；脏 Buffer 弹冲突；两者都要有断言。
-- [ ] 更新 `docs/benchmarks.md`：加入「打开 1k/10k 文件」与「1 MiB 文件编辑」两组数字。
 
 ## 10. 决策记录（已确认）
 

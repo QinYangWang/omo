@@ -100,6 +100,13 @@ func NewManager() *Manager {
 func (m *Manager) Events() <-chan Event { return m.events }
 
 func (m *Manager) Start(ctx context.Context, def Definition, cwd string) error {
+	return m.StartSession(ctx, def, cwd, "")
+}
+
+// StartSession starts the agent and asks it to load restoreID, the ACP session a
+// previous run of this workspace used. An agent without session/load gets a new
+// session instead and says so (EventSessionReplaced).
+func (m *Manager) StartSession(ctx context.Context, def Definition, cwd, restoreID string) error {
 	m.lifecycle.Lock()
 	defer m.lifecycle.Unlock()
 	m.mu.Lock()
@@ -114,7 +121,7 @@ func (m *Manager) Start(ctx context.Context, def Definition, cwd string) error {
 	}
 	ctx, done := m.startOperation(ctx)
 	defer done()
-	return m.start(ctx, def, cwd, "")
+	return m.start(ctx, def, cwd, restoreID)
 }
 
 func (m *Manager) Restart(ctx context.Context, def Definition, cwd string) error {
