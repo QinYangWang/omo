@@ -1,4 +1,4 @@
-// Command omo is a native Go AI coding IDE with ACP agent support.
+// Command omo is a native Go console for local ACP agents.
 //
 // The UI, workspace and ACP client are assembled here; their implementations
 // stay behind internal packages. See docs/roadmap.md and docs/architecture.md.
@@ -8,12 +8,18 @@ import (
 	"log"
 
 	"github.com/QinYangWang/omo/internal/app"
+	"github.com/QinYangWang/omo/internal/kit"
 	"github.com/QinYangWang/omo/internal/view"
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
 func main() {
+	// Geist and Geist Mono are embedded (OFL); without them the window still
+	// draws, in the system's face.
+	if err := kit.RegisterFonts(); err != nil {
+		log.Print(err)
+	}
 	a := app.New()
 	// A known ACP agent on PATH shows up in Agents… without being typed in.
 	a.DetectAgents()
@@ -28,12 +34,13 @@ func main() {
 			Title:     "omo",
 			Width:     1280,
 			Height:    800,
-			MinWidth:  720,
-			MinHeight: 480,
-			// The view draws the title bar, its menu and the window's own
-			// controls' room (Context.TitleBar), so the chrome is one piece.
+			MinWidth:  960,
+			MinHeight: 600,
+			// The view draws the title bar: the sidebar's top and the main
+			// area's 48 DIP header, with room for the window's own controls
+			// (Context.TitleBar), so the chrome is one piece.
 			TitleBarStyle:  mygo.TitleBarHidden,
-			TitleBarHeight: 38,
+			TitleBarHeight: 48,
 			// Reopens where the user left it.
 			StateKey: "main",
 			// Content shows the interface MyGo draws itself; there is no web
