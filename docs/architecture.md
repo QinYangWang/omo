@@ -343,7 +343,7 @@ omo/
 ├── .github/workflows/ci.yml
 ├── internal/
 │   ├── app/                // ★P0 AppState、Intent、命令、bench 模式
-│   ├── view/               // ★P1 视图：shell、sidebar、editor、agent panel、bottom panel、statusbar
+│   ├── view/               // 视图：侧栏、新会话、会话、检查器/侧面板、浮层、定时任务、设置（Doop v2）
 │   ├── commands/           // ★P0 命令表（按钮/快捷键/菜单同一路径）
 │   ├── i18n/               // ★P0 catalog + locales/{en,zh-Hans}.json
 │   ├── workspace/          // ★P1 os.Root、读写、watcher、路径安全检查

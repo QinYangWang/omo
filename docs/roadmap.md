@@ -360,6 +360,37 @@ Pi 1.4.0、`pi-acp` 0.0.34。真实测试保留在 `internal/agent/runtime_integ
 shell 副作用，重命名整体进索引，子目录工作区不暂存上级（`repo_test.go`）。
 `go build` / `go vet` / `go test` / `mygo vet` 全绿。
 
+## 9.6 Doop 重设计（2026-11-07，分支 `feat/doop-redesign`）
+
+设计源：Doop 画布 `C73kBnDHCY`，风格指南 omo-app-style v2（28 个界面 × 深/浅）。
+窗口从“编辑器优先的三栏 IDE”改成“本地 Agent 控制台”，规则见 [DESIGN.md](../DESIGN.md)，布局与截图见 [ui.md](ui.md)。
+
+| 交付 | 落点 | 测试 |
+|---|---|---|
+| v2 token（明暗两套）、Geist/Geist Mono（OFL 嵌入）、v2 组件、Lucide 1.70 图标 | `internal/kit` | `kit_test.go` |
+| ACP plan 结构化（`PlanEntry`）、进程 stderr 尾部（`Manager.Output`） | `internal/agent` | `manager_test.go` |
+| 屏幕/面板/浮层状态与 intent、偏好持久化、会话标题、最近项目、工具卡细节、计时、搜索、提交、会话内授权、错误卡动作 | `internal/app/console.go` 等 | `console_test.go`、`app_test.go` |
+| 侧栏、新会话、会话（工具卡、权限卡、错误卡）、检查器、侧面板、浮层、定时任务、设置 07–15 / 20–24 | `internal/view` | `shell_test.go`、`screenshots_test.go`（28 屏 × 2） |
+
+**和设计的差距（有界面、没后端或只存了值）：**
+
+1. **多会话并行**：仍是一个工作区一个活跃 Agent/Session；侧栏的会话列表来自元数据库（每个 Agent 一条），
+   不同 Agent 的进程不能同时跑。“本机 Agent”里的“N 会话”最多是 1。
+2. **会话模式**（询问/自动编辑/只计划）：保存在偏好里，未通过 ACP `session/set_mode` 发给 Agent。
+3. **模型**：ACP 没有标准的模型列表；Agent 芯片与选择器只显示 Agent，不显示“· 模型”。
+4. **上下文占用、费用、AI 用量页**：Agent 没有通过 ACP 回报用量，状态行不显示上下文 %/费用，用量页是空状态。
+5. **pid**：检查器不显示进程号（SDK 的 `stdio.Process` 不暴露）。
+6. **权限卡里的 mini diff**：ACP 权限请求里的 diff 内容还没解析，卡片只列路径/命令/输入摘要。
+7. **定时任务**：任务、开关、新建表单是真的（存进偏好），但**没有调度器**，任务不会运行，运行记录为空。
+8. **MCP 服务器、Agent 角色、记忆、分享、GitHub 连接**：只有说明、规则开关（存偏好）和空状态，没有对应后端。
+9. **“提交并开 PR”**：只做了“提交”（`git add -A` + `git commit`），开 PR 需要 GitHub 连接。
+10. **“+” 附件**：输入框只有 `@`（插入 `@`），没有附件选择。
+11. **Agent 标识**：不附带第三方 favicon（版权），用首字母方块，Pi 用 Lucide `pi`。
+12. **设置里只存值的项**：界面字号、代码字体、发送键、追加消息方式、通知、语言、开机启动、关闭行为、日志天数、
+    更新渠道、空闲关闭、独立工作树、项目外写入、分享默认值。外观（主题）、工具调用折叠、diff 方式已生效。
+13. **CJK 字体**：不嵌入 Noto Sans SC（体积），中文用系统字体；headless 截图需要 `OMO_PREVIEW_CJK`。
+14. **窗口按钮**：设计在标题栏里画 Windows 风格按钮；omo 用系统的（`TitleBarHidden` + `c.TitleBar()` 留位）。
+
 ## 10. 决策记录（已确认）
 
 | 事项 | 结论 | 影响 |

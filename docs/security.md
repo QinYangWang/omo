@@ -144,7 +144,11 @@ Agent 发起 session/request_permission
    | 执行命令 | 含命令 argv | 「运行命令」+ 逐行 argv |
    | 其它 | 无法归类 | 「未分类请求」+ 原始摘要（脱敏、截断） |
 6. **`allow_always` 收窄**：作用域 `(AgentID, WorkspaceID, Risk)`，可在设置里逐条撤销；
-   不提供「永远允许任意命令」。
+   不提供「永远允许任意命令」。持久化的收窄授权落地前，omo **从不把 `allow_always` 发给 Agent**。
+   权限卡上的「本会话内始终允许」是 omo 自己的授权：作用域是当前会话里的同一种工具 `kind`
+   （没有 kind 时按标题），只存在内存里；之后同类请求由 omo 用该请求自己的 `allow_once` 选项回答，
+   并在工具卡上标「你已允许」。新会话、换 Agent、断开连接都会清掉它（`internal/app/console.go`
+   的 `allowForSession` / `autoAllow`）。
 7. **命令预览不做 shell 转义展示**：直接显示 argv 数组（每个元素一行），
    避免用户被 `sh -c` 字符串误导。
 

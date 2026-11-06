@@ -11,23 +11,23 @@
 
 ## 上手
 
-`kit.New(c)` 每帧在根调用一次（`view.Shell` 已经调了）：它把 palette 交给窗口控件，
-返回本帧的 token。子面板把 `kit.Theme` 当参数往下传，**不要**在每个面板里重复 `kit.New`。
+`kit.NewFor(c, mode)` 每帧在根调用一次（`view.Shell` 已经调了）：它把 palette 交给窗口控件，
+返回本帧的 token。子面板把 `kit.Theme` 当参数往下传，**不要**在每个面板里重复调用。
 
 ```go
 func myPanel(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
-	ui.Column(c).Fill().Background(st.Panel).Children(func() {
-		st.SectionRow(c, i18n.T(loc, "mySection"))
+	ui.Column(c).Fill().Children(func() {
+		st.Section(c, tr(c, "mySection"), nil)
 		st.Row(c, kit.RowSpec{
-			Icon:    kit.IconFileCode,
+			Icon:    kit.IconFileDiff,
+			IconClr: st.StatusColor("M"),
 			Label:   "main.go",
-			Meta:    "M",
-			MetaClr: st.Warning,
-			OnClick: func() { a.Dispatch(app.OpenFile{Path: "main.go"}) },
+			Mono:    true,
+			Badge:   "M",
+			OnClick: func() { a.Dispatch(app.OpenDiff{Path: "main.go"}) },
 		})
-		st.IconButton(c, kit.IconRefresh, i18n.T(loc, "refresh"), false, func() {
-			a.Dispatch(app.RefreshChanges{})
+		st.Btn(c, kit.Button{Label: tr(c, "commit"), Kind: kit.ButtonPrimary, Small: true}, func() {
+			a.Dispatch(app.CommitChanges{})
 		})
 	})
 }
@@ -35,50 +35,55 @@ func myPanel(c *ui.Context, a *app.App, st kit.Theme) {
 
 ## Token（`kit.Theme`）
 
+值与用途见 [DESIGN.md](../DESIGN.md) §2；这里只列字段。`kit.New(c)` 跟随系统外观，
+`kit.NewFor(c, kit.Mode(a.Prefs().Theme))`（`view.Shell` 用它）按 设置 → 外观 的选择。
+
 | 字段 | 用途 |
 |---|---|
-| `BG` | 编辑器、会话、终端的底（内容面，比外壳高一层） |
-| `Panel` | 外壳的底：顶栏、两侧栏、状态栏、底部面板 |
-| `Surface` / `SurfaceHover` / `SurfacePressed` | 控件面（按钮、输入框），悬停与按下 |
-| `Border` | 所有 1 DIP 分隔线；不要用 `Surface` 当线 |
-| `Text` / `Muted` / `Faint` | 正文 / 次要文字 / 提示文字 |
-| `Accent` / `AccentText` | 焦点色（Geist 蓝）：当前页图标、焦点环、链接、可点图标；**不当装饰用** |
-| `Fill` / `FillText` | 实心按钮（`ui.PrimaryButton`）：靠对比而不是色相（暗白亮黑） |
-| `Hover` / `Selected` | 行悬停、行被选中（半透明，可叠在 `Panel`/`BG` 上） |
-| `Success` / `Danger` / `Warning` | 加/删/改、错误、警告 |
-| `Line` / `Guide` / `Gutter` / `Selection` / `Tokens` | 编辑器专用：光标行、缩进线、行号、选中、语法配色 |
-| `FontMeta` / `FontUI` / `FontList` | 11 / 12.5 / 12.5 DIP：小标题、界面文字、列表行 |
-| `RowH` / `TabH` / `TitleH` / `BarH` / `HeadH` | 列表行 24、标签条 34、面板标题 30、状态栏 26、顶栏 38 |
-| `Pad` / `Gap` | 面板内边距 10、控件间距 6 |
-| `RadiusS` / `RadiusM` / `RadiusL` | 圆角 4（小内盒）/ 6（控件、行、标签）/ 10（弹窗） |
-| `LeftW` / `RightW` | 左侧会话栏 260、右侧栏 280 |
+| `BG` / `Side` / `Surface` / `Raised` | 主区 / 侧栏与设置导航 / 卡片与输入框 / 弹层 |
+| `Hover` / `Selected` | 悬停 / 选中行 |
+| `Border` / `Border2` | 分隔线 / 控件描边 |
+| `Text` / `Text2` / `Text3` | 正文 / 次要 / 注释 |
+| `Accent` / `AccentBg` / `OnAccent` | 唯一强调色、它的淡底、强调色上的字 |
+| `OK` `OKBg` / `Warn` `WarnBg` `WarnLine` / `Err` `ErrBg` `ErrLine` | 状态色、淡底、描边 |
+| `AddBg` / `DelBg` / `Code` / `Scrim` / `Shadow` | diff 行 / 代码井 / 遮罩 / 唯一阴影 |
+| `Panel` `Muted` `Faint` `Success` `Danger` `Warning` | 兼容别名（= Side、Text2、Text3、OK、Err、Warn），给编辑器用 |
+| `Line` / `Guide` / `Gutter` / `Selection` / `Tokens` | 编辑器与 diff |
+| `FontMeta` 11 / `FontSmall` 12 / `FontRow` 12.5 / `FontUI` 13 / `FontTitle` 13.5 / `FontH1` 20 / `FontDisplay` 30 | 字号 |
+| `RowH` 30 / `HeadH` 48 / `CtlH` 30 / `BarH` 34 | 高度 |
+| `Pad` 16 / `Gap` 8 | 间距 |
+| `RadiusTag` 4 / `RadiusS` 6 / `RadiusM` 10 / `RadiusL` 12 | 圆角 |
+| `SideW` 252 / `InspectorW` 300 / `PanelW` 520 / `SettingsNavW` 236 / `ColumnW` 720 | 固定宽度 |
 
-明暗两套在 `internal/kit/theme.go` 的 `darkPalette()` / `lightPalette()`，程序跟随系统外观。
+字体：`kit.FontSans`（Geist）与 `kit.FontMono`（Geist Mono），`kit.RegisterFonts()` 注册嵌入的 OFL 字体。
 
 ## 组件
 
-组件都是 `func (t Theme) X(c *ui.Context, ...)`，在 `c` 上往下画，返回 `void`。
+组件都是 `func (t Theme) X(c *ui.Context, ...)`，在 `c` 上往下画。
 
-| 组件 | 签名要点 | 用在哪 |
-|---|---|---|
-| `HRule` / `VRule` | 无参数 | 面板之间的 1 DIP 分隔线（横/竖） |
-| `TabStrip` / `ActiveTab` | 返回颜色 | 标签条底、激活标签底（明暗两套都"浮"起来） |
-| `Row` | `kit.RowSpec` | 文件树、改动列表、会话列表：一行文字 + 图标 + 右侧标记 |
-| `IconColor` | `(active bool) ui.Color` | 行图标的"安静/点亮"两态 |
-| `SectionLabel` / `SectionRow` | 文本 | 面板里的分区标题：句首大写、`Muted`、无字距 |
-| `SectionHeader` | `(title string, open *bool)` | 可折叠分区标题（文件树的根节点） |
-| `Chip` | `(label string, active bool, onClick func())` | 轻量开关：状态栏 `Panel` / `Sidebar`、终端页签 |
-| `IconChip` | 同上 + `*ui.SVG` | 带图标的轻量开关（终端 / 问题 / 输出） |
-| `IconButton` | `(icon, label, active, onClick)` | 外壳里的方形图标按钮；`label` 同时是 tooltip 与无障碍名 |
-| `ActionRow` | `(icon, label, meta, onClick)` | 宽动作行：欢迎页、会话窗口、运行页的快捷指令 |
-| `IconTabs` | `[]kit.IconTab` | 右侧栏的图标标头；`Active` 的是当前页 |
-| `EmptyState` | `(icon, text)` | 没有内容可显示的面板 |
-| `FileIcon` | `(name string) (*ui.SVG, ui.Color)` | 按扩展名给文件图标与语言色 |
-| `EditorTheme` | `c *ui.Context` | 编辑器 / diff 的配色，从 token 生成 |
-| `Lang` | `(dark, light string) ui.Color` | 语言色在明暗两套下的取值 |
-
-`RowSpec` 的字段：`Indent`（缩进像素）、`Arrow`（折叠箭头）、`Icon`/`IconClr`、
-`Dot`（未保存圆点）、`Label`、`Meta`/`MetaClr`（右侧小字，如 git 状态）、`Active`、`Tip`（tooltip）、`OnClick`。
+| 组件 | 用在哪 |
+|---|---|
+| `HRule` / `VRule` | 1 DIP 分隔线 |
+| `Mono` / `Label` | 等宽文本（路径、命令、数字）/ 单行界面文本 |
+| `Btn(kit.Button{Label, Icon, Kind, Small, Key, Width})` | 主按钮（`ButtonPrimary`，钴蓝）、默认（描边）、幽灵；`Key` 画键帽（允许一次 `Enter`） |
+| `IconButton` | 28 DIP 图标按钮，`label` 是 tooltip 和无障碍名 |
+| `TitleButton` | 标题栏按钮（计划、`+N −N`） |
+| `Chip` | 24 DIP 描边芯片（Agent、项目、分支） |
+| `NavItem` | 30 DIP 导航行（侧栏动作、设置页），右侧可带快捷键 |
+| `Section` / `SmallIconButton` | 侧栏分组标签与它右侧的小动作 |
+| `Tag(icon, label, tone)` / `Dot(tone)` | 20 DIP 状态标签 / 7 DIP 状态点；`ToneOff` 是空心环 |
+| `Keys(...)` / `KeyHint` | 键帽 / 纯文本快捷键 |
+| `Seg(&sel, labels...)` | 分段控件（Side 井 + Surface 选中） |
+| `Switch(&on)` / `Toggle(on, label, fn)` | 开关：绑定字段 / 调用方自己改值 |
+| `SelectBox(label, &sel, options)` | 下拉外观；点一次换下一项（无弹层，状态真实） |
+| `Card` / `SettingsCard(rows...)` / `SettingRow(title, desc, control)` | 卡片 / 带分隔的设置卡 / 设置行 |
+| `Bar(frac, width, color)` | 4 DIP 进度条（计划进度） |
+| `Avatar` / `AgentMark` | 用户首字母 / Agent 标识（首字母方块，Pi 用 `pi` 字形） |
+| `Popover(e)` | 浮层样式：Raised + Border2 + 12 圆角 + 唯一阴影 |
+| `EmptyState(icon, title, text)` | 没有内容时 |
+| `Row(kit.RowSpec)` | 列表行：缩进、图标（状态色）、mono 标签、右侧计数与状态字母 |
+| `DiffBlock` / `CodeWell` | diff 行（38 DIP 行号 + 符号列 + 整行淡底）/ 终端与进程输出 |
+| `FileIcon` / `StatusColor` | 文件图标（统一 `Text3`）/ A·M·D 的状态色 |
 
 ## 图标
 
@@ -92,30 +97,28 @@ func myPanel(c *ui.Context, a *app.App, st kit.Theme) {
 2. 跑 `./scripts/lucide-icons.sh`：脚本从 `icons.go` 里读名字下载对应 `.svg`，并删掉不再引用的文件；
 3. 把名字加进 `internal/kit/kit_test.go` 的 `TestIconsParse`（解析失败只写日志，不会崩）。
 
-Lucide 会重命名图标（`file-json` → `file-braces`、`trash-2` → `trash` 都是这么来的），
-脚本遇到 404 会直接报名字。**不要手抄 SVG path**：手抄的那套已经在换成官方文件时删掉了。
+脚本默认从 `lucide-static@1.70.0`（Doop 设计用的版本）取图标；Lucide 的 main 分支会重命名或删掉图标，
+脚本遇到 404 会直接报名字。`mustIcon` 把描边从 2 改成设计用的 1.75。**不要手抄 SVG path**：手抄的那套已经在换成官方文件时删掉了。
 
 ## 配方
 
-### 给右侧栏加一页
+### 给会话的侧面板加一页
 
-1. `internal/i18n/locales/{en,zh-Hans}.json` 加标题 key（如 `sidebarTimeline`）。
-2. `internal/app/app.go` 的 `Layout.RightSel` 约定新 id（如 `"timeline"`）；需要新状态就加 intent。
-3. `internal/view/shell.go` 写 `func timelinePanel(c, a, st kit.Theme)`，用 `st.Row` / `st.EmptyState` 组合。
-4. `rightSidebar` 的 `switch` 加 `case "timeline"`；`rightHeader` 的 `IconTabs` 加一项：
+1. `internal/i18n/locales/{en,zh-Hans}.json` 加标题 key（如 `panelTimeline`）。
+2. `internal/app/console.go` 加常量 `PanelTimeline = "timeline"`；`ToggleSidePanel{Name}` 已经能开关它。
+3. `internal/view/inspector.go`：`sidePanel` 的 tab 行加一个 `panelTab(...)`，`switch` 加 `case app.PanelTimeline`，
+   页面本身用 `st.Row` / `st.EmptyState` 组合。
+4. 测试：`internal/view/shell_test.go` 点一次这个 label；`screenshots_test.go` 的 `shotScreens` 加一屏。
 
-```go
-{Icon: kit.IconFilter, Label: i18n.T(loc, "sidebarTimeline"), Active: active("timeline"), OnClick: page("timeline")},
-```
+### 加一个设置页
 
-5. 测试：`internal/view/shell_test.go` 点一次这个 label 断言 `Layout.RightSel`；
-   `TestWriteScreenshots` 里加一张（见下文）。
+`internal/view/settings.go`：`settingsPages` 加一项（id、图标、标题 key、分组 key），`settingsPageBody` 的 `switch`
+加一个 `page…` 函数，用 `pageHead` + `h2` + `st.SettingsCard(segRow/switchRow/selectRow…)` 组合。要存的值放进
+`app.Prefs`（JSON 存在元数据库里，设置窗口关闭时保存）。
 
-### 加一条快捷指令（运行页）
+### 加一条快捷指令
 
-`internal/view/shell.go` 的 `quickCommands`：按项目根目录的标记文件（`go.mod`、`Makefile`…）返回
-`quickCommand{key, args}`，`args` 直接在项目根目录的新终端里跑（`app.RunCommand`）。
-新语言就加一个 case，不需要新面板。
+快捷指令是用户数据（`Prefs.Prompts`），在 设置 → 快捷指令 里编辑；内置的三条在 `app.defaultPrefs`。
 
 ### 加一个 token
 
@@ -123,16 +126,17 @@ Lucide 会重命名图标（`file-json` → `file-braces`、`trash-2` → `trash
 
 1. `internal/kit/theme.go` 的 `palette` 加字段，并在 `darkPalette()` / `lightPalette()` 赋值；
 2. `Theme` 加同名字段（导出，大驼峰）；
-3. `newTheme()` 从 palette 抄进 `Theme`。
+3. `NewFor()` 从 palette 抄进 `Theme`。
 
 ### 加一种文件图标
 
-`internal/kit/icons.go` 的 `Theme.FileIcon` 的 `switch ext`：选图标 + `t.Lang(深色, 浅色)`。
+`internal/kit/icons.go` 的 `Theme.FileIcon` 的 `switch ext`：只选图标；颜色由调用方按状态（`StatusColor`）给。
 
 ## 规则（都是踩过的坑）
 
 - **不要用 `Fill()` 画 1 DIP 线**：`Fill` 两个方向都撑满，线会变成整块遮住下面的内容（`FillWidth`/`FillHeight`）。
-- **点击目标不要嵌套**：可点元素内部的按钮必须是它的兄弟节点（见标签页的 `×`）。
+- **点击目标不要嵌套**：可点元素内部的按钮必须是它的兄弟节点（见定时任务表格行与它的开关）。
+- 浮层用 `view.floating`：遮罩和面板是兄弟节点，遮罩点一下或 Esc 关闭。
 - 字号、行高、宽度一律用 token；`12`、`24`、`260` 这类数字只出现在 `theme.go`。
 - 面板文案一律 `i18n.T` / `i18n.Tf`，两个 locale 都加。
 - 纯图标组件必须给 `Label`（`IconButton` / `IconTabs` 已经内置），否则无障碍树里是空的、测试也点不到。
@@ -143,5 +147,5 @@ Lucide 会重命名图标（`file-json` → `file-braces`、`trash-2` → `trash
 
 - 组件自己的测试：`internal/kit/kit_test.go`（`ui.NewTester` + `tt.Click(标签)` + 断言回调）。
 - 面板的测试：`internal/view/shell_test.go`（真实 `app.App` + 临时工作区）。
-- 截图：`OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots` 重写 `docs/ui/*.png`；
+- 截图：见 [ui.md](ui.md)（`OMO_SCREENSHOTS=1` 重写 `docs/ui/*.png`，`OMO_PREVIEW=<dir>` 写全部 56 张）；
   不带环境变量时该测试直接 skip，所以 `go test ./...` 不会改仓库。
