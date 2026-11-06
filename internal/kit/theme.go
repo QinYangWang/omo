@@ -6,6 +6,9 @@
 // from the Theme, and the look changes in one file (this one) rather than in
 // every panel. Use it instead of drawing with bare ui primitives and literal
 // colors; docs/kit.md shows the components and how to add one.
+//
+// The tokens are the Doop "omo-app-style" v2 system (DESIGN.md): a graphite
+// drawing desk, warm off-white text like tracing paper, and one cobalt pen.
 package kit
 
 import (
@@ -13,40 +16,49 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 )
 
-// palette is the look the chrome shares with the code: neutral surfaces, one
-// blue for focus and marks, contrast for primary actions, and syntax colors that
-// agree with it, in a dark window and in a light one.
+// Font families. RegisterFonts adds Geist and Geist Mono (SIL OFL 1.1, the
+// OFL.txt beside them) at start; Chinese falls back to the system's CJK face
+// (Microsoft YaHei UI, PingFang SC, Noto Sans SC/CJK).
+const (
+	FontSans = "Geist"
+	FontMono = "Geist Mono"
+)
+
+// Mode is the appearance the user chose in Settings → Appearance.
+type Mode string
+
+const (
+	// ModeSystem follows the operating system's light or dark appearance.
+	ModeSystem Mode = "system"
+	ModeLight  Mode = "light"
+	ModeDark   Mode = "dark"
+)
+
+// palette is one appearance of the system, named as the design's CSS variables
+// are (--bg, --side, --surface …) so a reviewer can diff the two.
 type palette struct {
 	dark bool
 
-	bg    ui.Color // the editor and the terminal
-	panel ui.Color // the header, the sidebars and the status bar
-	// surface is the face of buttons and inputs, surfaceHover and
-	// surfacePressed while hovered or pressed.
-	surface, surfaceHover, surfacePressed ui.Color
-	border                                ui.Color
+	bg      ui.Color // the main area
+	side    ui.Color // the sidebar, settings navigation, the well of a segmented control
+	surface ui.Color // cards, inputs, tool cards
+	raised  ui.Color // popovers and dialogs
+	hover   ui.Color
+	sel     ui.Color
+	border  ui.Color // dividers
+	border2 ui.Color // control outlines
 
-	text  ui.Color
-	muted ui.Color
-	faint ui.Color
+	text, text2, text3 ui.Color
 
-	accent     ui.Color // marks, icons and the focus ring
-	accentText ui.Color
-	fill       ui.Color // the accent under a button's label
-	fillText   ui.Color
+	accent, accentBg, onAccent ui.Color
 
-	hover    ui.Color // a row under the pointer
-	selected ui.Color // a chosen row
-
-	success ui.Color
-	danger  ui.Color
-	warning ui.Color
-
-	line      ui.Color // the caret's line, in the editor
-	guide     ui.Color // indent guides
-	gutter    ui.Color // line numbers
-	selection ui.Color // selected text
-	scrollbar ui.Color
+	ok, okBg                   ui.Color
+	warn, warnBg, warnLine     ui.Color
+	err, errBg, errLine        ui.Color
+	addBg, delBg               ui.Color
+	code, scrim, shadow        ui.Color
+	line, guide, gutter, selTx ui.Color
+	scrollbar                  ui.Color
 
 	tokens map[editor.TokenKind]ui.Color
 }
@@ -58,81 +70,96 @@ func paletteFor(dark bool) palette {
 	return lightPalette()
 }
 
-// The palette comes from Vercel's Geist scale, which the design rules in
-// DESIGN.md follow: neutral grays for every surface, one blue for focus and
-// marks, the strength of a primary button from contrast (white on black in the
-// dark window, black on white in the light one), and green/amber/red only for
-// state. The hex values are the oklch tokens of vercel-brand.css converted to
-// sRGB (gray 100/200/300, gray 900/1000, blue 700/900, green 900, amber 900,
-// red 700); the alpha borders are its gray-alpha tokens.
+// darkPalette is the night drawing desk: graphite, warm off-white text, the
+// cobalt accent lifted to #7C93FF so it holds against #131416.
 func darkPalette() palette {
 	p := palette{
-		dark:           true,
-		bg:             ui.Hex("#0a0a0a"), // raised surface: the code and the session
-		panel:          ui.Hex("#000000"), // the chrome: header, sidebars, status bar
-		surface:        ui.Hex("#1a1a1a"),
-		surfaceHover:   ui.Hex("#1f1f1f"),
-		surfacePressed: ui.Hex("#292929"),
-		border:         ui.RGBA(255, 255, 255, 0.12),
-		text:           ui.Hex("#ededed"),
-		muted:          ui.Hex("#a0a0a0"),
-		faint:          ui.Hex("#7a7a7a"),
-		accent:         ui.Hex("#47a8ff"), // focus, active marks, links
-		accentText:     ui.Hex("#000000"),
-		fill:           ui.Hex("#ededed"), // primary button: light on dark
-		fillText:       ui.Hex("#000000"),
-		hover:          ui.RGBA(255, 255, 255, 0.06),
-		selected:       ui.RGBA(255, 255, 255, 0.10),
-		success:        ui.Hex("#00ca50"),
-		danger:         ui.Hex("#f13242"),
-		warning:        ui.Hex("#ff9300"),
-		line:           ui.RGBA(255, 255, 255, 0.035),
-		guide:          ui.RGBA(255, 255, 255, 0.08),
-		gutter:         ui.Hex("#878787"),
-		selection:      ui.RGBA(255, 255, 255, 0.14),
-		scrollbar:      ui.RGBA(255, 255, 255, 0.16),
+		dark:      true,
+		bg:        ui.Hex("#131416"),
+		side:      ui.Hex("#0F1012"),
+		surface:   ui.Hex("#18191C"),
+		raised:    ui.Hex("#1D1E22"),
+		hover:     ui.Hex("#222327"),
+		sel:       ui.Hex("#26272C"),
+		border:    ui.Hex("#26272B"),
+		border2:   ui.Hex("#34353B"),
+		text:      ui.Hex("#ECECE7"),
+		text2:     ui.Hex("#A3A39D"),
+		text3:     ui.Hex("#6D6D68"),
+		accent:    ui.Hex("#7C93FF"),
+		accentBg:  ui.RGBA(124, 147, 255, 0.13),
+		onAccent:  ui.Hex("#0D0E14"),
+		ok:        ui.Hex("#4CC38A"),
+		okBg:      ui.RGBA(76, 195, 138, 0.12),
+		warn:      ui.Hex("#E8B04A"),
+		warnBg:    ui.RGBA(232, 176, 74, 0.10),
+		warnLine:  ui.RGBA(232, 176, 74, 0.45),
+		err:       ui.Hex("#F2726B"),
+		errBg:     ui.RGBA(242, 114, 107, 0.10),
+		errLine:   ui.RGBA(242, 114, 107, 0.40),
+		addBg:     ui.RGBA(76, 195, 138, 0.10),
+		delBg:     ui.RGBA(242, 114, 107, 0.10),
+		code:      ui.Hex("#16171A"),
+		scrim:     ui.RGBA(6, 7, 9, 0.62),
+		shadow:    ui.RGBA(0, 0, 0, 0.45),
+		line:      ui.RGBA(255, 255, 255, 0.03),
+		guide:     ui.RGBA(255, 255, 255, 0.07),
+		gutter:    ui.Hex("#6D6D68"),
+		selTx:     ui.RGBA(124, 147, 255, 0.28),
+		scrollbar: ui.RGBA(255, 255, 255, 0.14),
 	}
-	p.setTokens("#47a8ff", "#00ca50", "#ededed", "#00ca50", "#ff9300",
-		"#7a7a7a", "#a0a0a0", "#878787", "#f13242", "#ff9300",
-		"#a0a0a0", "#ededed", "#47a8ff", "#00ca50")
+	p.setTokens("#7C93FF", "#4CC38A", "#ECECE7", "#4CC38A", "#E8B04A",
+		"#6D6D68", "#A3A39D", "#A3A39D", "#F2726B", "#E8B04A",
+		"#A3A39D", "#ECECE7", "#7C93FF", "#4CC38A")
 	return p
 }
 
+// lightPalette is the same desk by day: warm paper, ink-black text and a
+// deeper cobalt that keeps its contrast on white.
 func lightPalette() palette {
 	p := palette{
-		dark:           false,
-		bg:             ui.Hex("#ffffff"), // the code and the session
-		panel:          ui.Hex("#fafafa"), // the chrome
-		surface:        ui.Hex("#ffffff"),
-		surfaceHover:   ui.Hex("#f2f2f2"),
-		surfacePressed: ui.Hex("#e6e6e6"),
-		border:         ui.RGBA(0, 0, 0, 0.10),
-		text:           ui.Hex("#171717"),
-		muted:          ui.Hex("#4d4d4d"),
-		faint:          ui.Hex("#737373"),
-		accent:         ui.Hex("#006bff"), // focus, active marks, links
-		accentText:     ui.Hex("#ffffff"),
-		fill:           ui.Hex("#171717"), // primary button: dark on light
-		fillText:       ui.Hex("#ffffff"),
-		hover:          ui.RGBA(0, 0, 0, 0.04),
-		selected:       ui.RGBA(0, 0, 0, 0.06),
-		success:        ui.Hex("#107d32"),
-		danger:         ui.Hex("#d1002b"),
-		warning:        ui.Hex("#aa4d00"),
-		line:           ui.RGBA(0, 0, 0, 0.03),
-		guide:          ui.RGBA(0, 0, 0, 0.07),
-		gutter:         ui.Hex("#9a9a9a"),
-		selection:      ui.RGBA(0, 0, 0, 0.10),
-		scrollbar:      ui.RGBA(0, 0, 0, 0.18),
+		dark:      false,
+		bg:        ui.Hex("#FBFBFA"),
+		side:      ui.Hex("#F3F3F1"),
+		surface:   ui.Hex("#FFFFFF"),
+		raised:    ui.Hex("#FFFFFF"),
+		hover:     ui.Hex("#ECECE9"),
+		sel:       ui.Hex("#E6E6E2"),
+		border:    ui.Hex("#E3E3DF"),
+		border2:   ui.Hex("#D2D2CD"),
+		text:      ui.Hex("#18181A"),
+		text2:     ui.Hex("#5C5C58"),
+		text3:     ui.Hex("#8D8D88"),
+		accent:    ui.Hex("#3654D6"),
+		accentBg:  ui.RGBA(54, 84, 214, 0.09),
+		onAccent:  ui.Hex("#FFFFFF"),
+		ok:        ui.Hex("#1E8A55"),
+		okBg:      ui.RGBA(30, 138, 85, 0.10),
+		warn:      ui.Hex("#9A6200"),
+		warnBg:    ui.RGBA(214, 150, 30, 0.10),
+		warnLine:  ui.RGBA(184, 124, 10, 0.45),
+		err:       ui.Hex("#C8392F"),
+		errBg:     ui.RGBA(200, 57, 47, 0.08),
+		errLine:   ui.RGBA(200, 57, 47, 0.35),
+		addBg:     ui.RGBA(30, 138, 85, 0.09),
+		delBg:     ui.RGBA(200, 57, 47, 0.08),
+		code:      ui.Hex("#F6F6F4"),
+		scrim:     ui.RGBA(24, 24, 26, 0.32),
+		shadow:    ui.RGBA(20, 20, 24, 0.12),
+		line:      ui.RGBA(0, 0, 0, 0.03),
+		guide:     ui.RGBA(0, 0, 0, 0.07),
+		gutter:    ui.Hex("#8D8D88"),
+		selTx:     ui.RGBA(54, 84, 214, 0.18),
+		scrollbar: ui.RGBA(0, 0, 0, 0.18),
 	}
-	p.setTokens("#006bff", "#107d32", "#171717", "#107d32", "#aa4d00",
-		"#8f8f8f", "#4d4d4d", "#707070", "#d1002b", "#aa4d00",
-		"#4d4d4d", "#171717", "#006bff", "#107d32")
+	p.setTokens("#3654D6", "#1E8A55", "#18181A", "#1E8A55", "#9A6200",
+		"#8D8D88", "#5C5C58", "#5C5C58", "#C8392F", "#9A6200",
+		"#5C5C58", "#18181A", "#3654D6", "#1E8A55")
 	return p
 }
 
 // setTokens maps the code colors of the editor onto the palette, so code reads
-// in the same key as the chrome.
+// in the same key as the chrome: no hue outside the system's five.
 func (p *palette) setTokens(keyword, typ, function, str, number, comment, operator, punctuation, tag, attribute, meta, heading, link, code string) {
 	p.tokens = map[editor.TokenKind]ui.Color{
 		editor.TokenText:        p.text,
@@ -155,9 +182,9 @@ func (p *palette) setTokens(keyword, typ, function, str, number, comment, operat
 		editor.TokenHeading:     ui.Hex(heading),
 		editor.TokenLink:        ui.Hex(link),
 		editor.TokenCode:        ui.Hex(code),
-		editor.TokenInserted:    p.success,
-		editor.TokenDeleted:     p.danger,
-		editor.TokenInvalid:     p.danger,
+		editor.TokenInserted:    p.ok,
+		editor.TokenDeleted:     p.err,
+		editor.TokenInvalid:     p.err,
 	}
 }
 
@@ -167,140 +194,156 @@ func (p *palette) setTokens(keyword, typ, function, str, number, comment, operat
 type Theme struct {
 	Dark bool
 
-	// BG is the editor's and the terminal's background; Panel is the chrome's:
-	// the header, the sidebars, the status bar.
-	BG    ui.Color
-	Panel ui.Color
-	// Surface is the face of controls, SurfaceHover and SurfacePressed while
-	// hovered or pressed; Border is every 1 DIP rule.
-	Surface, SurfaceHover, SurfacePressed ui.Color
-	Border                                ui.Color
+	// BG is the main area; Side the sidebar, the settings navigation and the
+	// well of a segmented control; Surface cards, inputs and tool cards;
+	// Raised popovers and dialogs.
+	BG, Side, Surface, Raised ui.Color
+	// Hover and Selected are a row under the pointer and a chosen row.
+	Hover, Selected ui.Color
+	// Border divides; Border2 outlines controls.
+	Border, Border2 ui.Color
 
-	Text  ui.Color
-	Muted ui.Color
-	Faint ui.Color
+	// Text, Text2 and Text3: body, secondary, notes.
+	Text, Text2, Text3 ui.Color
 
-	Accent     ui.Color // marks, icons and the focus ring
-	AccentText ui.Color
-	Fill       ui.Color // the accent under a button's label
-	FillText   ui.Color
+	// Accent is the one accent: the primary button, what is in progress, the
+	// focus and checked switches. AccentBg tints a current row; OnAccent is
+	// text on the accent.
+	Accent, AccentBg, OnAccent ui.Color
 
-	Hover    ui.Color // a row under the pointer
-	Selected ui.Color // a chosen row
+	// OK, Warn and Err are state only (and diff counts); Warn is reserved for
+	// "waiting for your approval".
+	OK, OKBg               ui.Color
+	Warn, WarnBg, WarnLine ui.Color
+	Err, ErrBg, ErrLine    ui.Color
+	AddBg, DelBg           ui.Color
 
-	Success ui.Color
-	Danger  ui.Color
-	Warning ui.Color
+	// Code is the well of terminals and code blocks; Scrim dims the window
+	// under a dialog (flat, no blur); Shadow is the one shadow, popovers only.
+	Code, Scrim, Shadow ui.Color
 
-	Line      ui.Color // the caret's line, in the editor
-	Guide     ui.Color // indent guides
-	Gutter    ui.Color // line numbers
-	Selection ui.Color // selected text
+	// Editor colors.
+	Line, Guide, Gutter, Selection ui.Color
+	Tokens                         map[editor.TokenKind]ui.Color
 
-	Tokens map[editor.TokenKind]ui.Color
+	// Aliases kept for the editor and older components.
+	Panel, Muted, Faint, Success, Danger, Warning ui.Color
 
-	// Type sizes in DIPs: meta text, interface text, list rows.
-	FontMeta float32
-	FontUI   float32
-	FontList float32
+	// Type sizes in DIPs.
+	FontMeta    float32 // 11: section labels, key caps, side notes
+	FontSmall   float32 // 12: chips, descriptions, mono paths
+	FontUI      float32 // 13: body
+	FontRow     float32 // 12.5: rows, buttons, tool cards
+	FontTitle   float32 // 13.5: the session title
+	FontH1      float32 // 20: a settings page
+	FontDisplay float32 // 30: the new-session question
 
-	// Row and bar heights.
-	RowH   float32
-	TabH   float32
-	TitleH float32
-	BarH   float32
-	HeadH  float32
+	// Heights.
+	RowH  float32 // 30: navigation and list rows
+	HeadH float32 // 48: the title bar of the main area and the sidebar top
+	CtlH  float32 // 30: buttons and selects
+	BarH  float32 // 34: the line under the composer
 
-	Pad float32
-	Gap float32
-	// RadiusS, RadiusM and RadiusL are the only corner radii: 4 for small
-	// inner boxes, 6 for controls and rows, 10 for dialogs.
-	RadiusS float32
-	RadiusM float32
-	RadiusL float32
-	// LeftW and RightW are the widths of the sessions panel and the right
-	// sidebar.
-	LeftW  float32
-	RightW float32
+	// Spacing: Pad inside a panel, Gap between controls of a group.
+	Pad, Gap float32
+
+	// RadiusS controls (6), RadiusM cards (10), RadiusL inputs, popovers and
+	// dialogs (12). RadiusTag is the 4 DIP of key caps and inline code.
+	RadiusTag, RadiusS, RadiusM, RadiusL float32
+
+	// Widths of the fixed columns.
+	SideW, InspectorW, PanelW, SettingsNavW, ColumnW float32
 }
 
-// New derives the palette from the window's appearance, hands it to the widgets
-// as their theme, and returns the tokens panels draw with. Widgets therefore
-// follow the same colors: buttons, scroll bars, the editor and the terminal.
-func New(c *ui.Context) Theme { return newTheme(c) }
+// New derives the theme from the window's appearance.
+func New(c *ui.Context) Theme { return NewFor(c, ModeSystem) }
 
-func newTheme(c *ui.Context) Theme {
+// NewFor derives the theme for the appearance the user chose, hands it to the
+// widgets as their theme and returns the tokens panels draw with. Widgets
+// therefore follow the same colors: buttons, scroll bars, the editor and the
+// terminal.
+func NewFor(c *ui.Context, mode Mode) Theme {
 	t := *c.Theme()
-	p := paletteFor(t.Dark)
+	dark := t.Dark
+	switch mode {
+	case ModeDark:
+		dark = true
+	case ModeLight:
+		dark = false
+	}
+	p := paletteFor(dark)
 
 	t.Dark = p.dark
 	t.Background = p.bg
 	t.Surface = p.surface
-	t.SurfaceHover = p.surfaceHover
-	t.SurfacePressed = p.surfacePressed
-	t.Border = p.border
+	t.SurfaceHover = p.hover
+	t.SurfacePressed = p.sel
+	t.Border = p.border2
 	t.Text = p.text
-	t.TextMuted = p.muted
-	// The plan is contrast, not hue: a light button in the dark window and a
-	// dark one in the light window, so PrimaryButton keeps its weight in either.
-	t.Accent = p.fill
-	t.AccentText = p.fillText
-	t.AccentHover = p.fill.Mix(contrastTint(p.dark), 0.12)
-	t.AccentPressed = p.fill.Mix(contrastTint(p.dark), 0.20)
-	t.Danger = p.danger
-	t.Warning = p.warning
-	t.Success = p.success
-	t.Selection = p.selection
+	t.TextMuted = p.text3
+	t.Accent = p.accent
+	t.AccentText = p.onAccent
+	t.AccentHover = p.accent.Mix(contrastTint(p.dark), 0.10)
+	t.AccentPressed = p.accent.Mix(contrastTint(p.dark), 0.18)
+	t.Danger = p.err
+	t.Warning = p.warn
+	t.Success = p.ok
+	t.Selection = p.selTx
 	t.Focus = p.accent.Alpha(0.55)
+	t.Inverse = p.text
+	t.InverseText = p.bg
 	t.Scrollbar = p.scrollbar
 	t.ScrollbarWidth = 8
-	t.Radius = 6
+	t.Radius = 7
 	t.Spacing = 4
 	t.FontSize = 13
+	t.Font = FontSans
 	c.SetTheme(&t)
 
 	return Theme{
-		Dark:         p.dark,
-		BG:           p.bg,
-		Panel:        p.panel,
-		Surface:      p.surface,
-		SurfaceHover: p.surfaceHover, SurfacePressed: p.surfacePressed,
-		Border:     p.border,
-		Text:       p.text,
-		Muted:      p.muted,
-		Faint:      p.faint,
-		Accent:     p.accent,
-		AccentText: p.accentText,
-		Fill:       p.fill,
-		FillText:   p.fillText,
-		Success:    p.success,
-		Danger:     p.danger,
-		Warning:    p.warning,
-		Hover:      p.hover,
-		Selected:   p.selected,
-		Line:       p.line,
-		Guide:      p.guide,
-		Gutter:     p.gutter,
-		Selection:  p.selection,
-		Tokens:     p.tokens,
+		Dark: p.dark,
+		BG:   p.bg, Side: p.side, Surface: p.surface, Raised: p.raised,
+		Hover: p.hover, Selected: p.sel,
+		Border: p.border, Border2: p.border2,
+		Text: p.text, Text2: p.text2, Text3: p.text3,
+		Accent: p.accent, AccentBg: p.accentBg, OnAccent: p.onAccent,
+		OK: p.ok, OKBg: p.okBg,
+		Warn: p.warn, WarnBg: p.warnBg, WarnLine: p.warnLine,
+		Err: p.err, ErrBg: p.errBg, ErrLine: p.errLine,
+		AddBg: p.addBg, DelBg: p.delBg,
+		Code: p.code, Scrim: p.scrim, Shadow: p.shadow,
+		Line: p.line, Guide: p.guide, Gutter: p.gutter, Selection: p.selTx,
+		Tokens: p.tokens,
 
-		FontMeta: 11,
-		FontUI:   12.5,
-		FontList: 12.5,
+		Panel: p.side, Muted: p.text2, Faint: p.text3,
+		Success: p.ok, Danger: p.err, Warning: p.warn,
 
-		RowH:   24,
-		TabH:   34,
-		TitleH: 30,
-		BarH:   26,
-		HeadH:  38,
+		FontMeta:    11,
+		FontSmall:   12,
+		FontUI:      13,
+		FontRow:     12.5,
+		FontTitle:   13.5,
+		FontH1:      20,
+		FontDisplay: 30,
 
-		Pad:     10,
-		Gap:     6,
-		RadiusS: 4,
-		RadiusM: 6,
-		RadiusL: 10,
-		LeftW:   260,
-		RightW:  280,
+		RowH:  30,
+		HeadH: 48,
+		CtlH:  30,
+		BarH:  34,
+
+		Pad: 16,
+		Gap: 8,
+
+		RadiusTag: 4,
+		RadiusS:   6,
+		RadiusM:   10,
+		RadiusL:   12,
+
+		SideW:        252,
+		InspectorW:   300,
+		PanelW:       520,
+		SettingsNavW: 236,
+		ColumnW:      720,
 	}
 }
 
@@ -317,8 +360,8 @@ func contrastTint(dark bool) ui.Color {
 // sits in the same window as the chrome rather than in a theme of its own.
 func (t Theme) EditorTheme(c *ui.Context) *editor.Theme {
 	th := editor.DefaultTheme(c.Theme())
-	th.Background = t.BG
-	th.Text = t.Text
+	th.Background = t.Code
+	th.Text = t.Text2
 	th.LineNumber = t.Gutter
 	th.ActiveLineNumber = t.Text
 	th.ActiveLine = t.Line
@@ -326,22 +369,21 @@ func (t Theme) EditorTheme(c *ui.Context) *editor.Theme {
 	th.InactiveSelection = t.Selection.Alpha(0.55)
 	th.Cursor = t.Accent
 	th.MatchingBracket = t.Faint
-	th.Match = t.Warning.Alpha(0.22)
-	th.CurrentMatch = t.Warning.Alpha(0.42)
-	th.Occurrence = t.Selected
+	th.Match = t.Warn.Alpha(0.22)
+	th.CurrentMatch = t.Warn.Alpha(0.42)
+	th.Occurrence = t.Hover
 	th.IndentGuide = t.Guide
 	th.ActiveIndentGuide = t.Guide.Alpha(2.2)
 	th.WrapGuide = t.Guide
 	th.Whitespace = t.Faint.Alpha(0.55)
-	th.Added, th.Deleted, th.Modified = t.Success, t.Danger, t.Accent
+	th.Added, th.Deleted, th.Modified = t.OK, t.Err, t.Accent
 	for kind, color := range t.Tokens {
 		th.Tokens[kind].Color = color
 	}
 	return th
 }
 
-// Lang picks a language's color for the current appearance, as file icons and
-// git marks do.
+// Lang picks a language's color for the current appearance, as file icons do.
 func (t Theme) Lang(dark, light string) ui.Color {
 	if t.Dark {
 		return ui.Hex(dark)

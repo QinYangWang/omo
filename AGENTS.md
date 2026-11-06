@@ -2,8 +2,9 @@
 
 给在本仓库里干活的 agent 的入口：先读什么、怎么验证、什么规矩不能破。
 
-`omo` 是一个**Go 原生**桌面 AI 编码 IDE：没有 Electron、没有 Node 运行时、没有 web view。
-UI 用 [MyGo](https://mygo.egoist.dev)（自绘），Agent 走 ACP v1（P2 核心已接）。
+`omo` 是一个**Go 原生**的本地 Agent 控制台：通过 ACP v1 启动本机的编码 Agent，看它们的计划、工具调用和改动，
+在需要时批准。没有 Electron、没有 Node 运行时、没有 web view。UI 用 [MyGo](https://mygo.egoist.dev)（自绘），
+视觉设计来自 Doop 画布 `C73kBnDHCY`（omo-app-style v2，见 DESIGN.md）。
 
 ## 1. 文档索引
 
@@ -35,7 +36,8 @@ CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build ./...    # 交叉编译（6 平
 CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build ./...
 
 go run .                                                 # 跑窗口
-OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots  # 重写 docs/ui/*.png
+OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots  # 重写 docs/ui/*.png（Linux 加 OMO_PREVIEW_CJK=<中文字体>）
+OMO_PREVIEW=/tmp/p go test ./internal/view -run TestWriteScreenshots  # 56 张深/浅预览，按 Doop 帧名
 ./scripts/lucide-icons.sh                                # 刷新 internal/kit/icons/*.svg（lucide.dev）
 ```
 
@@ -50,8 +52,9 @@ OMO_SCREENSHOTS=1 go test ./internal/view -run TestWriteScreenshots  # 重写 do
 main.go              装配：app.New → 窗口（TitleBarHidden）→ view.Shell → Run
 internal/app         状态、intent（Dispatch）、命令表、终端/Agent 会话、工作区、截图模式
 internal/agent       Agent Catalog、ACP raw 协议适配、进程/turn/权限治理
-internal/view        窗口与面板：shell / editor / chat(ACP 会话页) / terminal / statusbar
-internal/kit         UI 设计系统：token（theme.go）、组件（components.go）、图标（icons.go）
+internal/view        窗口：shell(侧栏) / home(新会话) / session(对话、工具卡、权限卡、错误卡) /
+                     inspector(检查器与 520 侧面板) / overlays(搜索、Agent 选择、信任、表单) / schedule / settings
+internal/kit         UI 设计系统：token（theme.go）、字体（fonts.go，Geist OFL）、组件（components.go）、图标（icons.go）
 internal/workspace   os.Root 边界、读写、大小上限、watcher
 internal/documents   编辑器缓冲、原子保存、磁盘冲突
 internal/git         系统 git：分支、改动、HEAD 文本
@@ -86,6 +89,8 @@ internal/commands    命令注册表
 - 视觉规则以 [DESIGN.md](DESIGN.md) 为准：单色、少表面、句首大写、只用三档圆角与给定间距，
   不用渐变/发光/装饰图标/卡片堆叠。
 - 1 DIP 分隔线用 `st.HRule()` / `st.VRule()`：`ui.Box(...).Fill()` 会两个方向都撑满，变成遮罩。
+- `Padding` / `Margin` 是 CSS 简写，但只接受 1、2、4 个值：三个值要写成四个。
+- 浮层用 `view.floating`（遮罩和面板是兄弟节点）；做不到的设计（模糊、渐变、第三方 logo）不要硬做，记进 roadmap §9.6。
 - 点击目标不能嵌套：可点元素里的按钮要写成**兄弟节点**。
 - 纯图标控件必须有 `Label`（`kit.IconButton` / `kit.IconTabs` 已内置），否则无障碍树和测试都找不到。
 - 图标用 `kit.Icon*`（官方 Lucide 图标，`internal/kit/icons/*.svg` 由 `scripts/lucide-icons.sh` 更新），
@@ -105,7 +110,8 @@ internal/commands    命令注册表
 - UI 测试用 `ui.NewTester` + `tt.Click("标签")` + `tt.HasText(...)`（`internal/view/shell_test.go`）。
 - 组件测试放包内（`internal/kit/kit_test.go`）。
 - `docs/ui/*.png` 由 `TestWriteScreenshots` 生成，**不要手工替换截图**；改了 UI 就重跑。
-  新增一个窗口状态时在 `screenshots_test.go` 里加一行，并更新 `docs/ui.md` 的表。
+  新增一个窗口状态时在 `screenshots_test.go` 的 `shotScreens` 里加一行，并更新 `docs/ui.md` 的表。
+- 会话类截图用 `App.Replay(prompt, worked, events...)` 回放 ACP 事件，不启动进程。
 
 ## 6. 提交与文档
 

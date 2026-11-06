@@ -1,473 +1,282 @@
 package view
 
 import (
-	"runtime"
-	"strings"
+	"time"
 
 	"github.com/QinYangWang/omo/internal/app"
-	"github.com/QinYangWang/omo/internal/git"
-	"github.com/QinYangWang/omo/internal/i18n"
 	"github.com/QinYangWang/omo/internal/kit"
 	"github.com/egoist/mygo/ui"
 )
 
-// Shell is the whole window: the header, the sessions panel on the left, the
-// middle area (tab strip, editor or session, bottom panel), the right sidebar
-// and the status bar.
+// Shell is the whole window: the 252 DIP sidebar and the main area, or the
+// settings, which cover both. Floating layers (search, the agent picker,
+// dialogs) are drawn last, over everything.
 //
-// Panels are separated by 1 DIP rules; the chrome shares one surface and the
-// editor keeps the window background, so the code is the brightest thing in the
-// window. The bottom panel gives its room back when hidden, and both sidebars
-// collapse to give the middle the room.
+// The window's own title bar is hidden: the sidebar's top and the main area's
+// 48 DIP header move the window, and leave room for its controls.
 func Shell(c *ui.Context, a *app.App) {
 	a.NoteFrame()
-	st := kit.New(c)
-	ui.Column(c).Fill().Background(st.BG).Children(func() {
-		appHeader(c, a, st)
-		st.HRule(c)
-		ui.Row(c).Grow(1).Children(func() {
-			if a.LeftOpen() {
-				sessionsPanel(c, a, st)
-				st.VRule(c)
-			}
-			mainArea(c, a, st)
-			if a.RightOpen() {
-				st.VRule(c)
-				rightSidebar(c, a, st)
+	st := kit.NewFor(c, kit.Mode(a.Prefs().Theme))
+	ui.Row(c).Fill().Background(st.BG).Children(func() {
+		if a.Layout.Settings {
+			settingsWindow(c, a, st)
+			return
+		}
+		if a.LeftOpen() {
+			sidebar(c, a, st)
+			st.VRule(c)
+		}
+		ui.Column(c).Grow(1).FillHeight().Children(func() {
+			switch a.Layout.Screen {
+			case app.ScreenSession:
+				sessionScreen(c, a, st)
+			case app.ScreenSchedule:
+				scheduleScreen(c, a, st)
+			default:
+				homeScreen(c, a, st)
 			}
 		})
-		st.HRule(c)
-		statusBar(c, a, st)
 	})
-	conflictDialog(c, a, st)
-	agentDialogs(c, a, st)
+	overlays(c, a, st)
 }
 
-// appHeader is the window's title bar, drawn by the window itself because the
-// system's title bar is hidden: the sessions toggle and the app's mark on the
-// left, the workspace it has open, and the panel toggles on the right. The row
-// moves the window; the window controls sit over its right end.
-func appHeader(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
+// windowInset is the room the window controls take at the right of a header.
+func windowInset(c *ui.Context) float32 {
 	bar := c.TitleBar()
-	right := bar.Right + 8
-	if runtime.GOOS == "linux" && bar.Right > 0 {
-		right = bar.Right - 2
+	if bar.Right > 0 {
+		return bar.Right + 8
 	}
-	ui.Row(c).Height(max(bar.Height, st.HeadH)).Padding(0, right, 0, bar.Left+st.Pad).
-		Gap(2).AlignItems(ui.Center).Background(st.Panel).DragWindow().Children(func() {
-		st.IconButton(c, kit.IconSidebarLeft, i18n.T(loc, "cmdToggleLeft"), a.LeftOpen(), func() {
-			a.Dispatch(app.ToggleLeft{})
-		})
-		ui.Icon(c, kit.IconLogo).FontSize(16).TextColor(st.Accent).PaddingX(3)
-		ui.Text(c, "omo").FontSize(st.FontUI).Bold().TextColor(st.Text).PaddingX(5)
-		ui.Box(c).Width(1).Height(14).Background(st.Border).MarginX(4)
-		if name := a.WorkspaceName(); name != "" {
-			ui.Icon(c, kit.IconFolder).FontSize(13).TextColor(st.Faint).PaddingX(4)
-			ui.Text(c, name).FontSize(st.FontUI).TextColor(st.Muted).SingleLine()
-		} else {
-			ui.Text(c, i18n.T(loc, "statusNoWorkspace")).FontSize(st.FontUI).TextColor(st.Faint).
-				SingleLine().PaddingX(4)
-		}
-		ui.Spacer(c)
-		st.IconButton(c, kit.IconPanel, i18n.T(loc, "panelToggle"), a.PanelOpen(), func() {
-			a.Dispatch(app.TogglePanel{})
-		})
-		st.IconButton(c, kit.IconSidebarRight, i18n.T(loc, "cmdToggleRight"), a.RightOpen(), func() {
-			a.Dispatch(app.ToggleRight{})
-		})
-	})
+	return 10
 }
 
-// mainArea is the middle column: the tabs and their pane, with the bottom panel
-// under them when it is open.
-func mainArea(c *ui.Context, a *app.App, st kit.Theme) {
-	ui.Column(c).Grow(1).FillHeight().Children(func() {
-		if a.PanelOpen() {
-			ui.SplitVerticalPercent(c, &a.Layout.MainRows,
-				func() { editorPane(c, a, st) },
-				func() { bottomPane(c, a, st) },
-			).Grow(1).FillHeight()
-			return
-		}
-		editorPane(c, a, st)
-	})
+// header is a 48 DIP bar that moves the window: the main area's title bar.
+func header(c *ui.Context, st kit.Theme, left float32, fn func()) {
+	ui.Row(c).Height(st.HeadH).FillWidth().Padding(0, windowInset(c), 0, left).Gap(10).AlignItems(ui.Center).
+		DragWindow().Children(fn)
 }
 
-// sessionsPanel is the left column: the open project and everything open in it.
-// It is the way back to a tab or a terminal the middle is not showing.
-func sessionsPanel(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
-	ui.Column(c).Width(st.LeftW).FillHeight().Background(st.Panel).Children(func() {
-		ui.Row(c).Height(st.TitleH).PaddingX(st.Pad).Gap(4).AlignItems(ui.Center).Children(func() {
-			st.SectionLabel(c, i18n.T(loc, "sessionsTitle"))
-			ui.Spacer(c)
-			st.IconButton(c, kit.IconPlus, i18n.T(loc, "terminalNew"), false, func() {
-				a.Dispatch(app.NewTerminal{})
+// sidebar is the left column: the word mark, the three actions, the projects
+// with their sessions, the local agent processes and the user.
+func sidebar(c *ui.Context, a *app.App, st kit.Theme) {
+	bar := c.TitleBar()
+	ui.Column(c).Width(st.SideW).FillHeight().Background(st.Side).Children(func() {
+		ui.Row(c).Height(st.HeadH).Padding(0, 10, 0, bar.Left+16).Gap(8).AlignItems(ui.Center).DragWindow().
+			Children(func() {
+				ui.Box(c).Size(10, 10).Radius(3).Background(st.Accent)
+				ui.Text(c, "omo").Font(kit.FontMono).FontSize(15).FontWeight(600).TextColor(st.Text)
+				ui.Spacer(c)
+				st.IconButton(c, kit.IconSidebarLeft, tr(c, "cmdToggleLeft"), false, func() { a.Dispatch(app.ToggleLeft{}) })
 			})
+		ui.Column(c).PaddingX(8).PaddingY(2).Gap(1).Children(func() {
+			st.NavItem(c, kit.IconNewSession, tr(c, "navNewSession"), keys("Ctrl", "N"),
+				a.Layout.Screen == app.ScreenHome && !a.Layout.SearchOpen, func() { a.Dispatch(app.NewSession{}) })
+			st.NavItem(c, kit.IconSearch, tr(c, "navSearch"), keys("Ctrl", "K"), a.Layout.SearchOpen,
+				func() { a.Dispatch(app.OpenSearch{}) })
+			st.NavItem(c, kit.IconSchedule, tr(c, "navSchedule"), "", a.Layout.Screen == app.ScreenSchedule,
+				func() { a.Dispatch(app.ShowScreen{Name: app.ScreenSchedule}) })
 		})
-		ui.Row(c).PaddingX(st.Pad).PaddingY(st.Gap).Children(func() {
-			ui.SearchField(c, &a.Layout.SessionQuery).Grow(1).Label(i18n.T(loc, "sessionsSearch"))
-		})
-		st.HRule(c)
-		ui.Scroll(c).Grow(1).Children(func() { sessionsList(c, a, st) })
-	})
-}
-
-func sessionsList(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
-	query := strings.ToLower(strings.TrimSpace(a.Layout.SessionQuery))
-	match := func(s string) bool {
-		return query == "" || strings.Contains(strings.ToLower(s), query)
-	}
-
-	if a.WorkspaceName() == "" {
-		ui.Column(c).Padding(st.Pad).Gap(6).Children(func() {
-			ui.Text(c, i18n.T(loc, "statusNoWorkspace")).FontSize(st.FontMeta).TextColor(st.Muted)
-			st.ActionRow(c, kit.IconFolderOpen, i18n.T(loc, "cmdOpenFolder"), "", func() {
-				a.Run(app.CmdOpenFolder)
-			})
-		})
-		return
-	}
-
-	// The project, with what is worth knowing at a glance: the branch, or the
-	// number of paths that differ from HEAD. A click brings the files back.
-	name := a.WorkspaceName()
-	meta := i18n.T(loc, "statusNoRepo")
-	if b := a.Branch(); b != "" {
-		meta = b
-	}
-	if n := a.ChangesCount(); n > 0 {
-		meta = i18n.Tf(loc, "changesCount", map[string]any{"count": n})
-	}
-	if match(name) {
-		st.Row(c, kit.RowSpec{
-			Icon:   kit.IconFolder,
-			Label:  name,
-			Meta:   meta,
-			Tip:    a.WorkspacePath(),
-			Active: a.Layout.RightSel == "files",
-			OnClick: func() {
-				a.Dispatch(app.ShowPanel{Name: "files"})
-			},
-		})
-	}
-
-	terminals := a.Terminals()
-	tabs := a.Tabs()
-	if len(tabs) == 0 && len(terminals) == 0 {
-		ui.Text(c, i18n.T(loc, "sessionsEmpty")).FontSize(st.FontMeta).TextColor(st.Muted).
-			PaddingX(st.Pad).PaddingY(4)
-		return
-	}
-
-	if len(tabs) > 0 {
-		st.SectionRow(c, i18n.T(loc, "sessionsOpen"))
-		for i, tab := range tabs {
-			index := i
-			label := tabTitle(a, tab, loc)
-			if !match(label) {
-				continue
-			}
-			icon, clr := tabIcon(st, tab)
-			st.Row(c, kit.RowSpec{
-				Icon:    icon,
-				IconClr: clr,
-				Dot:     tab.Kind == app.TabFile && a.Dirty(tab.Rel),
-				Label:   label,
-				Active:  i == a.Layout.ActiveTab,
-				Tip:     tab.Rel,
-				OnClick: func() { a.Layout.ActiveTab = index },
-			})
-		}
-	}
-
-	if len(terminals) > 0 {
-		st.SectionRow(c, i18n.T(loc, "panelTerminal"))
-		for i, t := range terminals {
-			index := i
-			label := i18n.Tf(loc, "terminalTitle", map[string]any{"num": t.Num})
-			if t.Exited {
-				label = i18n.Tf(loc, "terminalExited", map[string]any{"num": t.Num, "code": t.ExitCode})
-			}
-			if !match(label) {
-				continue
-			}
-			st.Row(c, kit.RowSpec{
-				Icon:   kit.IconTerminal,
-				Label:  label,
-				Active: a.PanelOpen() && a.Layout.PanelTab == 0 && i == a.Layout.ActiveTerm,
-				OnClick: func() {
-					a.Dispatch(app.SelectTerminal{Index: index})
-				},
-			})
-		}
-	}
-}
-
-// rightSidebar is the right column: one icon strip choosing the page, then the
-// page itself. Files, search and changes browse the open project; run holds the
-// workspace's quick commands; browser opens an address in the user's browser.
-func rightSidebar(c *ui.Context, a *app.App, st kit.Theme) {
-	ui.Column(c).Width(st.RightW).FillHeight().Background(st.Panel).Children(func() {
-		rightHeader(c, a, st)
-		st.HRule(c)
-		switch a.Layout.RightSel {
-		case "search":
-			searchPanel(c, a, st)
-		case "git":
-			changesPanel(c, a, st)
-		case "run":
-			runPanel(c, a, st)
-		case "browser":
-			browserPanel(c, a, st)
-		default:
-			explorerPanel(c, a, st)
-		}
-	})
-}
-
-func rightHeader(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
-	page := func(id string) func() { return func() { a.Layout.RightSel = id } }
-	active := func(id string) bool { return a.Layout.RightSel == id }
-	st.IconTabs(c, []kit.IconTab{
-		{Icon: kit.IconFiles, Label: i18n.T(loc, "sidebarFiles"), Active: active("files"), OnClick: page("files")},
-		{Icon: kit.IconSearch, Label: i18n.T(loc, "sidebarSearch"), Active: active("search"), OnClick: page("search")},
-		{Icon: kit.IconGit, Label: i18n.T(loc, "sidebarGit"), Active: active("git"), OnClick: page("git")},
-		{Icon: kit.IconRun, Label: i18n.T(loc, "sidebarRun"), Active: active("run"), OnClick: page("run")},
-		{Icon: kit.IconGlobe, Label: i18n.T(loc, "sidebarBrowser"), Active: active("browser"), OnClick: page("browser")},
-	})
-}
-
-// explorerPanel is the files page: the tree of the open project.
-func explorerPanel(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
-	if a.WorkspaceName() == "" {
-		// Nothing is open: an empty state, not a section header over nothing.
-		st.EmptyState(c, kit.IconFolderOpen, i18n.T(loc, "explorerNoFolder"))
-		return
-	}
-	ui.Column(c).Fill().Children(func() {
-		st.SectionHeader(c, workspaceTitle(a, loc), &a.Layout.ExplorerOpen)
-		if !a.Layout.ExplorerOpen {
-			return
-		}
-		if len(a.Files()) == 0 {
-			ui.Text(c, i18n.T(loc, "explorerEmpty")).FontSize(st.FontMeta).TextColor(st.Muted).
-				PaddingX(st.Pad).PaddingY(4)
-			return
-		}
 		ui.Scroll(c).Grow(1).Children(func() {
-			fileRows(c, a, st, a.Files(), 0)
+			ui.Column(c).FillWidth().PaddingY(4).Children(func() {
+				projectsSection(c, a, st)
+				agentsSection(c, a, st)
+			})
 		})
+		st.HRule(c)
+		sidebarFooter(c, a, st)
 	})
 }
 
-// fileRows renders the tree: a disclosure chevron for directories, a file-type
-// icon, an indent per level and a dot for files with unsaved text. Children load
-// the first time they are shown.
-func fileRows(c *ui.Context, a *app.App, st kit.Theme, nodes []*app.FileNode, depth int) {
-	indent := float32(depth) * 14
-	for _, n := range nodes {
-		if !n.IsDir {
-			rel := n.Rel
-			icon, clr := st.FileIcon(n.Name)
-			st.Row(c, kit.RowSpec{
-				Indent:  indent + 18,
-				Icon:    icon,
-				IconClr: clr,
-				Dot:     a.Dirty(rel),
-				Label:   n.Name,
-				Active:  isActiveFile(a, rel),
-				Tip:     rel,
-				OnClick: func() { a.Dispatch(app.OpenFile{Path: rel}) },
-			})
-			continue
-		}
-		arrow := kit.IconChevronRight
-		folder := kit.IconFolder
-		if n.Open {
-			arrow = kit.IconChevronDown
-			folder = kit.IconFolderOpen
-		}
-		node := n
-		st.Row(c, kit.RowSpec{
-			Indent: indent,
-			Arrow:  arrow,
-			Icon:   folder,
-			Label:  node.Name,
-			Tip:    node.Rel,
-			OnClick: func() {
-				node.Open = !node.Open
-			},
+func projectsSection(c *ui.Context, a *app.App, st kit.Theme) {
+	st.Section(c, tr(c, "sideProjects"), func() {
+		st.SmallIconButton(c, kit.IconPlus, tr(c, "cmdOpenFolder"), func() { a.Run(app.CmdOpenFolder) })
+	})
+	current := a.WorkspacePath()
+	if current == "" {
+		ui.Column(c).PaddingX(8).Children(func() {
+			st.NavItem(c, kit.IconFolderOpen, tr(c, "cmdOpenFolder"), keys("Ctrl", "Shift", "O"), false,
+				func() { a.Run(app.CmdOpenFolder) })
 		})
-		if !node.Open {
+	} else {
+		projectRow(c, st, kit.IconFolderOpen, a.WorkspaceName(), a.Branch(), true, nil)
+		sessionRows(c, a, st)
+	}
+	for _, p := range a.Projects() {
+		if p.Path == current {
 			continue
 		}
-		a.LoadChildren(node)
-		if node.LoadErr != "" {
-			ui.Text(c, node.LoadErr).FontSize(st.FontMeta).TextColor(st.Danger).PaddingX(st.Pad)
-			continue
+		path := p.Path
+		count := ""
+		if n := a.SessionCount(path); n > 0 {
+			count = itoa(n)
 		}
-		fileRows(c, a, st, node.Children, depth+1)
+		projectRow(c, st, kit.IconFolder, p.Name, count, false, func() { a.Dispatch(app.OpenProject{Path: path}) })
 	}
 }
 
-func searchPanel(c *ui.Context, a *app.App, st kit.Theme) {
-	st.EmptyState(c, kit.IconSearch, i18n.T(c.Locale(), "searchPlaceholder"))
-}
-
-// changesPanel lists the paths that differ from HEAD: the entry point for
-// reviewing what a terminal agent changed.
-func changesPanel(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
-	// What the agent changed is measured against the files as they were before
-	// it touched them, so it is a different list from git's, and it comes first
-	// because it is a decision the user still has to make.
-	if n := a.AgentChangeCount(); n > 0 {
-		ui.Row(c).Height(st.RowH + 4).PaddingX(st.Pad).Gap(4).AlignItems(ui.Center).Children(func() {
-			st.SectionLabel(c, i18n.Tf(loc, "sectionAgentChanges", map[string]any{"count": n}))
+func projectRow(c *ui.Context, st kit.Theme, icon *ui.SVG, name, meta string, open bool, onClick func()) {
+	ui.Row(c).PaddingX(8).Children(func() {
+		e := ui.Row(c).Height(st.RowH).Grow(1).PaddingX(8).Gap(8).Radius(st.RadiusS).AlignItems(ui.Center).
+			Focusable().Label(name)
+		col := st.Text2
+		if open {
+			col = st.Text
+		}
+		if e.Hovered() {
+			e = e.Background(st.Hover)
+		}
+		e.Children(func() {
+			ui.Icon(c, icon).FontSize(15).TextColor(col)
+			t := ui.Text(c, name).FontSize(st.FontUI).TextColor(col).SingleLine()
+			if open {
+				t.FontWeight(500)
+				st.Mono(c, meta, st.FontMeta, st.Text3).SingleLine()
+				return
+			}
 			ui.Spacer(c)
-			st.IconChip(c, kit.IconDiff, i18n.T(loc, "reviewOpen"), false, func() {
-				a.Dispatch(app.OpenReview{})
-			})
+			st.Mono(c, meta, st.FontMeta, st.Text3)
 		})
-	}
-	if a.WorkspaceName() != "" && a.Branch() == "" {
-		st.EmptyState(c, kit.IconGit, i18n.T(loc, "gitPlaceholder"))
-		return
-	}
-	ui.Row(c).Height(st.RowH + 4).PaddingX(st.Pad).Gap(4).AlignItems(ui.Center).Children(func() {
-		st.SectionLabel(c, i18n.T(loc, "sectionChanges"))
-		ui.Spacer(c)
-		if len(a.Changes()) > 0 {
-			st.IconButton(c, kit.IconPlus, i18n.T(loc, "changesStage"), false, func() {
-				a.Dispatch(app.StageChanges{})
-			})
-		}
-		st.IconButton(c, kit.IconRefresh, i18n.T(loc, "changesRefresh"), false, func() {
-			a.Dispatch(app.RefreshChanges{})
-		})
-	})
-	if len(a.Changes()) == 0 {
-		st.EmptyState(c, kit.IconDiff, i18n.T(loc, "changesEmpty"))
-		return
-	}
-	ui.Scroll(c).Grow(1).Children(func() {
-		for _, ch := range a.Changes() {
-			rel := ch.Path
-			icon, clr := st.FileIcon(baseName(rel))
-			st.Row(c, kit.RowSpec{
-				Icon:    icon,
-				IconClr: clr,
-				Label:   rel,
-				Meta:    ch.Status,
-				MetaClr: changeColor(st, ch),
-				Tip:     rel,
-				OnClick: func() { a.Dispatch(app.OpenDiff{Path: rel}) },
-			})
+		if onClick != nil {
+			e.OnClick(onClick)
 		}
 	})
 }
 
-// changeColor colors a git status letter: staged changes read as settled,
-// work-tree-only ones as pending.
-func changeColor(st kit.Theme, ch git.Change) ui.Color {
-	switch {
-	case ch.Status == "?":
-		return st.Muted
-	case ch.Status == "D":
-		return st.Danger
-	case ch.Staged:
-		return st.Success
-	}
-	return st.Warning
-}
-
-// quickCommand is one shortcut of the run page.
-type quickCommand struct {
-	key  string // the label's message key
-	args []string
-}
-
-// quickCommands is what the run page offers for this workspace: Go's build,
-// test and vet when go.mod is at the root, make when a Makefile is. Adding a
-// language is adding a case here.
-func quickCommands(a *app.App) []quickCommand {
-	names := make(map[string]bool, len(a.Files()))
-	for _, n := range a.Files() {
-		names[n.Name] = true
-	}
-	var cmds []quickCommand
-	if names["go.mod"] {
-		cmds = append(cmds,
-			quickCommand{key: "runBuild", args: []string{"go", "build", "./..."}},
-			quickCommand{key: "runTest", args: []string{"go", "test", "./..."}},
-			quickCommand{key: "runVet", args: []string{"go", "vet", "./..."}},
-		)
-	}
-	if names["Makefile"] || names["makefile"] {
-		cmds = append(cmds, quickCommand{key: "runMake", args: []string{"make"}})
-	}
-	return cmds
-}
-
-// runPanel is the run and debug page: the workspace's quick commands, each in
-// its own terminal, and a shell when none of them is what you want.
-func runPanel(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
-	if a.WorkspaceName() == "" {
-		st.EmptyState(c, kit.IconRun, i18n.T(loc, "statusNoWorkspace"))
+// sessionRows are the open project's sessions, hung from it by a 1 DIP line:
+// the agent's mark, the title, and its state at the right.
+func sessionRows(c *ui.Context, a *app.App, st kit.Theme) {
+	sessions := a.Sessions()
+	if len(sessions) == 0 {
 		return
 	}
-	ui.Column(c).Fill().Padding(st.Gap).Gap(2).Children(func() {
-		cmds := quickCommands(a)
-		st.SectionRow(c, i18n.T(loc, "runQuick"))
-		for _, cmd := range cmds {
-			args := cmd.args
-			st.ActionRow(c, kit.IconRun, i18n.T(loc, cmd.key), strings.Join(args, " "), func() {
-				a.Dispatch(app.RunCommand{Args: args})
-			})
-		}
-		if len(cmds) == 0 {
-			ui.Text(c, i18n.T(loc, "runNothing")).FontSize(st.FontMeta).TextColor(st.Muted).
-				PaddingX(4).PaddingY(4)
-		}
-		st.ActionRow(c, kit.IconTerminal, i18n.T(loc, "terminalNew"), newTerminalKeys(), func() {
-			a.Run(app.CmdNewTerminal)
-		})
-		ui.Text(c, i18n.T(loc, "runHint")).FontSize(st.FontMeta).TextColor(st.Faint).Padding(8, 4)
-	})
-}
-
-// browserPanel is the browser page: an address, and the user's browser opened on
-// it. A page drawn inside the window is not what this is for.
-func browserPanel(c *ui.Context, a *app.App, st kit.Theme) {
-	loc := c.Locale()
-	ui.Column(c).Fill().Padding(st.Pad).Gap(st.Gap).Children(func() {
-		ui.Row(c).Gap(st.Gap).Children(func() {
-			ui.TextInput(c, &a.Layout.BrowserURL).Grow(1).Label(i18n.T(loc, "browserAddress")).
-				Placeholder(i18n.T(loc, "browserHint"))
-			if ui.Button(c, i18n.T(loc, "browserOpen")).Clicked() {
-				a.Dispatch(app.OpenURL{URL: a.Layout.BrowserURL})
+	now := time.Now()
+	ui.Column(c).Padding(0, 8, 0, 26).Children(func() {
+		ui.Column(c).FillWidth().BorderWidth(0, 0, 0, 1).BorderColor(st.Border).Children(func() {
+			for _, s := range sessions {
+				s := s
+				title := s.Title
+				if title == "" {
+					title = trf(c, "sessionUntitled", map[string]any{"agent": s.AgentName})
+				}
+				e := ui.Row(c).Height(st.RowH).FillWidth().Padding(0, 8, 0, 14).Gap(9).AlignItems(ui.Center).
+					Radius(0, st.RadiusS, st.RadiusS, 0).Focusable().Label(title)
+				col := st.Text2
+				switch {
+				case s.Active:
+					e = e.Background(st.Selected)
+					col = st.Text
+				case e.Hovered():
+					e = e.Background(st.Hover)
+				}
+				e.Children(func() {
+					st.AgentMark(c, s.AgentName, 14)
+					ui.Text(c, title).FontSize(st.FontUI).TextColor(col).SingleLine().Grow(1).Shrink(1)
+					sessionState(c, st, s, now)
+				})
+				e.OnClick(func() {
+					a.Dispatch(app.OpenSearchHit{Hit: app.SearchHit{Kind: "session", AgentID: s.AgentID, Title: s.Title}})
+				})
 			}
 		})
-		ui.Text(c, i18n.T(loc, "browserOpenHint")).FontSize(st.FontMeta).TextColor(st.Faint)
 	})
 }
 
-// isActiveFile reports whether rel is the file open in the active tab, so the
-// tree can mark it.
-func isActiveFile(a *app.App, rel string) bool {
-	t := a.TabAt(a.Layout.ActiveTab)
-	return t != nil && t.Kind == app.TabFile && t.Rel == rel
+func sessionState(c *ui.Context, st kit.Theme, s app.SessionInfo, now time.Time) {
+	switch s.State {
+	case "running":
+		ui.Icon(c, kit.IconLoader).FontSize(12).TextColor(st.Accent)
+	case "waiting":
+		st.Tag(c, nil, tr(c, "stateWaitingShort"), kit.ToneWarn)
+	case "failed":
+		st.Dot(c, kit.ToneErr)
+	default:
+		ui.Text(c, relTime(c, s.UpdatedAt, now)).FontSize(st.FontMeta).TextColor(st.Text3).SingleLine()
+	}
 }
 
-func workspaceTitle(a *app.App, locale string) string {
-	if name := a.WorkspaceName(); name != "" {
-		return name
+// agentsSection is "本机 Agent": the ACP agents configured on this machine
+// and what each one's process is doing.
+func agentsSection(c *ui.Context, a *app.App, st kit.Theme) {
+	ui.Box(c).Height(8)
+	st.Section(c, tr(c, "sideAgents"), func() {
+		st.SmallIconButton(c, kit.IconSettings, tr(c, "setAgents"), func() {
+			a.Dispatch(app.OpenSettings{Page: app.SetAgents})
+		})
+	})
+	procs := a.AgentProcesses()
+	if len(procs) == 0 {
+		ui.Column(c).PaddingX(8).Children(func() {
+			st.NavItem(c, kit.IconPlus, tr(c, "agentAdd"), "", false, func() { a.Dispatch(app.EditAgentConfig{}) })
+		})
+		return
 	}
-	return i18n.T(locale, "statusNoWorkspace")
+	ui.Column(c).PaddingX(8).Gap(1).Children(func() {
+		for _, p := range procs {
+			p := p
+			e := ui.Row(c).Height(34).FillWidth().PaddingX(8).Gap(10).Radius(st.RadiusS).AlignItems(ui.Center).
+				Focusable().Label(p.Name)
+			if e.Hovered() {
+				e = e.Background(st.Hover)
+			}
+			e.Children(func() {
+				st.AgentMark(c, p.Name, 16)
+				ui.Text(c, p.Name).FontSize(st.FontRow).TextColor(st.Text).SingleLine().Grow(1).Shrink(1)
+				tone, label := processState(c, p.State)
+				st.Dot(c, tone)
+				st.Mono(c, label, st.FontMeta, st.Text3).SingleLine()
+			})
+			e.OnClick(func() {
+				a.Layout.AgentSel = p.ID
+				a.Dispatch(app.OpenSettings{Page: app.SetAgents})
+			})
+		}
+	})
+}
+
+// processState is the dot and the words of an agent process.
+func processState(c *ui.Context, state string) (kit.Tone, string) {
+	switch state {
+	case "running":
+		return kit.ToneOK, tr(c, "procRunning")
+	case "idle":
+		return kit.ToneOK, tr(c, "procIdle")
+	case "starting":
+		return kit.ToneAccent, tr(c, "procStarting")
+	case "failed":
+		return kit.ToneErr, tr(c, "procFailed")
+	}
+	return kit.ToneOff, tr(c, "procOff")
+}
+
+func sidebarFooter(c *ui.Context, a *app.App, st kit.Theme) {
+	ui.Row(c).Height(52).Padding(0, 10, 0, 14).Gap(8).AlignItems(ui.Center).Children(func() {
+		name := a.UserName()
+		st.Avatar(c, name, 24)
+		ui.Column(c).Grow(1).Shrink(1).Children(func() {
+			ui.Text(c, name).FontSize(st.FontRow).TextColor(st.Text).SingleLine()
+			ui.Text(c, trf(c, "sideMachine", map[string]any{"count": len(a.AgentDefinitions())})).
+				FontSize(st.FontMeta).TextColor(st.Text3).SingleLine()
+		})
+		st.IconButton(c, kit.IconSettings, tr(c, "cmdSettings"), false, func() { a.Dispatch(app.OpenSettings{}) })
+		themeButton(c, a, st)
+	})
+}
+
+// themeButton switches to the other appearance; Settings → Appearance can go
+// back to following the system.
+func themeButton(c *ui.Context, a *app.App, st kit.Theme) {
+	icon, mode := kit.IconSun, kit.ModeLight
+	if !st.Dark {
+		icon, mode = kit.IconMoon, kit.ModeDark
+	}
+	st.IconButton(c, icon, tr(c, "cmdToggleTheme"), false, func() { a.Dispatch(app.SetTheme{Mode: string(mode)}) })
+}
+
+func itoa(n int) string {
+	if n < 0 {
+		return "-" + itoa(-n)
+	}
+	if n < 10 {
+		return string(rune('0' + n))
+	}
+	return itoa(n/10) + string(rune('0'+n%10))
 }

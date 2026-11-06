@@ -196,14 +196,18 @@ func TestCloseTabClampsSelection(t *testing.T) {
 
 func TestTogglePanelAndCommands(t *testing.T) {
 	a, _ := newTestApp(t)
-	open := a.PanelOpen()
-	a.Dispatch(TogglePanel{})
-	if a.PanelOpen() == open {
-		t.Fatal("TogglePanel changed nothing")
+	// The panel command opens and closes the session's changes panel.
+	a.Run(CmdTogglePanel)
+	if a.Layout.SidePanel != PanelChanges {
+		t.Fatalf("SidePanel = %q", a.Layout.SidePanel)
 	}
 	a.Run(CmdTogglePanel)
-	if a.PanelOpen() != open {
-		t.Fatal("toggle command did not restore the state")
+	if a.Layout.SidePanel != "" {
+		t.Fatal("toggle command did not close the panel")
+	}
+	a.Run(CmdSettings)
+	if !a.Layout.Settings {
+		t.Fatal("settings command did not open the settings")
 	}
 }
 

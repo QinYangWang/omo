@@ -51,6 +51,9 @@ type Manager struct {
 	batchMu           sync.Mutex
 	batch             *textBatch
 	batchTimer        *time.Timer
+	// output is the standard error of the last process started, kept after
+	// it exits so a failed start can show what the agent printed.
+	output *tailWriter
 }
 
 type peer struct {
@@ -184,6 +187,9 @@ func (m *Manager) start(ctx context.Context, def Definition, cwd, restoreID stri
 		m.fail(fmt.Errorf("start agent: %w", err))
 		return err
 	}
+	m.mu.Lock()
+	m.output = stderr
+	m.mu.Unlock()
 	p := &peer{manager: m, generation: generation, cwd: cwd, proc: proc, stderr: stderr}
 	conn, err := acp.NewConnectionWithOptions(p.handle, proc.Input(), proc.Output(), acp.ConnectionOptions{})
 	if err != nil {
@@ -523,6 +529,18 @@ func (m *Manager) Snapshot() (State, string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.state, m.sessionID, m.canLoad
+}
+
+// Output is the tail of what the last agent process wrote to standard error,
+// redacted as diagnostics are: the "process output" of a failed start.
+func (m *Manager) Output() string {
+	m.mu.Lock()
+	out := m.output
+	m.mu.Unlock()
+	if out == nil {
+		return ""
+	}
+	return cleanDiagnostic(out.String())
 }
 
 func (m *Manager) Diagnostics() []string {

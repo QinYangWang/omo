@@ -7,12 +7,13 @@
 #
 #   ./scripts/lucide-icons.sh
 #
-# The source is Lucide's repository, which is what lucide.dev/icons serves; set
+# The source is the lucide-static package pinned to the version the Doop design
+# was drawn with (1.70.0), which is what lucide.dev/icons serves; set
 # LUCIDE_BASE to pin a tag, e.g.
-#   LUCIDE_BASE=https://raw.githubusercontent.com/lucide-icons/lucide/0.545.0/icons ./scripts/lucide-icons.sh
+#   LUCIDE_BASE=https://cdn.jsdelivr.net/npm/lucide-static@1.71.0/icons ./scripts/lucide-icons.sh
 set -eu
 
-base=${LUCIDE_BASE:-https://raw.githubusercontent.com/lucide-icons/lucide/main/icons}
+base=${LUCIDE_BASE:-https://cdn.jsdelivr.net/npm/lucide-static@1.70.0/icons}
 root=$(dirname "$0")/..
 dir=$root/internal/kit/icons
 

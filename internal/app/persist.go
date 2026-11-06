@@ -56,6 +56,8 @@ func (a *App) Restore() error {
 		return err
 	}
 	a.store = store
+	a.loadPrefs()
+	a.refreshProjects()
 	if err := store.PruneEvents(a.ctx, keepEvents, eventMaxAge); err != nil {
 		a.appendDiagnostic(err.Error())
 	}
@@ -96,6 +98,8 @@ func (a *App) workspaceOpened() {
 			a.sessions[session.AgentID] = session.ACPSession
 		}
 	}
+	a.refreshProjects()
+	a.refreshSessions()
 }
 
 // storedSession is the ACP session the agent of this workspace used last time.
@@ -131,6 +135,7 @@ func (a *App) persistSession() {
 	if err != nil {
 		a.appendDiagnostic(err.Error())
 	}
+	a.refreshSessions()
 }
 
 // saveLayout records the open file tabs, so the next run reopens them.

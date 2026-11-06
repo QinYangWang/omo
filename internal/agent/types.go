@@ -54,6 +54,14 @@ type PermissionOption struct {
 	Kind string `json:"kind"`
 }
 
+// PlanEntry is one step of an ACP plan: what the agent means to do and how far
+// it got (pending, in_progress or completed).
+type PlanEntry struct {
+	Content  string
+	Status   string
+	Priority string
+}
+
 // Event is the SDK-independent stream consumed by the application.
 type Event struct {
 	Kind       EventKind
@@ -71,7 +79,10 @@ type Event struct {
 	Raw        string
 	StopReason string
 	Options    []PermissionOption
-	At         time.Time
+	// Plan is the whole plan of an EventPlan: ACP sends the full list each
+	// time, so it replaces the previous one.
+	Plan []PlanEntry
+	At   time.Time
 }
 
 var (

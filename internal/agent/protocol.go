@@ -14,6 +14,7 @@ import (
 const (
 	maxToolCommandItems = 9 // Program plus eight arguments.
 	maxToolPathItems    = 32
+	maxPlanEntries      = 100
 )
 
 func (p *peer) handle(ctx context.Context, method string, params json.RawMessage) (any, *acp.RequestError) {
@@ -105,8 +106,9 @@ func (p *peer) handleUpdate(raw json.RawMessage) {
 	case "plan":
 		var plan struct {
 			Entries []struct {
-				Content string `json:"content"`
-				Status  string `json:"status"`
+				Content  string `json:"content"`
+				Status   string `json:"status"`
+				Priority string `json:"priority"`
 			} `json:"entries"`
 		}
 		if err := json.Unmarshal(notification.Update, &plan); err != nil {
@@ -114,14 +116,16 @@ func (p *peer) handleUpdate(raw json.RawMessage) {
 			return
 		}
 		var text strings.Builder
+		entries := make([]PlanEntry, 0, min(len(plan.Entries), maxPlanEntries))
 		for i, entry := range plan.Entries {
-			if i == 100 {
+			if i == maxPlanEntries {
 				text.WriteString("…\n")
 				break
 			}
 			fmt.Fprintf(&text, "- [%s] %s\n", entry.Status, entry.Content)
+			entries = append(entries, PlanEntry{Content: cleanDiagnostic(entry.Content), Status: entry.Status, Priority: entry.Priority})
 		}
-		m.emitTurn(p, generation, turn, Event{Kind: EventPlan, Title: "Plan updated", Text: text.String(), Raw: cleanDiagnostic(string(notification.Update))})
+		m.emitTurn(p, generation, turn, Event{Kind: EventPlan, Title: "Plan updated", Text: text.String(), Plan: entries, Raw: cleanDiagnostic(string(notification.Update))})
 	case "user_message_chunk":
 		// The application already owns the user prompt; do not duplicate it in the transcript.
 	default:

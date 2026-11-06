@@ -1,38 +1,36 @@
-# omo — Go native AI coding IDE with ACP agents
+# omo — a native console for local ACP agents
 
-Native Go desktop IDE (no web view, no Electron, no Node in the runtime) that talks to local
-agent runtimes over the [Agent Client Protocol](https://agentclientprotocol.com) v1.
+omo starts the coding agents installed on your machine (Claude Code, Codex, Gemini CLI, Pi, Kimi CLI,
+Qwen Code, or any program that speaks the [Agent Client Protocol](https://agentclientprotocol.com) v1),
+shows their plan, tool calls and changes, and asks you before they write or run anything. It is a native
+Go desktop app: no web view, no Electron, no Node in the runtime.
 
 - Module: `github.com/QinYangWang/omo`
 - Go: **1.27.3** (required by MyGo), `CGO_ENABLED=0` on all targets
 - UI: [MyGo](https://mygo.egoist.dev) native toolkit (self-drawn, Metal / D3D11 / OpenGL / CPU)
+- Design: Doop canvas `C73kBnDHCY` (omo-app-style v2), rules in [DESIGN.md](DESIGN.md)
 
-**Status: P3 and P4 (terminal, git) implemented.** Working today:
+Working today:
 
-- open a workspace with the native folder picker, browse a lazily loaded file tree
-- edit and save files (atomic writes); a file changed under you raises a conflict dialog instead of
-  overwriting the agent's write
-- see what differs from git HEAD, review it in a split diff with per-hunk revert/keep, apply the result,
-  and stage every changed path under the workspace
-- run a real native terminal (Ghostty VT) in the workspace root, up to four sessions side by side
-- a window that draws its own title bar, with the project's sessions on the left, the conversation in
-  the middle and the project's files, changes, quick commands and browser on the right
-- configure and trust a local ACP v1 agent, chat with streamed updates, approve or reject permissions,
-  cancel a turn, and restart with session restore when the agent supports it
-- review what the agent changed: the files it touched, the lines it added and deleted, per-hunk
-  keep/revert, or revert every file to what it was before the agent touched it
-- reopen where you left off: the last workspace, its open files and the agent session mapping live in
-  a local SQLite database
-- use the platform's own menu bar (File / Edit / View) with accelerators
+- a sidebar with the projects you opened, the open project's sessions and the state of every local
+  agent process (running, idle, not started, failed)
+- a new-session screen with the project and branch, a composer, quick commands (`/review`, `/fix-ci`, …)
+  and the recent sessions
+- a session view: the conversation, tool calls as cards (consecutive reads folded), the agent's ACP plan,
+  the session's facts and the files it changed in a 300 DIP inspector
+- approvals inline: allow once, always allow in this session (omo's own grant, never `allow_always`),
+  or deny; an error card with the agent's process output and three ways on (sign in again in a
+  terminal, retry, hand the message to another agent)
+- a 520 DIP panel with the agent's changes as diffs (keep, revert, commit), the project's files and
+  up to four native terminals (Ghostty VT)
+- search over sessions, files and commands; an agent picker; first-run trust showing the exact launch
+- scheduled tasks (saved; the scheduler is not built yet) and settings pages for preferences,
+  appearance (light / dark / system), shortcuts, agents, quick commands, projects and more
+- the last workspace, the agent session mapping and your preferences live in a local SQLite database
 
-omo looks for the ACP agents it knows (Codex, Claude Code, Pi) on `PATH` at startup and lists the
-ones it finds under **Agents…**; each still shows its exact launch details and asks for trust the
-first time it starts. Add another executable and its arguments (one per line) from the same dialog,
-or use **Update CLI** to run the known package's `npm install --global …@latest` in a terminal. Agent
-file changes show up under Changes, with **Review** opening the list of files it touched.
-
-Not yet: workspace search and LSP. See
-[docs/roadmap.md](docs/roadmap.md).
+omo finds the ACP agents it knows on `PATH` at startup; each still shows its exact launch details and
+asks for trust the first time it starts. What the design shows without a backend yet (usage, MCP,
+roles, memory, sharing, the task scheduler, models) is listed in [docs/roadmap.md](docs/roadmap.md) §9.6.
 
 ## Run
 
@@ -73,7 +71,8 @@ Contributing (branches, commit messages, squash-only PRs): [CONTRIBUTING.md](CON
 main.go              assembly only: app.New, window, Run
 internal/app         state, intents, commands, terminals, agent UI state, startup benchmark
 internal/agent       JSON catalog, ACP raw protocol adapter, process/session/permission governance
-internal/view        panels and the window (sessions, editor, session window, status bar)
+internal/view        the window: sidebar, new session, session, inspector and side panel, overlays,
+                     scheduled tasks, settings
 internal/kit         design system: tokens, components, icons (docs/kit.md)
 internal/workspace   os.Root boundary, reads/writes, watcher
 internal/documents   editor buffers, atomic save, disk conflicts

@@ -128,6 +128,19 @@ func (r *Repo) AddAll(ctx context.Context) error {
 	return err
 }
 
+// Commit stages every change under the workspace and records them with
+// message. The message is passed as one argv element, never through a shell.
+func (r *Repo) Commit(ctx context.Context, message string) error {
+	if strings.TrimSpace(message) == "" {
+		return fmt.Errorf("git commit: empty message")
+	}
+	if err := r.AddAll(ctx); err != nil {
+		return err
+	}
+	_, err := r.run(ctx, "commit", "-m", message)
+	return err
+}
+
 // HeadText returns a file's text at HEAD, and whether it is there at all: a new
 // file has no HEAD version, which a diff review shows as an empty old side.
 func (r *Repo) HeadText(ctx context.Context, rel string) (text string, inHead bool, err error) {

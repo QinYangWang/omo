@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"bytes"
 	"embed"
 	"log/slog"
 	"path/filepath"
@@ -27,6 +28,9 @@ func mustIcon(name string) *ui.SVG {
 		slog.Error("kit: icon is missing", "icon", name, "err", err)
 		return nil
 	}
+	// The design draws Lucide at a 1.75 stroke, a little lighter than the
+	// set's own 2, so 13–17 DIP icons sit at the weight of 13 DIP text.
+	data = bytes.Replace(data, []byte(`stroke-width="2"`), []byte(`stroke-width="1.75"`), 1)
 	s, err := ui.ParseSVG(data)
 	if err != nil {
 		slog.Error("kit: icon does not parse", "icon", name, "err", err)
@@ -42,37 +46,86 @@ func lucide(body string) *ui.SVG {
 }
 
 var (
-	// IconLogo is omo's own mark, not a Lucide icon.
-	IconLogo = lucide(`<rect x="3" y="3" width="18" height="18" rx="5"/><path d="m8 9 3 3-3 3"/><path d="M13 15h3"/>`)
+	// IconLogo is omo's own mark, not a Lucide icon: the accent square of the
+	// word mark.
+	IconLogo = lucide(`<rect x="7" y="7" width="10" height="10" rx="3" fill="currentColor" stroke="none"/>`)
 
 	// Lucide names in parentheses; see https://lucide.dev/icons/.
-	IconFiles        = mustIcon("files")
-	IconSearch       = mustIcon("search")
-	IconGit          = mustIcon("git-branch")
-	IconChevronRight = mustIcon("chevron-right")
-	IconChevronDown  = mustIcon("chevron-down")
-	IconTerminal     = mustIcon("terminal")
-	IconFolder       = mustIcon("folder")
-	IconFolderOpen   = mustIcon("folder-open")
-	IconFile         = mustIcon("file")
-	IconFileCode     = mustIcon("file-code")
-	IconFileText     = mustIcon("file-text")
-	IconFileJSON     = mustIcon("file-braces") // Lucide's JSON file icon
-	IconPlus         = mustIcon("plus")
-	IconTrash        = mustIcon("trash")
-	IconChat         = mustIcon("message-square")
-	IconPanel        = mustIcon("panel-bottom")
-	IconProblems     = mustIcon("triangle-alert")
-	IconOutput       = mustIcon("list")
-	IconRefresh      = mustIcon("refresh-cw")
-	IconDiff         = mustIcon("git-compare")
-	IconSidebarLeft  = mustIcon("panel-left")
-	IconSidebarRight = mustIcon("panel-right")
-	IconRun          = mustIcon("play")
-	IconGlobe        = mustIcon("globe")
-
-	// IconPanelHide is the chevron that collapses the bottom panel.
-	IconPanelHide = IconChevronDown
+	IconFiles          = mustIcon("files")
+	IconSearch         = mustIcon("search")
+	IconGit            = mustIcon("git-branch")
+	IconChevronRight   = mustIcon("chevron-right")
+	IconChevronDown    = mustIcon("chevron-down")
+	IconChevronLeft    = mustIcon("chevron-left")
+	IconTerminal       = mustIcon("terminal")
+	IconTerminalSquare = mustIcon("square-terminal")
+	IconFolder         = mustIcon("folder")
+	IconFolderOpen     = mustIcon("folder-open")
+	IconFile           = mustIcon("file")
+	IconFileCode       = mustIcon("file-code")
+	IconFileText       = mustIcon("file-text")
+	IconFileJSON       = mustIcon("file-braces")
+	IconFilePlus       = mustIcon("file-plus")
+	IconFileMinus      = mustIcon("file-minus")
+	IconFileDiff       = mustIcon("file-diff")
+	IconPlus           = mustIcon("plus")
+	IconTrash          = mustIcon("trash-2")
+	IconChat           = mustIcon("message-square")
+	IconRefresh        = mustIcon("refresh-cw")
+	IconSidebarLeft    = mustIcon("panel-left")
+	IconRun            = mustIcon("play")
+	IconGlobe          = mustIcon("globe")
+	IconNewSession     = mustIcon("square-pen")
+	IconSchedule       = mustIcon("calendar-clock")
+	IconSettings       = mustIcon("settings")
+	IconSun            = mustIcon("sun")
+	IconMoon           = mustIcon("moon")
+	IconAt             = mustIcon("at-sign")
+	IconArrowUp        = mustIcon("arrow-up")
+	IconArrowLeft      = mustIcon("arrow-left")
+	IconArrowRight     = mustIcon("arrow-right")
+	IconStop           = mustIcon("square")
+	IconPlan           = mustIcon("list-checks")
+	IconMore           = mustIcon("ellipsis")
+	IconPencil         = mustIcon("pencil")
+	IconShieldCheck    = mustIcon("shield-check")
+	IconShieldAlert    = mustIcon("shield-alert")
+	IconCircleCheck    = mustIcon("circle-check")
+	IconCircle         = mustIcon("circle")
+	IconCircleDot      = mustIcon("circle-dot")
+	IconCircleAlert    = mustIcon("circle-alert")
+	IconCircleX        = mustIcon("circle-x")
+	IconCheck          = mustIcon("check")
+	IconCheckCheck     = mustIcon("check-check")
+	IconCopy           = mustIcon("copy")
+	IconLoader         = mustIcon("loader")
+	IconX              = mustIcon("x")
+	IconKey            = mustIcon("key-round")
+	IconHistory        = mustIcon("history")
+	IconUndo           = mustIcon("undo-2")
+	IconExternal       = mustIcon("external-link")
+	IconCommit         = mustIcon("git-commit-horizontal")
+	IconPullRequest    = mustIcon("git-pull-request")
+	IconInfo           = mustIcon("info")
+	IconSliders        = mustIcon("sliders-horizontal")
+	IconPalette        = mustIcon("palette")
+	IconKeyboard       = mustIcon("keyboard")
+	IconBot            = mustIcon("bot")
+	IconUser           = mustIcon("user")
+	IconBrain          = mustIcon("brain")
+	IconPlug           = mustIcon("plug")
+	IconHash           = mustIcon("hash")
+	IconShare          = mustIcon("share-2")
+	IconChart          = mustIcon("chart-column")
+	IconEye            = mustIcon("eye")
+	IconPi             = mustIcon("pi")
+	IconCornerDownLeft = mustIcon("corner-down-left")
+	IconMinus          = mustIcon("minus")
+	IconPanelRight     = mustIcon("panel-right")
+	IconPause          = mustIcon("pause")
+	IconLock           = mustIcon("lock")
+	IconSparkle        = mustIcon("sparkle")
+	IconTriangleAlert  = mustIcon("triangle-alert")
 )
 
 func parseIcon(name, svg string) *ui.SVG {
@@ -84,52 +137,39 @@ func parseIcon(name, svg string) *ui.SVG {
 	return s
 }
 
-// FileIcon returns the icon and color of a file by its name: code files take
-// their language's color, as in the reference editor, and everything else a
-// quiet document icon.
+// FileIcon returns the icon of a file by its name, in the quiet note color.
+// The design keeps hue for state only, so a file's color comes from what
+// happened to it (StatusColor), never from its language.
 func (t Theme) FileIcon(name string) (*ui.SVG, ui.Color) {
 	lower := strings.ToLower(name)
 	ext := strings.TrimPrefix(filepath.Ext(lower), ".")
 	switch lower {
-	case "go.mod", "go.sum", "go.work":
-		return IconFileCode, t.Lang("#00add8", "#00809f")
-	case "package.json", "tsconfig.json":
-		return IconFileJSON, t.Lang("#cbcb41", "#9a8a00")
-	case "dockerfile", "makefile":
-		return IconFileText, t.Lang("#e37933", "#b5571a")
-	}
-	if strings.HasPrefix(lower, ".") && ext == strings.TrimPrefix(lower, ".") {
-		return IconFileText, t.Faint
+	case "go.mod", "go.sum", "go.work", "makefile", "dockerfile":
+		return IconFileCode, t.Text3
 	}
 	switch ext {
-	case "go":
-		return IconFileCode, t.Lang("#00add8", "#00809f")
-	case "ts", "tsx", "mts", "cts":
-		return IconFileCode, t.Lang("#4d8fdf", "#2f6fc0")
-	case "js", "jsx", "mjs", "cjs":
-		return IconFileCode, t.Lang("#e8d44d", "#a68f00")
-	case "rs":
-		return IconFileCode, t.Lang("#dea584", "#b0643a")
-	case "py":
-		return IconFileCode, t.Lang("#5a9fd4", "#3572a5")
-	case "c", "h", "cc", "cpp", "hpp", "m", "mm":
-		return IconFileCode, t.Lang("#7aa6da", "#4a76b0")
-	case "java", "kt", "kts":
-		return IconFileCode, t.Lang("#e76f51", "#c04a2b")
-	case "html", "htm", "vue", "svelte":
-		return IconFileCode, t.Lang("#e8714a", "#c4492a")
-	case "css", "scss", "sass", "less":
-		return IconFileCode, t.Lang("#a074c4", "#7a4fa8")
-	case "sh", "bash", "zsh", "fish", "ps1":
-		return IconTerminal, t.Lang("#89e051", "#4f9a1f")
+	case "go", "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "rs", "py", "c", "h", "cc", "cpp", "hpp",
+		"m", "mm", "java", "kt", "kts", "html", "htm", "vue", "svelte", "css", "scss", "sass", "less", "sh",
+		"bash", "zsh", "fish", "ps1":
+		return IconFileCode, t.Text3
 	case "json", "jsonc", "json5":
-		return IconFileJSON, t.Lang("#cbcb41", "#9a8a00")
-	case "yaml", "yml", "toml", "ini", "conf", "cfg", "xml":
-		return IconFileText, t.Lang("#c9a0dc", "#8a5aa8")
-	case "md", "mdx", "markdown", "txt", "rst":
-		return IconFileText, t.Lang("#6ba4d8", "#3d78ad")
-	case "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp":
-		return IconFileText, t.Lang("#a6c56a", "#5f8a26")
+		return IconFileJSON, t.Text3
+	case "yaml", "yml", "toml", "ini", "conf", "cfg", "xml", "md", "mdx", "markdown", "txt", "rst":
+		return IconFileText, t.Text3
 	}
-	return IconFile, t.Muted
+	return IconFile, t.Text3
+}
+
+// StatusColor is the color of a change letter: added green, deleted red,
+// modified amber, untracked quiet.
+func (t Theme) StatusColor(status string) ui.Color {
+	switch status {
+	case "A", "?", "+":
+		return t.OK
+	case "D", "-":
+		return t.Err
+	case "M", "R", "U":
+		return t.Warn
+	}
+	return t.Text3
 }

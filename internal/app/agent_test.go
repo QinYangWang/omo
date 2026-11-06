@@ -23,6 +23,7 @@ type fakeAgentRuntime struct {
 	sessionID string
 	canLoad   bool
 	restoreID string
+	output    string
 }
 
 func (f *fakeAgentRuntime) Start(context.Context, agent.Definition, string) error {
@@ -80,6 +81,11 @@ func (f *fakeAgentRuntime) Snapshot() (agent.State, string, bool) {
 	return f.state, f.sessionID, f.canLoad
 }
 func (f *fakeAgentRuntime) Diagnostics() []string { return nil }
+func (f *fakeAgentRuntime) Output() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.output
+}
 
 func newAgentTestApp(t *testing.T) (*App, *fakeAgentRuntime) {
 	t.Helper()

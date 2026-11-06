@@ -29,7 +29,10 @@ func TestManagerStreamingAndUnknownUpdate(t *testing.T) {
 		strings.Join(tool.Command, "|") != "run|arg with spaces" {
 		t.Fatalf("tool detail = %#v", tool)
 	}
-	events.waitFor(t, func(e Event) bool { return e.Kind == EventPlan && strings.Contains(e.Text, "inspect") })
+	events.waitFor(t, func(e Event) bool {
+		return e.Kind == EventPlan && strings.Contains(e.Text, "inspect") &&
+			len(e.Plan) == 1 && e.Plan[0].Content == "inspect files" && e.Plan[0].Status == "in_progress"
+	})
 	events.waitFor(t, func(e Event) bool {
 		return e.Kind == EventDiagnostic && strings.Contains(e.Text, "future_update")
 	})
