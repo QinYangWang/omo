@@ -77,6 +77,38 @@ type Layout struct {
 	ActiveTerm   int
 	SessionQuery string // the sessions panel's filter
 	BrowserURL   string
+
+	// Screen is what the main area shows: ScreenHome, ScreenSession or
+	// ScreenSchedule.
+	Screen string
+	// SidePanel is the open page of a session's 520 DIP panel (PanelChanges,
+	// PanelFiles, PanelTerminal), "" when it is closed and the 300 DIP
+	// inspector shows instead, if Inspector is on.
+	SidePanel string
+	Inspector bool
+	// Settings covers the window with the settings pages.
+	Settings      bool
+	SettingsPage  string
+	SettingsQuery string
+	// SearchOpen shows the search palette; SearchScope filters it (0 all, 1
+	// sessions, 2 files, 3 commands).
+	SearchOpen  bool
+	SearchQuery string
+	SearchScope int
+	// PickerOpen shows the agent picker over the composer.
+	PickerOpen  bool
+	PickerQuery string
+	// NewTaskOpen shows the new scheduled task popover; TaskFilter and
+	// TaskSel are the schedule page's filter and selected row.
+	NewTaskOpen bool
+	TaskFilter  int
+	TaskSel     int
+	// CommitMsg is the change panel's commit message.
+	CommitMsg string
+	// AgentSel is the agent shown in Settings → Agents; PromptSel the quick
+	// command in Settings → Quick commands.
+	AgentSel  string
+	PromptSel int
 }
 
 // Notice is a localizable status message: a catalog key plus its arguments.
@@ -143,6 +175,25 @@ type App struct {
 	agentDiagnostics  []string
 	agentConfig       AgentConfigDraft
 	agentPicker       bool
+	failedAgents      map[string]bool
+	// sessionAllow holds the tool kinds the user allowed for the rest of this
+	// session: omo answers them with the agent's allow_once option itself and
+	// never sends allow_always (docs/security.md §5).
+	sessionAllow map[string]bool
+
+	// The console: preferences, the sidebar's lists, the open session's title
+	// and plan, and how the last turn went.
+	prefs       Prefs
+	userName    string
+	projects    []persistence.Workspace
+	sessionRows []SessionInfo
+	title       string
+	plan        []agent.PlanEntry
+	turnStart   time.Time
+	turnTools   int
+	lastTurn    TurnInfo
+	files       []string
+	taskDraft   TaskDraft
 
 	lastGitRefresh time.Time
 
@@ -175,7 +226,12 @@ func New() *App {
 			MainRows:     72,
 			ActiveTab:    0,
 			PanelTab:     0,
+			Screen:       ScreenHome,
+			Inspector:    true,
+			SettingsPage: SetPrefs,
 		},
+		prefs:           defaultPrefs(),
+		failedAgents:    make(map[string]bool),
 		panelOpen:       false,
 		leftOpen:        true,
 		rightOpen:       true,
@@ -343,6 +399,7 @@ func (a *App) Shutdown() {
 		return
 	}
 	// The layout is saved from the tabs, so it goes before the workspace does.
+	a.SavePrefs()
 	a.closeStore()
 	a.closeTerminals()
 	a.closeWorkspace()

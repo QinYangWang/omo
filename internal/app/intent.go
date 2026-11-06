@@ -177,6 +177,86 @@ func (SaveAgentConfig) isIntent()   {}
 func (DeleteAgent) isIntent()       {}
 func (UpdateAgent) isIntent()       {}
 
+// NewSession leaves the open session and shows the new-session screen. The
+// agent keeps its process; the next prompt starts a new ACP session.
+type NewSession struct{}
+
+// ShowScreen switches the main area to ScreenHome, ScreenSession or
+// ScreenSchedule.
+type ShowScreen struct{ Name string }
+
+// OpenSettings covers the window with the settings, on one page ("" keeps the
+// last one).
+type OpenSettings struct{ Page string }
+
+// CloseSettings leaves the settings and saves the preferences.
+type CloseSettings struct{}
+
+// ToggleSidePanel opens a session's side panel on a page, or closes it when
+// that page is already open.
+type ToggleSidePanel struct{ Name string }
+
+// ToggleInspector shows or hides the session's 300 DIP inspector.
+type ToggleInspector struct{}
+
+// OpenSearch and CloseSearch show and hide the search palette.
+type (
+	OpenSearch  struct{}
+	CloseSearch struct{}
+)
+
+// OpenPicker and ClosePicker show and hide the agent picker.
+type (
+	OpenPicker  struct{}
+	ClosePicker struct{}
+)
+
+// CycleTheme moves the appearance to the next of system, light and dark.
+type CycleTheme struct{}
+
+// SetTheme sets the appearance (kit.Mode as a string).
+type SetTheme struct{ Mode string }
+
+// ContinueWith selects another agent and sends it the last prompt of the
+// session, as the error card's "continue with" offers.
+type ContinueWith struct{ ID string }
+
+// ReLogin opens a terminal running the active agent's program, so the user can
+// sign in again where it asks.
+type ReLogin struct{}
+
+// CommitChanges stages and commits the workspace with the panel's message.
+type CommitChanges struct{}
+
+// InsertPrompt puts a quick command's text in the composer.
+type InsertPrompt struct{ Text string }
+
+// OpenSearchHit acts on a search result: opens the file, the session or runs
+// the command.
+type OpenSearchHit struct{ Hit SearchHit }
+
+// OpenProject opens a recent workspace from the sidebar.
+type OpenProject struct{ Path string }
+
+// AllowForSession answers the pending request with its allow_once option and
+// answers later requests of the same kind the same way until the session ends.
+type AllowForSession struct{}
+
+// AddTask saves the new-task form; ToggleTask pauses or resumes a task;
+// DeleteTask removes one; NewTask opens the form.
+type (
+	AddTask    struct{}
+	NewTask    struct{}
+	ToggleTask struct{ Index int }
+	DeleteTask struct{ Index int }
+)
+
+// AddPrompt adds an empty quick command; DeletePrompt removes one.
+type (
+	AddPrompt    struct{}
+	DeletePrompt struct{ Index int }
+)
+
 // Dispatch applies an intent on the main thread. View callbacks call it
 // directly.
 func (a *App) Dispatch(in Intent) {
@@ -266,6 +346,8 @@ func (a *App) Dispatch(in Intent) {
 		a.deleteAgent(v.ID)
 	case UpdateAgent:
 		a.updateAgent(v.ID)
+	default:
+		a.dispatchConsole(in)
 	}
 	a.invalidate()
 }

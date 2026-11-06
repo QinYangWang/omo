@@ -22,6 +22,11 @@ const (
 	CmdTogglePanel    commands.ID = "view.togglePanel"
 	CmdToggleLeft     commands.ID = "view.toggleSessions"
 	CmdToggleRight    commands.ID = "view.toggleSidebar"
+	CmdNewSession     commands.ID = "session.new"
+	CmdSearch         commands.ID = "app.search"
+	CmdSettings       commands.ID = "app.settings"
+	CmdSchedule       commands.ID = "app.schedule"
+	CmdToggleTheme    commands.ID = "view.toggleTheme"
 )
 
 // registerCommands runs once, from New, during startup. After that the table is
@@ -145,7 +150,7 @@ func (a *App) registerCommands() {
 		ID:    CmdTogglePanel,
 		Title: "cmdTogglePanel",
 		Run: func(context.Context) error {
-			a.Dispatch(TogglePanel{})
+			a.Dispatch(ToggleSidePanel{Name: PanelChanges})
 			return nil
 		},
 	})
@@ -163,10 +168,22 @@ func (a *App) registerCommands() {
 		ID:    CmdToggleRight,
 		Title: "cmdToggleRight",
 		Run: func(context.Context) error {
-			a.Dispatch(ToggleRight{})
+			a.Dispatch(ToggleInspector{})
 			return nil
 		},
 	})
+
+	simple := func(id commands.ID, title string, in Intent) {
+		register(commands.Command{ID: id, Title: title, Run: func(context.Context) error {
+			a.Dispatch(in)
+			return nil
+		}})
+	}
+	simple(CmdNewSession, "cmdNewSession", NewSession{})
+	simple(CmdSearch, "cmdSearch", OpenSearch{})
+	simple(CmdSettings, "cmdSettings", OpenSettings{})
+	simple(CmdSchedule, "cmdSchedule", ShowScreen{Name: ScreenSchedule})
+	simple(CmdToggleTheme, "cmdToggleTheme", CycleTheme{})
 }
 
 func must(err error) {

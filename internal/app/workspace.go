@@ -55,6 +55,12 @@ func (a *App) closeWorkspace() {
 	a.branch = ""
 	a.resetReview()
 	a.sessions = nil
+	a.sessionRows = nil
+	a.title = ""
+	a.plan = nil
+	a.files = nil
+	a.lastTurn = TurnInfo{}
+	a.Layout.SidePanel = ""
 	a.layoutKey = ""
 	a.roots = nil
 	a.tabs = nil

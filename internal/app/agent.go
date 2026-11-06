@@ -25,6 +25,7 @@ type agentRuntime interface {
 	Close(context.Context) error
 	Snapshot() (agent.State, string, bool)
 	Diagnostics() []string
+	Output() string
 }
 
 // ChatItem is one bounded transcript entry. Tool entries are replaced in place
@@ -34,18 +35,30 @@ type ChatItem struct {
 	Text       string
 	ToolCallID string
 	User       bool
+
+	// A tool call's details, as ACP reports them: its kind (read, edit,
+	// execute, search, delete, move, fetch, think, other), status (pending,
+	// in_progress, completed, failed), title, the paths it touches and the
+	// command it runs. Allowed marks a call the user approved.
+	ToolKind   string
+	ToolStatus string
+	ToolTitle  string
+	Paths      []string
+	Command    []string
+	Allowed    bool
 }
 
 // AgentPermission is the currently pending approval. A nil value means no
 // request is waiting. Closing its dialog cancels the turn rather than allowing.
 type AgentPermission struct {
-	RequestID string
-	Title     string
-	Kind      string
-	Paths     []string
-	Command   []string
-	Input     string
-	Options   []agent.PermissionOption
+	RequestID  string
+	ToolCallID string
+	Title      string
+	Kind       string
+	Paths      []string
+	Command    []string
+	Input      string
+	Options    []agent.PermissionOption
 }
 
 // AgentConfigDraft is editable form state. Args and Env contain one entry per
@@ -275,7 +288,8 @@ func (a *App) runAgent(def agent.Definition, prompt string, restart bool) {
 	} else {
 		a.setAgentState(agent.StateStarting)
 	}
-	a.Layout.ActiveTab = -1 // Show the central session pane.
+	a.Layout.ActiveTab = -1
+	a.Layout.Screen = ScreenSession
 	// A session this workspace used before is asked for back; an agent without
 	// session/load answers with a new one and the manager says so.
 	restoreID := ""
@@ -336,6 +350,9 @@ func (a *App) sendPrompt() {
 		return
 	}
 	a.agentInput = ""
+	a.setTitle(text)
+	a.turnStart = time.Now()
+	a.turnTools = 0
 	a.appendChat(ChatItem{Kind: agent.EventText, Text: text, User: true})
 	a.runAgent(def, text, a.agentNeedsRestart)
 }
@@ -365,6 +382,15 @@ func (a *App) resolvePermission(optionID string) {
 	if !a.agents.Resolve(id, optionID) {
 		a.appendDiagnostic("permission request was no longer pending")
 		return
+	}
+	for _, option := range a.permission.Options {
+		if option.ID == optionID && strings.HasPrefix(option.Kind, "allow") {
+			for i := range a.chatItems {
+				if a.chatItems[i].ToolCallID != "" && a.chatItems[i].ToolCallID == a.permission.ToolCallID {
+					a.chatItems[i].Allowed = true
+				}
+			}
+		}
 	}
 	a.dismissPermission(id)
 }
@@ -493,6 +519,7 @@ func (a *App) closeAgent() {
 	a.permission = nil
 	a.permissionQueue = nil
 	a.trustAgentID = ""
+	a.sessionAllow = nil
 	a.agentNotice = Notice{Key: "agentDisconnected"}
 	a.agentCtx, a.agentCancel = context.WithCancel(a.ctx)
 }
@@ -509,6 +536,12 @@ func (a *App) onAgentEvent(ev agent.Event) {
 	switch ev.Kind {
 	case agent.EventState:
 		a.setAgentState(ev.State)
+		switch ev.State {
+		case agent.StateError:
+			a.failedAgents[a.activeAgentID] = true
+		case agent.StateReady:
+			delete(a.failedAgents, a.activeAgentID)
+		}
 		if ev.State == agent.StateError || ev.State == agent.StateDisconnected {
 			a.permission = nil
 			a.permissionQueue = nil
@@ -518,16 +551,24 @@ func (a *App) onAgentEvent(ev agent.Event) {
 	case agent.EventTool:
 		a.upsertToolChat(ev)
 		a.NoteAgentPaths(ev.Paths...)
-	case agent.EventPlan:
-		if ev.Text != "" {
-			a.appendChat(ChatItem{Kind: ev.Kind, Text: ev.Text})
+		// A finished write shows in the inspector's changes now, not at the
+		// end of the turn.
+		if ev.Text == "completed" && len(ev.Paths) > 0 && ev.KindDetail != "read" && ev.KindDetail != "search" {
+			a.refreshReview()
 		}
+	case agent.EventPlan:
+		// The plan is drawn in the inspector, not the transcript: ACP sends
+		// the whole list each time, so it replaces the last one.
+		a.plan = ev.Plan
 	case agent.EventPermission:
 		request := AgentPermission{
-			RequestID: ev.RequestID, Title: ev.Title, Kind: ev.KindDetail,
+			RequestID: ev.RequestID, ToolCallID: ev.ToolCallID, Title: ev.Title, Kind: ev.KindDetail,
 			Paths: ev.Paths, Command: ev.Command, Input: ev.Input, Options: ev.Options,
 		}
 		a.NoteAgentPaths(ev.Paths...)
+		if a.autoAllow(request) {
+			break
+		}
 		if a.permission == nil {
 			a.permission = &request
 		} else if len(a.permissionQueue) < 32 {
@@ -544,6 +585,7 @@ func (a *App) onAgentEvent(ev agent.Event) {
 		a.setNotice(Notice{Key: "agentSessionReplaced"})
 		a.appendDiagnostic(firstNonempty(ev.Text, ev.Raw))
 		a.persistSession()
+		a.refreshSessions()
 	case agent.EventDiagnostic:
 		a.appendDiagnostic(firstNonempty(ev.Text, ev.Raw))
 	case agent.EventTurnEnd:
@@ -557,6 +599,10 @@ func (a *App) onAgentEvent(ev agent.Event) {
 			a.appendDiagnostic("turn ended: " + ev.StopReason)
 		}
 		a.refreshReview()
+		if !a.turnStart.IsZero() {
+			a.lastTurn = TurnInfo{Duration: time.Since(a.turnStart), ToolCalls: a.turnTools, StopReason: ev.StopReason, Done: true}
+		}
+		a.turnStart = time.Time{}
 		a.recordTurn(ev.StopReason)
 		a.refreshGit(true)
 	}
@@ -605,18 +651,37 @@ func (a *App) upsertToolChat(ev agent.Event) {
 	}
 	for i := range a.chatItems {
 		if a.chatItems[i].Kind == agent.EventTool && a.chatItems[i].ToolCallID == ev.ToolCallID {
+			it := &a.chatItems[i]
 			if ev.Title == "" {
-				base, _, _ := strings.Cut(a.chatItems[i].Text, " · ")
+				base, _, _ := strings.Cut(it.Text, " · ")
 				text = base
 				if ev.Text != "" {
 					text += " · " + ev.Text
 				}
+			} else {
+				it.ToolTitle = ev.Title
 			}
-			a.chatItems[i].Text = text
+			it.Text = text
+			if ev.Text != "" {
+				it.ToolStatus = ev.Text
+			}
+			if ev.KindDetail != "" {
+				it.ToolKind = ev.KindDetail
+			}
+			if len(ev.Paths) > 0 {
+				it.Paths = ev.Paths
+			}
+			if len(ev.Command) > 0 {
+				it.Command = ev.Command
+			}
 			return
 		}
 	}
-	a.appendChat(ChatItem{Kind: agent.EventTool, ToolCallID: ev.ToolCallID, Text: text})
+	a.turnTools++
+	a.appendChat(ChatItem{
+		Kind: agent.EventTool, ToolCallID: ev.ToolCallID, Text: text, ToolTitle: ev.Title,
+		ToolKind: ev.KindDetail, ToolStatus: ev.Text, Paths: ev.Paths, Command: ev.Command,
+	})
 }
 
 func (a *App) appendDiagnostic(text string) {

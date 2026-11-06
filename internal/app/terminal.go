@@ -71,6 +71,7 @@ func (a *App) selectTerminal(i int) {
 	a.Layout.ActiveTerm = i
 	a.Layout.PanelTab = 0
 	a.panelOpen = true
+	a.Layout.SidePanel = PanelTerminal
 }
 
 // closeTerminal kills one session and drops it.
