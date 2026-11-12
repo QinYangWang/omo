@@ -59,12 +59,15 @@ func main() {
 		mygo.Theme.SetSource(mygo.ThemeDark)
 
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:     "omo",
-			Width:     1100,
-			Height:    760,
-			MinWidth:  900,
-			MinHeight: 560,
-			Content:   ui.Content(a),
+			Title:           "omo",
+			Width:           1100,
+			Height:          760,
+			MinWidth:        720,
+			MinHeight:       480,
+			TitleBarStyle:   mygo.TitleBarHidden,
+			TitleBarHeight:  44,
+			BackgroundColor: "#17171a",
+			Content:         ui.Content(a),
 		})
 		a.Attach(win)
 

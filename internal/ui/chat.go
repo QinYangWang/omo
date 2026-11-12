@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 
 	"github.com/QinYangWang/omo/internal/app"
+	"github.com/QinYangWang/omo/internal/chat"
 	"github.com/QinYangWang/omo/internal/plugins"
 	"github.com/QinYangWang/omo/internal/widgets"
 )
@@ -32,6 +33,7 @@ func New(a *app.App) func(*mygoui.Context) {
 
 func (v *view) build(c *mygoui.Context) {
 	a := v.app
+	c.SetTheme(theme(c.Theme()))
 	if a.ShowPlugins {
 		v.plugins(c)
 		return
@@ -56,63 +58,134 @@ func (v *view) build(c *mygoui.Context) {
 
 func (v *view) sidebar(c *mygoui.Context) {
 	t := c.Theme()
+	p := colors(t)
 	a := v.app
 	mygoui.Column(c).
-		Width(240).
+		Width(252).
 		FillHeight().
-		Background(t.Surface).
+		Background(p.rail).
 		BorderWidth(0, 1, 0, 0).
-		BorderColor(t.Border).
-		Padding(12).
-		Gap(8).
+		BorderColor(p.border).
 		Children(func() {
-			mygoui.Row(c).Padding(4, 6).Children(func() {
-				mygoui.Text(c, "omo").FontSize(15).Bold()
+			mygoui.Row(c).Height(max(c.TitleBar().Bottom, 44)).Shrink(0).DragWindow().
+				Padding(0, 10, 0, 14).Gap(8).AlignItems(mygoui.Center).Children(func() {
+				mygoui.Box(c).Size(20, 20).Radius(6).Gradient(p.accent, p.accent.Mix(p.rail, 0.45), 135).
+					AlignItems(mygoui.Center).Justify(mygoui.Center).Children(func() {
+					mygoui.Text(c, "o").FontSize(12).Bold().TextColor(p.onAccent)
+				})
+				mygoui.Text(c, "omo").FontSize(13.5).Bold()
 			})
-			if mygoui.PrimaryButton(c, "New chat").FillWidth().Clicked() {
-				a.StartNewChat()
-			}
+			mygoui.Column(c).Padding(10, 10, 6, 10).Gap(2).Children(func() {
+				v.navItem(c, iconPlus, "New chat", false, func() { a.StartNewChat() })
+				v.navItem(c, iconGrid, "Plugins", a.ShowPlugins, func() { a.OpenPlugins() })
+				v.navItem(c, iconSliders, "Settings", a.ShowSettings, func() { a.OpenSettings() })
+			})
+
+			mygoui.Text(c, "SESSIONS").FontSize(10).Bold().TextColor(p.muted).Padding(12, 10, 4, 14)
 			v.sessionList(c)
 
-			mygoui.Divider(c)
-			mygoui.Text(c, "WORKSPACE").FontSize(10).TextColor(t.TextMuted).Padding(2, 6)
-			label := a.WorkspaceLabel()
-			mygoui.Text(c, label).FontSize(11).TextColor(t.TextMuted).SingleLine()
-			if mygoui.Button(c, "Change directory").FillWidth().Clicked() {
-				a.ChooseWorkspace()
-			}
-			if mygoui.Button(c, "Settings").FillWidth().Clicked() {
-				a.OpenSettings()
-			}
-			if mygoui.Button(c, "Plugins").FillWidth().Clicked() {
-				a.OpenPlugins()
-			}
+			mygoui.Column(c).Padding(10, 10, 10, 10).Gap(8).Children(func() {
+				mygoui.Divider(c).Background(p.border)
+				footer := mygoui.Row(c).Padding(5, 6).Radius(9).Gap(9).AlignItems(mygoui.Center)
+				footer.Cursor(mygoui.CursorPointer).OnClick(func() { a.ChooseWorkspace() }).
+					Tooltip("Change workspace")
+				if footer.Hovered() {
+					footer.Background(p.railHover)
+				}
+				footer.Children(func() {
+					mygoui.Box(c).Size(26, 26).Radius(13).Gradient(p.accent, p.accent.Mix(p.rail, 0.45), 135).
+						AlignItems(mygoui.Center).Justify(mygoui.Center).Children(func() {
+						mygoui.Icon(c, iconFolder).FontSize(13).TextColor(p.onAccent)
+					})
+					mygoui.Column(c).Grow(1).Gap(1).Children(func() {
+						mygoui.Text(c, workspaceName(a)).FontSize(12).Bold().SingleLine()
+						mygoui.Text(c, "Workspace").FontSize(11).TextColor(p.muted).SingleLine()
+					})
+					if iconButton(c, iconFolder, "Change workspace") {
+						a.ChooseWorkspace()
+					}
+				})
+			})
 		})
+}
+
+// workspaceName is the last part of the workspace path, or a hint that none
+// is chosen.
+func workspaceName(a *app.App) string {
+	if !a.HasWorkspace() {
+		return "No workspace"
+	}
+	return filepath.Base(strings.TrimRight(a.WorkspaceLabel(), `\/`))
+}
+
+func (v *view) pageTitle() string {
+	if v.app.ShowPlugins {
+		return "Plugins"
+	}
+	if v.app.ShowSettings {
+		return "Settings"
+	}
+	if v.app.Session != nil {
+		return v.app.Session.Title
+	}
+	return "New chat"
+}
+
+func (v *view) navItem(c *mygoui.Context, ic *mygoui.SVG, label string, active bool, action func()) {
+	p := colors(c.Theme())
+	row := mygoui.ButtonBase(c).Padding(6, 9).Radius(8).Gap(10).AlignItems(mygoui.Center).Label(label)
+	if active {
+		row.Background(p.card)
+	} else if row.Hovered() {
+		row.Background(p.railHover)
+	}
+	if row.Clicked() {
+		action()
+	}
+	row.Children(func() {
+		mygoui.Icon(c, ic).FontSize(15).TextColor(p.muted)
+		mygoui.Text(c, label).FontSize(13).Grow(1)
+		if active {
+			mygoui.Box(c).Size(5, 5).Radius(3).Background(p.accent)
+		}
+	})
+}
+
+// iconButton is a borderless square button showing an icon only.
+func iconButton(c *mygoui.Context, ic *mygoui.SVG, label string) bool {
+	p := colors(c.Theme())
+	b := mygoui.ButtonBase(c).Size(24, 24).Radius(7).AlignItems(mygoui.Center).Justify(mygoui.Center).Label(label)
+	if b.Hovered() {
+		b.Background(p.railHover)
+	}
+	b.Tooltip(label)
+	b.Children(func() {
+		mygoui.Icon(c, ic).FontSize(15).TextColor(p.muted)
+	})
+	return b.Clicked()
 }
 
 func (v *view) main(c *mygoui.Context) {
 	t := c.Theme()
 	a := v.app
-	mygoui.Column(c).Grow(1).FillHeight().Children(func() {
-		mygoui.Row(c).
-			Padding(12, 18).
-			Gap(12).
-			AlignItems(mygoui.Center).
-			BorderWidth(0, 0, 1, 0).
-			BorderColor(t.Border).
-			Children(func() {
-				mygoui.Column(c).Grow(1).Gap(2).Children(func() {
-					title := "New chat"
-					if a.Session != nil {
-						title = a.Session.Title
-					}
-					mygoui.Text(c, title).FontSize(14).Bold().SingleLine()
-					mygoui.Text(c, a.WorkspaceLabel()).FontSize(11).TextColor(t.TextMuted).SingleLine()
-				})
-				if mygoui.Button(c, "Change directory").Clicked() {
-					a.ChooseWorkspace()
+	mygoui.Column(c).Grow(1).FillHeight().Background(t.Background).Children(func() {
+		v.headerBar(c, v.pageTitle(), workspaceName(a), func() {
+			if a.ShowSettings {
+				if iconButton(c, iconArrowLeft, "Back to chat") {
+					a.ShowSettings = false
 				}
-			})
+				return
+			}
+			if iconButton(c, iconFolder, "Change workspace") {
+				a.ChooseWorkspace()
+			}
+			if iconButton(c, iconGrid, "Plugins") {
+				a.OpenPlugins()
+			}
+			if iconButton(c, iconSliders, "Settings") {
+				a.OpenSettings()
+			}
+		})
 
 		if a.ShowSettings {
 			v.settings(c)
@@ -120,9 +193,7 @@ func (v *view) main(c *mygoui.Context) {
 		}
 
 		if a.Failure != "" {
-			mygoui.Row(c).Padding(10, 18).Background(t.Surface).Children(func() {
-				mygoui.Text(c, a.Failure).FontSize(12).TextColor(t.Danger)
-			})
+			v.banner(c, a.Failure)
 		}
 
 		v.transcript(c)
@@ -130,40 +201,117 @@ func (v *view) main(c *mygoui.Context) {
 	})
 }
 
-func (v *view) sessionList(c *mygoui.Context) {
-	t := c.Theme()
-	a := v.app
-	mygoui.Text(c, "RECENT").FontSize(10).TextColor(t.TextMuted).Padding(6, 6, 0, 6)
-	list := &v.sessions
-	list.Key = func(i int) any { return a.Sessions[i].ID }
-	mygoui.List(c, list, len(a.Sessions), func(i int) {
-		s := a.Sessions[i]
-		selected := a.Session != nil && a.Session.ID == s.ID
-		bg := t.Background
-		if selected {
-			bg = t.SurfacePressed
+// headerBar draws the window's draggable title row, clear of the window
+// controls, and the actions that go at its end.
+func (v *view) headerBar(c *mygoui.Context, title, subtitle string, actions func()) {
+	p := colors(c.Theme())
+	bar := c.TitleBar()
+	row := mygoui.Row(c).Height(44).Shrink(0).
+		Padding(0, bar.Right+16, 0, 18).
+		Gap(4).AlignItems(mygoui.Center).DragWindow().
+		BorderWidth(0, 0, 1, 0).BorderColor(p.border)
+	row.Children(func() {
+		mygoui.Column(c).Grow(1).Gap(1).Children(func() {
+			mygoui.Text(c, title).FontSize(13.5).Bold().SingleLine()
+			mygoui.Text(c, subtitle).FontSize(11).TextColor(p.muted).SingleLine()
+		})
+		if actions != nil {
+			actions()
 		}
-		mygoui.Column(c).
-			Padding(8, 10).
-			Radius(8).
-			Gap(2).
-			Background(bg).
-			OnClick(func() { a.OpenSession(s.ID) }).
-			Children(func() {
-				mygoui.Text(c, s.Title).FontSize(13).SingleLine()
-				mygoui.Text(c, filepath.Base(s.Workspace)).FontSize(11).TextColor(t.TextMuted).SingleLine()
+	})
+}
+
+func (v *view) banner(c *mygoui.Context, text string) {
+	t := c.Theme()
+	mygoui.Row(c).Padding(10, 18, 0, 18).Children(func() {
+		mygoui.Row(c).FillWidth().Padding(8, 12).Radius(9).Gap(8).
+			Background(t.Danger.Alpha(0.12)).Border(1, t.Danger.Alpha(0.35)).Children(func() {
+			mygoui.Text(c, text).FontSize(12).TextColor(t.Danger).Wrap()
+		})
+	})
+}
+
+// sessionRow is one row of the session rail: a workspace heading or a chat.
+type sessionRow struct {
+	header  bool
+	group   string
+	session *chat.Session
+}
+
+func (v *view) sessionRows() []sessionRow {
+	a := v.app
+	rows := make([]sessionRow, 0, len(a.Sessions)+4)
+	seen := map[string]bool{}
+	for i := range a.Sessions {
+		s := &a.Sessions[i]
+		if !seen[s.Workspace] {
+			seen[s.Workspace] = true
+			rows = append(rows, sessionRow{header: true, group: s.Workspace})
+		}
+		rows = append(rows, sessionRow{session: s})
+	}
+	return rows
+}
+
+func groupName(workspace string) string {
+	if strings.TrimSpace(workspace) == "" {
+		return "No workspace"
+	}
+	return filepath.Base(strings.TrimRight(workspace, `\/`))
+}
+
+func (v *view) sessionList(c *mygoui.Context) {
+	p := colors(c.Theme())
+	a := v.app
+	rows := v.sessionRows()
+	if len(rows) == 0 {
+		mygoui.Text(c, "No conversations yet").FontSize(11).TextColor(p.muted).Padding(4, 12, 8, 14)
+		return
+	}
+	list := &v.sessions
+	list.Key = func(i int) any {
+		if rows[i].header {
+			return "group:" + rows[i].group
+		}
+		return rows[i].session.ID
+	}
+	mygoui.List(c, list, len(rows), func(i int) {
+		row := rows[i]
+		if row.header {
+			mygoui.Row(c).Padding(5, 12, 6, 20).Gap(7).AlignItems(mygoui.Center).Children(func() {
+				mygoui.Icon(c, iconFolder).FontSize(12).TextColor(p.muted)
+				mygoui.Text(c, groupName(row.group)).FontSize(11).TextColor(p.muted).SingleLine().Grow(1)
 			})
+			return
+		}
+		s := row.session
+		selected := a.Session != nil && a.Session.ID == s.ID
+		item := mygoui.Row(c).Padding(6, 10, 6, 26).Radius(8).Gap(8).AlignItems(mygoui.Center)
+		if selected {
+			item.Background(p.card)
+		} else if item.Hovered() {
+			item.Background(p.railHover)
+		}
+		item.Cursor(mygoui.CursorPointer).OnClick(func() { a.OpenSession(s.ID) }).Children(func() {
+			mygoui.Text(c, s.Title).FontSize(12.5).SingleLine().Grow(1)
+			if selected {
+				mygoui.Box(c).Size(4, 4).Radius(2).Background(p.accent)
+			}
+		})
 	}).Grow(1)
 }
 
 func (v *view) transcript(c *mygoui.Context) {
 	t := c.Theme()
+	p := colors(t)
 	a := v.app
 	if len(a.Messages) == 0 && a.Partial == "" && a.Status != "running" && a.Status != "tool" {
-		mygoui.Column(c).Grow(1).Padding(28, 24).Gap(10).Children(func() {
+		mygoui.Column(c).Grow(1).Justify(mygoui.Center).Padding(24, 36).Gap(10).Children(func() {
 			mygoui.Text(c, "How can I help you today?").FontSize(24).Bold()
-			mygoui.Text(c, a.WorkspaceLabel()).FontSize(12).TextColor(t.TextMuted).Wrap()
-			if !a.HasWorkspace() {
+			if a.HasWorkspace() {
+				mygoui.Text(c, "Working in "+workspaceName(a)).FontSize(12).TextColor(p.muted).Wrap()
+			} else {
+				mygoui.Text(c, "Choose a folder to start.").FontSize(12).TextColor(p.muted).Wrap()
 				if mygoui.PrimaryButton(c, "Choose a workspace").Clicked() {
 					a.ChooseWorkspace()
 				}
@@ -180,9 +328,9 @@ func (v *view) transcript(c *mygoui.Context) {
 	if streaming {
 		rows++
 	}
-	mygoui.List(c, list, rows, func(i int) {
+	render := func(i int) {
 		if i >= len(a.Messages) {
-			mygoui.Column(c).MaxWidth(760).Padding(0, 2).Children(func() {
+			mygoui.Column(c).MaxWidth(780).Padding(0, 2).Children(func() {
 				markdown.Stream(c, a.Partial, &v.md)
 			})
 			return
@@ -193,43 +341,40 @@ func (v *view) transcript(c *mygoui.Context) {
 				mygoui.Spacer(c)
 				mygoui.Text(c, msg.Text).
 					Selectable().
-					Padding(8, 12).
+					Padding(9, 13).
 					Radius(14).
-					Background(t.Surface).
+					Background(p.card).
 					MaxWidth(560)
 			})
 			return
 		}
-		mygoui.Column(c).MaxWidth(760).Children(func() {
+		mygoui.Column(c).MaxWidth(780).Children(func() {
 			markdown.View(c, msg.Text, &v.md)
 		})
-	}).Grow(1).Padding(16, 20).Gap(14).Justify(mygoui.End).Children(func() {
+	}
+	mygoui.List(c, list, rows, render).Grow(1).Padding(22, 28, 14, 28).Gap(16).Justify(mygoui.End).Children(func() {
 		if a.Status == "tool" {
-			mygoui.Text(c, "Working in the workspace…").FontSize(12).TextColor(t.TextMuted)
+			mygoui.Text(c, "Working in the workspace…").FontSize(12).TextColor(p.muted)
 		} else if a.Status == "running" && a.Partial == "" {
 			mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
 				mygoui.Spinner(c)
-				mygoui.Text(c, "Thinking…").FontSize(12).TextColor(t.TextMuted)
+				mygoui.Text(c, "Thinking…").FontSize(12).TextColor(p.muted)
 			})
 		}
 	})
 }
 
 func (v *view) composer(c *mygoui.Context) {
-	t := c.Theme()
+	p := colors(c.Theme())
 	a := v.app
 	busy := a.Status == "running" || a.Status == "tool"
-	mygoui.Row(c).
-		Padding(12, 18).
-		Gap(8).
-		AlignItems(mygoui.End).
-		BorderWidth(1, 0, 0, 0).
-		BorderColor(t.Border).
-		Children(func() {
-			mygoui.TextArea(c, &a.Input).
+	empty := strings.TrimSpace(a.Input) == ""
+	mygoui.Row(c).FillWidth().Justify(mygoui.Center).Padding(8, 22, 16, 22).Children(func() {
+		mygoui.Column(c).MaxWidth(820).Grow(1).Radius(14).Background(p.card).
+			Border(1, p.border).Padding(10, 12, 9, 12).Gap(8).Children(func() {
+			mygoui.TextAreaBase(c, &a.Input).
 				Placeholder("Message omo").
-				Lines(1, 7).
-				Grow(1).
+				Lines(1, 8).
 				OnTextKey(func(k mygoui.TextKey) bool {
 					if k.Key == mygoui.KeyEnter && k.Mods == 0 {
 						text := k.Text()
@@ -239,16 +384,43 @@ func (v *view) composer(c *mygoui.Context) {
 					}
 					return false
 				})
-			if busy {
-				if mygoui.Button(c, "Stop").Clicked() {
-					a.Stop()
+			mygoui.Row(c).Gap(8).AlignItems(mygoui.Center).Children(func() {
+				if model := a.Config.Settings.Model; model != "" {
+					chip := mygoui.Row(c).Padding(4, 9).Radius(999).Gap(6).AlignItems(mygoui.Center)
+					chip.Background(p.rail).Cursor(mygoui.CursorPointer).
+						OnClick(func() { a.OpenSettings() }).Tooltip("Change model")
+					if chip.Hovered() {
+						chip.Background(p.railHover)
+					}
+					chip.Children(func() {
+						mygoui.Text(c, model).FontSize(11).TextColor(p.muted).SingleLine().MaxWidth(260)
+						mygoui.Icon(c, iconChevronDown).FontSize(11).TextColor(p.muted)
+					})
 				}
-			} else if mygoui.PrimaryButton(c, "Send").
-				Disabled(strings.TrimSpace(a.Input) == "").
-				Clicked() {
-				a.Send(a.Input)
-			}
+				mygoui.Spacer(c)
+				if busy {
+					stop := mygoui.ButtonBase(c).Size(28, 28).Radius(14).Label("Stop")
+					stop.Background(p.railHover).AlignItems(mygoui.Center).Justify(mygoui.Center)
+					if stop.Hovered() {
+						stop.Background(p.border)
+					}
+					if stop.Clicked() {
+						a.Stop()
+					}
+					stop.Children(func() { mygoui.Icon(c, iconStop).FontSize(14).TextColor(p.text) })
+					return
+				}
+				send := mygoui.ButtonBase(c).Size(28, 28).Radius(14).Label("Send")
+				send.AlignItems(mygoui.Center).Justify(mygoui.Center)
+				send.Disabled(empty)
+				send.Background(p.accent)
+				send.Children(func() { mygoui.Icon(c, iconArrowUp).FontSize(15).TextColor(p.onAccent) })
+				if send.Clicked() {
+					a.Send(a.Input)
+				}
+			})
 		})
+	})
 }
 
 func (v *view) pluginFailure(c *mygoui.Context, plugin *plugins.Installed, err error) {
@@ -274,20 +446,22 @@ func (v *view) plugins(c *mygoui.Context) {
 	mygoui.Row(c).Fill().Background(t.Background).Children(func() {
 		v.sidebar(c)
 		mygoui.Column(c).Grow(1).FillHeight().Children(func() {
-			mygoui.Row(c).Padding(12, 18).Gap(12).AlignItems(mygoui.Center).
-				BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-				mygoui.Column(c).Grow(1).Gap(2).Children(func() {
-					mygoui.Text(c, "Plugins").FontSize(16).Bold()
-					mygoui.Text(c, "Active UI: "+a.ActiveUIName()).FontSize(11).TextColor(t.TextMuted)
-				})
-				if mygoui.Button(c, "Back to chat").Clicked() {
+			v.headerBar(c, "Plugins", "Active UI: "+a.ActiveUIName(), func() {
+				back := mygoui.ButtonBase(c).Padding(5, 9).Radius(7).Gap(6).AlignItems(mygoui.Center).Label("Back to chat")
+				if back.Hovered() {
+					back.Background(t.SurfaceHover)
+				}
+				if back.Clicked() {
 					a.ClosePlugins()
 				}
+				back.Children(func() {
+					mygoui.Icon(c, iconArrowLeft).FontSize(14).TextColor(t.TextMuted)
+					mygoui.Text(c, "Back to chat").FontSize(12).TextColor(t.TextMuted)
+				})
 			})
 
 			mygoui.Scroll(c).Grow(1).Children(func() {
-				mygoui.Column(c).FillWidth().Padding(24).Gap(12).Children(func() {
-					mygoui.Text(c, "omo plugins").FontSize(20).Bold()
+				mygoui.Column(c).FillWidth().Padding(20, 24).Gap(12).Children(func() {
 					mygoui.Text(c, "Declarative native UI plugins. Install from a folder or a shared ZIP; a UI plugin can replace the entire main view.").
 						FontSize(12).TextColor(t.TextMuted).Wrap()
 					if a.PluginNotice != "" {
@@ -378,8 +552,7 @@ func (v *view) settings(c *mygoui.Context) {
 	t := c.Theme()
 	a := v.app
 	mygoui.Scroll(c).Grow(1).Children(func() {
-		mygoui.Column(c).FillWidth().Padding(24).Gap(10).Children(func() {
-			mygoui.Text(c, "Settings").FontSize(20).Bold()
+		mygoui.Column(c).FillWidth().Padding(20, 24).Gap(10).Children(func() {
 			mygoui.Text(c, "Providers and chat models come from the pi-ai catalog. omo stores only your selection, endpoint overrides and credentials.").
 				FontSize(12).TextColor(t.TextMuted).Wrap()
 			mygoui.Text(c, a.CatalogSummary()).FontSize(11).TextColor(t.TextMuted).Wrap()
