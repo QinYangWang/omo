@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "omo.sample-dashboard",
+  "name": "Sample Dashboard",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "description": "A complete declarative native UI example: session list, transcript and composer.",
+  "author": "QinYangWang",
+  "homepage": "https://github.com/QinYangWang/omo",
+  "permissions": [
+    "ui.replace",
+    "chat.read",
+    "chat.write",
+    "settings.open",
+    "workspace.choose"
+  ],
+  "ui": {
+    "main": "ui/main.json"
+  }
+}

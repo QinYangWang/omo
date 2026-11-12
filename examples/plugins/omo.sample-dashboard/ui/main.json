@@ -1,0 +1,109 @@
+{
+  "type": "page",
+  "padding": 0,
+  "gap": 0,
+  "children": [
+    {
+      "type": "row",
+      "fill": true,
+      "gap": 0,
+      "children": [
+        {
+          "type": "column",
+          "width": 240,
+          "fill": true,
+          "padding": 12,
+          "gap": 8,
+          "children": [
+            {
+              "type": "heading",
+              "text": "omo",
+              "fontSize": 18
+            },
+            {
+              "type": "text",
+              "text": "Active UI: {{activeUi}}",
+              "fontSize": 11,
+              "wrap": true
+            },
+            {
+              "type": "sessions.list"
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "text",
+              "text": "{{workspace}}",
+              "fontSize": 10,
+              "wrap": true
+            },
+            {
+              "type": "button",
+              "text": "Choose workspace",
+              "action": "workspace.choose",
+              "fill": true
+            },
+            {
+              "type": "button",
+              "text": "Plugins",
+              "action": "plugins.open",
+              "fill": true
+            }
+          ]
+        },
+        {
+          "type": "column",
+          "grow": true,
+          "fill": true,
+          "padding": 18,
+          "gap": 10,
+          "children": [
+            {
+              "type": "row",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "heading",
+                  "text": "{{session.title}}",
+                  "fontSize": 16,
+                  "grow": true
+                },
+                {
+                  "type": "button",
+                  "text": "New chat",
+                  "action": "chat.new"
+                },
+                {
+                  "type": "button",
+                  "text": "Settings",
+                  "action": "settings.open"
+                },
+                {
+                  "type": "button",
+                  "text": "Built-in UI",
+                  "action": "ui.builtin"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": "Provider {{provider}} · model {{model}} · status {{status}}",
+              "fontSize": 11,
+              "wrap": true
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "chat.transcript"
+            },
+            {
+              "type": "chat.composer"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

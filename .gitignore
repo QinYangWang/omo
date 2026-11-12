@@ -1,0 +1,25 @@
+# Build output
+/bin/
+/dist/
+/internal/runtime/moejs/assets/pi-durable.js
+/.gocache/
+/.tmp/
+/.data/
+/run.err.log
+/run.out.log
+/shot*.png
+
+# Bun / Node
+node_modules/
+
+# Local runtime state
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.log
