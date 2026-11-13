@@ -38,19 +38,19 @@ type Event struct {
 
 // TeamConfig opens one team: one durable database, one conversation per Bot.
 type TeamConfig struct {
-	DBPath       string            `json:"dbPath"`
-	TeamID       string            `json:"teamId,omitempty"`
-	BaseURL      string            `json:"baseUrl"`
-	Provider     string            `json:"provider"`
-	Model        string            `json:"model"`
-	CustomModels []string          `json:"customModels,omitempty"`
-	Workspace    string            `json:"workspace"`
-	Credentials  map[string]string `json:"credentials"`
-	MaxTokens    int               `json:"maxTokens"`
-	Temperature  float64           `json:"temperature"`
-	MaxTurns     int               `json:"maxTurns,omitempty"`
-	Skills       []Skill           `json:"skills,omitempty"`
-	Bots         []TeamBot         `json:"bots"`
+	DBPath          string            `json:"dbPath"`
+	TeamID          string            `json:"teamId,omitempty"`
+	BaseURL         string            `json:"baseUrl"`
+	Provider        string            `json:"provider"`
+	Model           string            `json:"model"`
+	CustomProviders []CustomProvider  `json:"customProviders,omitempty"`
+	Workspace       string            `json:"workspace"`
+	Credentials     map[string]string `json:"credentials"`
+	MaxTokens       int               `json:"maxTokens"`
+	Thinking        string            `json:"thinking,omitempty"`
+	MaxTurns        int               `json:"maxTurns,omitempty"`
+	Skills          []Skill           `json:"skills,omitempty"`
+	Bots            []TeamBot         `json:"bots"`
 }
 
 // TeamBot is one roster entry handed to the runtime, with the durable
@@ -61,6 +61,7 @@ type TeamBot struct {
 	Instructions   string `json:"instructions,omitempty"`
 	Provider       string `json:"provider,omitempty"`
 	Model          string `json:"model,omitempty"`
+	Thinking       string `json:"thinking,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 }
 
@@ -79,6 +80,7 @@ type CatalogModel struct {
 	Name          string   `json:"name"`
 	API           string   `json:"api"`
 	Reasoning     bool     `json:"reasoning"`
+	Thinking      []string `json:"thinking"`
 	Input         []string `json:"input"`
 	ContextWindow int      `json:"contextWindow"`
 	MaxTokens     int      `json:"maxTokens"`
@@ -94,6 +96,15 @@ type CatalogProvider struct {
 
 type Catalog struct {
 	Providers []CatalogProvider `json:"providers"`
+}
+
+// CustomProvider is one user-added OpenAI-compatible endpoint: its own id,
+// display name, base URL and model ids.
+type CustomProvider struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	BaseURL string   `json:"baseUrl"`
+	Models  []string `json:"models,omitempty"`
 }
 
 type Engine struct {
@@ -299,14 +310,14 @@ func (e *Engine) load() error {
 
 // ListCatalog returns the provider and chat-model catalog that pi-ai
 // registered in the running bundle. The app treats it as read-only data.
-func (e *Engine) ListCatalog(baseURL, model string, customModels []string) (Catalog, error) {
+func (e *Engine) ListCatalog(custom []CustomProvider) (Catalog, error) {
 	var out Catalog
-	models, err := json.Marshal(customModels)
+	specs, err := json.Marshal(custom)
 	if err != nil {
 		return out, err
 	}
 	value, err := e.callSync("listCatalog", func(rt *moejs.Runtime) ([]moejs.Value, error) {
-		return []moejs.Value{moejs.String(baseURL), moejs.String(model), moejs.String(string(models))}, nil
+		return []moejs.Value{moejs.String(string(specs))}, nil
 	})
 	if err != nil {
 		return out, err

@@ -6,7 +6,7 @@ official `@earendil-works/pi-durable` runtime executed by moejs.
 ## Non-negotiables
 
 - No WebView2 and no HTML UI. Plugin UI is declarative JSON rendered by
-  `internal/widgets`.
+  `internal/ui`.
 - No marketplace, plugin index, signature authority, or background plugin
   updates. Plugins are installed from a user-chosen folder or ZIP and shared by
   exporting a ZIP.
@@ -20,7 +20,7 @@ official `@earendil-works/pi-durable` runtime executed by moejs.
 | --- | --- | --- |
 | `core` | `cmd/omo`, `internal/app`, `internal/bots`, `internal/config`, `internal/host`, `docs/bots/` | `internal/app/AGENTS.md` |
 | `runtime` | `pi-runtime/`, `internal/runtime/moejs` | `pi-runtime/AGENTS.md` |
-| `native-ui` | `internal/ui`, `internal/widgets` | `internal/widgets/AGENTS.md` |
+| `native-ui` | `internal/ui`, `pkg/` | `internal/ui/AGENTS.md` |
 | `telemetry` | `internal/telemetry`, `docs/telemetry/` | `internal/telemetry/AGENTS.md` |
 | `plugin` | `internal/plugins`, `examples/plugins`, `docs/plugin-design.md` | `internal/plugins/AGENTS.md` |
 | `build-infra` | `scripts/`, `.gitignore`, `README.md`, `docs/subsystems.md` | `scripts/AGENTS.md` |

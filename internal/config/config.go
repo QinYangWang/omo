@@ -12,24 +12,59 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
+// Appearance values the settings offer.
+const (
+	AppearanceSystem = "system"
+	AppearanceLight  = "light"
+	AppearanceDark   = "dark"
+)
+
+// Appearances are the choices, in the order the settings show them.
+var Appearances = []string{AppearanceSystem, AppearanceLight, AppearanceDark}
+
+// NormalizeAppearance keeps a known value, or follows the system.
+func NormalizeAppearance(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	for _, known := range Appearances {
+		if value == known {
+			return value
+		}
+	}
+	return AppearanceSystem
+}
+
+type CustomProvider struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	BaseURL string   `json:"baseUrl"`
+	Models  []string `json:"models,omitempty"`
+}
+
 type Settings struct {
-	Provider    string  `json:"provider"`
-	BaseURL     string  `json:"baseUrl"`
-	Model       string  `json:"model"`
-	Temperature float64 `json:"temperature"`
-	MaxTokens   int     `json:"maxTokens"`
-	Workspace   string  `json:"workspace"`
+	Provider   string `json:"provider"`
+	Appearance string `json:"appearance,omitempty"`
+	Model      string `json:"model"`
+	MaxTokens  int    `json:"maxTokens"`
+	Workspace  string `json:"workspace"`
+	// Thinking is the level chosen per "provider/model".
+	Thinking map[string]string `json:"thinking,omitempty"`
+	// CustomProviders are user-added OpenAI-compatible endpoints.
+	CustomProviders []CustomProvider `json:"customProviders,omitempty"`
+	// BaseURL is the single endpoint of older versions; Load turns it into
+	// the first CustomProviders entry.
+	BaseURL string `json:"baseUrl,omitempty"`
 }
 
 func Defaults() Settings {
 	return Settings{
-		Provider:    "openai-compatible",
-		BaseURL:     "https://api.openai.com/v1",
-		Model:       "gpt-4.1-mini",
-		Temperature: 0.7,
-		MaxTokens:   4096,
+		Provider:   "openai",
+		Appearance: "system",
+		Model:      "gpt-4.1-mini",
+		MaxTokens:  4096,
+		Thinking:   map[string]string{},
 	}
 }
 
@@ -46,15 +81,33 @@ func Load(dir string) (*Config, error) {
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
 	if err == nil {
+		// Older settings stored the thinking level as one string; drop it so
+		// the per-model map decodes.
+		var probe map[string]json.RawMessage
+		if json.Unmarshal(data, &probe) == nil {
+			if raw, ok := probe["thinking"]; ok && len(raw) > 0 && raw[0] == '"' {
+				delete(probe, "thinking")
+				data, _ = json.Marshal(probe)
+			}
+		}
 		if err := json.Unmarshal(data, &cfg.Settings); err != nil {
 			return nil, fmt.Errorf("read settings: %w", err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	if cfg.Settings.BaseURL == "" {
-		cfg.Settings.BaseURL = Defaults().BaseURL
+	cfg.Settings.Appearance = NormalizeAppearance(cfg.Settings.Appearance)
+	if cfg.Settings.Thinking == nil {
+		cfg.Settings.Thinking = map[string]string{}
 	}
+	// One custom endpoint used to live in BaseURL; make it the first provider.
+	if len(cfg.Settings.CustomProviders) == 0 && strings.TrimSpace(cfg.Settings.BaseURL) != "" {
+		cfg.Settings.CustomProviders = append(cfg.Settings.CustomProviders, CustomProvider{
+			ID: "openai-compatible", Name: "OpenAI-compatible",
+			BaseURL: strings.TrimRight(strings.TrimSpace(cfg.Settings.BaseURL), "/"),
+		})
+	}
+	cfg.Settings.BaseURL = ""
 	if cfg.Settings.Model == "" {
 		cfg.Settings.Model = Defaults().Model
 	}
@@ -128,8 +181,10 @@ func (c *Config) Ready() bool {
 	if c.Settings.Provider == "" || c.Settings.Model == "" {
 		return false
 	}
-	if c.Settings.Provider == "openai-compatible" {
-		return c.Settings.BaseURL != ""
+	for _, provider := range c.Settings.CustomProviders {
+		if provider.ID == c.Settings.Provider {
+			return provider.BaseURL != ""
+		}
 	}
 	return c.Credential(c.Settings.Provider) != ""
 }

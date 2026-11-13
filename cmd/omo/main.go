@@ -60,9 +60,7 @@ func main() {
 	mygo.App.SetName("omo")
 
 	mygo.App.WhenReady(func() {
-		// Dark by preference; the UI uses theme tokens, so it still reads
-		// correctly if the user's system overrides nothing.
-		mygo.Theme.SetSource(mygo.ThemeDark)
+		mygo.Theme.SetSource(app.ThemeSource(cfg.Settings.Appearance))
 
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:           "omo",
@@ -72,7 +70,7 @@ func main() {
 			MinHeight:       480,
 			TitleBarStyle:   mygo.TitleBarHidden,
 			TitleBarHeight:  44,
-			BackgroundColor: "#17171a",
+			BackgroundColor: app.WindowBackdrop(cfg.Settings.Appearance),
 			Content:         ui.Content(a),
 		})
 		a.Attach(win)

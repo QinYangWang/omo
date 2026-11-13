@@ -57,8 +57,8 @@ func TestCustomProviderDoesNotRequireCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Settings.Provider = "openai-compatible"
-	cfg.Settings.BaseURL = "http://127.0.0.1:8080/v1"
+	cfg.Settings.Provider = "local"
+	cfg.Settings.CustomProviders = []CustomProvider{{ID: "local", Name: "Local", BaseURL: "http://127.0.0.1:8080/v1"}}
 	cfg.Settings.Model = "local-model"
 	if !cfg.Ready() {
 		t.Fatal("custom provider should be ready without an API key")

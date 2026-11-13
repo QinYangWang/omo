@@ -138,6 +138,15 @@ ledger and the work item are the record.
 - Permission preset per Bot; folder per Bot, overridable per group. A Bot may not
   target the app data or team data directories, and a folder change is a new
   conversation segment.
+- Work folder of a turn, first set wins: group folder, the member's folder in
+  that group, the Bot's folder, then the team workspace. The app has the Bot's
+  folder and the team workspace today; the group layers arrive with groups
+  (phase 4). Picking a folder in the native picker is the approval, and omo's
+  data folder and its parents are refused. A folder change moves no history:
+  the next turn runs in the new folder.
+- Attachments: files picked from anywhere are copied into
+  `<Bot folder>/.omo/uploads/<bot>/` and listed in the message, so the
+  workspace tools can read them. Only UTF-8 text is readable today.
 - Host file access is enforced in `internal/host` (the existing workspace guard)
   extended to the Bot's folder; a command sandbox comes with the execution env.
 - Approvals: a turn can stop on a request; the request is a record, not a chat

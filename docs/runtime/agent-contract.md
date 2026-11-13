@@ -28,19 +28,18 @@ Bot.
 | --- | --- | --- | --- |
 | `DBPath` | `dbPath` | string | the team's durable SQLite file |
 | `TeamID` | `teamId` | string | stable team id; echoed as `sessionId` in metrics |
-| `BaseURL` | `baseUrl` | string | OpenAI-compatible endpoint |
 | `Provider` | `provider` | string | default pi-ai provider |
 | `Model` | `model` | string | default pi-ai model |
-| `CustomModels` | `customModels` | string[] | extra ids for the custom provider |
+| `CustomProviders` | `customProviders` | CustomProvider[] | user-added endpoints: id, name, baseUrl, models |
 | `Workspace` | `workspace` | string | workspace root, also the agent `cwd` |
 | `Credentials` | `credentials` | map<string,string> | provider id → key, in memory only |
 | `MaxTokens` | `maxTokens` | number | answer budget |
-| `Temperature` | `temperature` | number | sampling temperature |
+| `Thinking` | `thinking` | string | reasoning level: off, minimal, low, medium, high, xhigh or max |
 | `MaxTurns` | `maxTurns` | number | tool rounds per run, default 40 |
 | `Skills` | `skills` | `Skill[]` | discovered skills (name, description, path, content) |
 | `Bots` | `bots` | `TeamBot[]` | the roster, in display order |
 
-`TeamBot`: `{ id, name, instructions?, provider?, model?, conversationId? }`.
+`TeamBot`: `{ id, name, instructions?, provider?, model?, thinking?, conversationId? }`.
 An empty `conversationId` means "create one"; the runtime reports the new id
 with a `bot_session` event and the host persists it, so a reopen reuses the
 same conversation.
@@ -97,3 +96,7 @@ and attributes the time between arrivals to the following entry (assistant →
 `thinkingMs`, tool result → `toolMs`). Tokens come from each assistant entry's
 pi-ai `Usage`; a compaction summary has no entry and is not part of a turn.
 Parallel tool results committed together report 0 ms for all but the first.
+
+Thinking is per model: the host picks a level among the catalog model's own
+`thinking` list, sends it as `thinking`, and a Bot's `thinking` overrides it
+for that Bot's turns. An empty `thinking` leaves the model's default.

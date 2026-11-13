@@ -50,7 +50,7 @@ func main() {
 	}
 	defer engine.Close()
 	if *listCatalog {
-		catalog, err := engine.ListCatalog(cfg.Settings.BaseURL, cfg.Settings.Model, nil)
+		catalog, err := engine.ListCatalog(customProviders(cfg))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -73,16 +73,15 @@ func main() {
 	}
 	const botID = "smoke"
 	if err := engine.OpenTeam(moejsruntime.TeamConfig{
-		DBPath:      durableDB,
-		TeamID:      "smoketest",
-		BaseURL:     cfg.Settings.BaseURL,
-		Provider:    cfg.Settings.Provider,
-		Model:       cfg.Settings.Model,
-		Workspace:   wsDir,
-		Credentials: cfg.Credentials,
-		MaxTokens:   cfg.Settings.MaxTokens,
-		Temperature: cfg.Settings.Temperature,
-		Bots:        []moejsruntime.TeamBot{{ID: botID, Name: "Smoke"}},
+		DBPath:          durableDB,
+		TeamID:          "smoketest",
+		CustomProviders: customProviders(cfg),
+		Provider:        cfg.Settings.Provider,
+		Model:           cfg.Settings.Model,
+		Workspace:       wsDir,
+		Credentials:     cfg.Credentials,
+		MaxTokens:       cfg.Settings.MaxTokens,
+		Bots:            []moejsruntime.TeamBot{{ID: botID, Name: "Smoke"}},
 	}); err != nil {
 		log.Fatal(err)
 	}
@@ -152,4 +151,12 @@ func main() {
 			log.Fatal("timed out")
 		}
 	}
+}
+
+func customProviders(cfg *config.Config) []moejsruntime.CustomProvider {
+	out := make([]moejsruntime.CustomProvider, 0, len(cfg.Settings.CustomProviders))
+	for _, provider := range cfg.Settings.CustomProviders {
+		out = append(out, moejsruntime.CustomProvider{ID: provider.ID, Name: provider.Name, BaseURL: provider.BaseURL, Models: provider.Models})
+	}
+	return out
 }

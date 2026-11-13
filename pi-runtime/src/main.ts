@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
-import { createModels, createProvider } from "@earendil-works/pi-ai";
+import { createModels, createProvider, type ModelThinkingLevel } from "@earendil-works/pi-ai";
 import * as openAICompletions from "@earendil-works/pi-ai/api/openai-completions";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { createSubagentsExtension } from "./agents";
@@ -16,20 +16,20 @@ type TeamBot = {
   instructions?: string;
   provider?: string;
   model?: string;
+  thinking?: ModelThinkingLevel;
   conversationId?: string;
 };
 
 export type TeamConfig = {
   dbPath: string;
   teamId?: string;
-  baseUrl: string;
   provider: string;
   model: string;
-  customModels?: string[];
+  customProviders?: CustomProviderSpec[];
   workspace: string;
   credentials?: Record<string, string>;
   maxTokens?: number;
-  temperature?: number;
+  thinking?: ModelThinkingLevel;
   maxTurns?: number;
   skills?: SkillInfo[];
   bots: TeamBot[];
@@ -68,7 +68,6 @@ type Active = {
 let active: Active | null = null;
 
 const ctx = BACKGROUND_CONTEXT;
-const CUSTOM_PROVIDER_ID = "openai-compatible";
 const DEFAULT_MAX_TURNS = 40;
 const TEAM_INSTRUCTIONS = `You are one Bot of a team of long-lived Bots running in omo.
 
@@ -76,18 +75,28 @@ You work in the user's workspace. Read before you change anything, keep edits sm
 Other Bots exist; the user talks to each of you separately. If a request belongs to another Bot, say so instead of guessing.
 Reply in the user's language and keep it short.`;
 
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+// supportedThinking is the levels a model takes: a model without reasoning
+// only runs with thinking off, and a level mapped to null is unsupported.
+const supportedThinking = (model: any) => {
+  if (!model?.reasoning) return ["off"];
+  return THINKING_LEVELS.filter((level) => model.thinkingLevelMap?.[level] !== null);
+};
+
 const modelSummary = (model: any) => ({
   id: String(model?.id ?? ""),
   name: String(model?.name ?? model?.id ?? ""),
   api: String(model?.api ?? ""),
   reasoning: !!model?.reasoning,
+  thinking: supportedThinking(model),
   input: Array.isArray(model?.input) ? model.input.map(String) : ["text"],
   contextWindow: Number(model?.contextWindow ?? 0),
   maxTokens: Number(model?.maxTokens ?? 0),
 });
 
 // DeepSeek's OpenAI-compatible endpoint is the first target: a 64K window,
-// an 8K answer budget, and its reasoner models report thinking tokens.
+// a budget of 8K answers, and its reasoner models report thinking tokens.
 const modelDefaults = (id: string) => {
   if (/deepseek/i.test(id)) {
     return { contextWindow: 65_536, maxTokens: 8_192, reasoning: /reasoner|think|r1/i.test(id) };
@@ -95,41 +104,29 @@ const modelDefaults = (id: string) => {
   return { contextWindow: 128_000, maxTokens: 4_096, reasoning: false };
 };
 
-const customModel = (cfg: TeamConfig, id: string) => {
+type CustomProviderSpec = { id: string; name: string; baseUrl: string; models?: string[] };
+
+const customModel = (spec: CustomProviderSpec, id: string, maxTokens?: number) => {
   const defaults = modelDefaults(id);
   return {
     id,
     name: id,
     api: "openai-completions",
-    provider: CUSTOM_PROVIDER_ID,
-    baseUrl: cfg.baseUrl,
+    provider: spec.id,
+    baseUrl: spec.baseUrl,
     reasoning: defaults.reasoning,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: defaults.contextWindow,
-    maxTokens: cfg.maxTokens && cfg.maxTokens > 0 ? cfg.maxTokens : defaults.maxTokens,
-    samplingParams: typeof cfg.temperature === "number" ? { temperature: cfg.temperature } : undefined,
+    maxTokens: maxTokens && maxTokens > 0 ? maxTokens : defaults.maxTokens,
   };
 };
 
-const customModelIDs = (cfg: TeamConfig) => {
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  const wanted = [cfg.model, ...(cfg.customModels ?? []), ...(cfg.bots ?? []).map((bot) => bot.model ?? "")];
-  for (const id of wanted) {
-    const value = String(id ?? "").trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    ids.push(value);
-  }
-  return ids;
-};
-
-const customProvider = (cfg: TeamConfig) =>
+const customProvider = (spec: CustomProviderSpec, maxTokens?: number) =>
   createProvider({
-    id: CUSTOM_PROVIDER_ID,
-    name: "OpenAI-compatible",
-    baseUrl: cfg.baseUrl,
+    id: spec.id,
+    name: spec.name,
+    baseUrl: spec.baseUrl,
     auth: {
       apiKey: {
         name: "API key",
@@ -138,10 +135,9 @@ const customProvider = (cfg: TeamConfig) =>
         }),
       },
     },
-    models: customModelIDs(cfg).map((id) => customModel(cfg, id) as any),
+    models: (spec.models ?? []).map((id) => customModel(spec, id, maxTokens) as any),
     api: { stream: openAICompletions.stream, streamSimple: openAICompletions.streamSimple },
   });
-
 const memoryCredentialStore = (keys: Record<string, string> | undefined) => {
   const values = new Map(Object.entries(keys ?? {}).filter(([, value]) => typeof value === "string" && value !== ""));
   const read = async (providerId: string) => {
@@ -164,7 +160,7 @@ const memoryCredentialStore = (keys: Record<string, string> | undefined) => {
   };
 };
 
-export function listCatalog(baseUrl: string, model: string, customModelsJson = "[]"): string {
+export function listCatalog(customProvidersJson = "[]"): string {
   const providers = builtinProviders().map((provider: any) => ({
     id: String(provider.id),
     name: String(provider.name),
@@ -172,20 +168,18 @@ export function listCatalog(baseUrl: string, model: string, customModelsJson = "
     authName: String(provider.auth?.apiKey?.name ?? "API key"),
     models: (provider.getModels?.() ?? []).map(modelSummary),
   }));
-  if (baseUrl || model) {
-    let customModels: string[] = [];
-    try {
-      const parsed = JSON.parse(customModelsJson);
-      if (Array.isArray(parsed)) customModels = parsed.map(String);
-    } catch {}
-    const cfg = { baseUrl, model, customModels } as TeamConfig;
-    const ids = customModelIDs(cfg);
+  let specs: CustomProviderSpec[] = [];
+  try {
+    const parsed = JSON.parse(customProvidersJson);
+    if (Array.isArray(parsed)) specs = parsed as CustomProviderSpec[];
+  } catch {}
+  for (const spec of specs) {
     providers.unshift({
-      id: CUSTOM_PROVIDER_ID,
-      name: "OpenAI-compatible",
-      baseUrl,
+      id: String(spec.id ?? ""),
+      name: String(spec.name ?? spec.id ?? "Custom"),
+      baseUrl: String(spec.baseUrl ?? ""),
       authName: "API key",
-      models: baseUrl ? ids.map((id) => modelSummary(customModel(cfg, id))) : [],
+      models: (spec.models ?? []).map((id) => modelSummary(customModel(spec, String(id)))),
     });
   }
   return JSON.stringify({ providers });
@@ -245,11 +239,12 @@ const emitBot = (bot: BotRuntime, metrics?: RunMetric) =>
 
 const botAgent = (bot: TeamBot, cfg: TeamConfig, maxTurns: number) => ({
   model: bot.model
-    ? { provider: bot.provider || CUSTOM_PROVIDER_ID, modelId: bot.model }
+    ? { provider: bot.provider || cfg.provider, modelId: bot.model }
     : { provider: cfg.provider, modelId: cfg.model },
   instructions: `${TEAM_INSTRUCTIONS}\n\nYour name is ${bot.name}.${bot.instructions ? "\n\n" + bot.instructions : ""}\n\n${SYSTEM_INSTRUCTIONS}`,
   cwd: cfg.workspace,
   maxTurns,
+  thinkingLevel: bot.thinking || cfg.thinking,
 });
 
 export async function openTeam(cfg: TeamConfig, onEvent: (kind: string, json: string) => void): Promise<void> {
@@ -264,10 +259,8 @@ export async function openTeam(cfg: TeamConfig, onEvent: (kind: string, json: st
     const credentials = memoryCredentialStore(cfg.credentials);
     const models = createModels({ credentials });
     for (const provider of builtinProviders()) models.setProvider(provider);
-    if (cfg.provider === CUSTOM_PROVIDER_ID || (cfg.bots ?? []).some((bot) => bot.model && (bot.provider ?? CUSTOM_PROVIDER_ID) === CUSTOM_PROVIDER_ID)) {
-      if (!cfg.baseUrl) throw new Error("base URL is required for the OpenAI-compatible provider");
-      models.setProvider(customProvider(cfg));
-    }
+    for (const spec of cfg.customProviders ?? []) models.setProvider(customProvider(spec, cfg.maxTokens));
+
     const defaultModel = models.getModel(cfg.provider, cfg.model);
     if (!defaultModel) {
       throw new Error(`Model ${cfg.provider}/${cfg.model} is not in the loaded pi-ai catalog`);

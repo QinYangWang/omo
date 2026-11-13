@@ -63,7 +63,7 @@ Settings live in `%AppData%\omo` on Windows (`~/.config/omo` on Linux,
 directory; `MYGO_AI_DATA` is still accepted for migration.
 
 - `settings.json` stores the selected provider, model, endpoint override,
-  temperature, token limit and workspace.
+  thinking level, appearance, token limit and workspace.
 - `credentials.json` stores one credential per provider.
 - The old single `api-key` file is migrated on load.
 
@@ -115,7 +115,7 @@ permissions at runtime.
 
 ### Declarative widget library
 
-`internal/widgets` is omo's own control layer. Plugins describe native UI as
+`internal/ui` owns both the shell and omo's widget renderer. Plugins describe native UI as
 JSON; the host renders it with MyGo widgets. Supported primitives include
 `page`, `row`, `column`, `card`, `header`, `heading`, `text`, `button`, `input`,
 `textarea`, `list`, `divider` and `spacer`. Host controls include
@@ -178,7 +178,6 @@ internal/app/        app state, sessions, settings, plugin actions
 internal/bots/       roster, groups, append-only message ledger
 internal/ui/         native shell + widget host adapter
 internal/plugins/    manifests, install lifecycle, ZIP import/export
-internal/widgets/    declarative schema and native renderer
 internal/telemetry/  numeric agent activity (SQLite)
 internal/config/     settings + per-provider credentials
 internal/host/       workspace-scoped file adapter

@@ -17,7 +17,7 @@ func TestBundleLoadsAndListsCatalog(t *testing.T) {
 	}
 	defer engine.Close()
 
-	catalog, err := engine.ListCatalog("https://api.deepseek.com/v1", "deepseek-chat", []string{"deepseek-reasoner"})
+	catalog, err := engine.ListCatalog([]CustomProvider{{ID: "openai-compatible", Name: "OpenAI-compatible", BaseURL: "https://api.deepseek.com/v1", Models: []string{"deepseek-chat", "deepseek-reasoner"}}})
 	if err != nil {
 		t.Fatalf("list catalog: %v", err)
 	}
@@ -66,11 +66,14 @@ func TestOpenTeamReportsReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := engine.OpenTeam(TeamConfig{
-		DBPath:    filepath.Join(t.TempDir(), "team.db"),
-		TeamID:    "test",
-		BaseURL:   "https://api.deepseek.com/v1",
-		Provider:  "openai-compatible",
-		Model:     "deepseek-chat",
+		DBPath:   filepath.Join(t.TempDir(), "team.db"),
+		TeamID:   "test",
+		Provider: "openai-compatible",
+		Model:    "deepseek-chat",
+		CustomProviders: []CustomProvider{{
+			ID: "openai-compatible", Name: "OpenAI-compatible",
+			BaseURL: "https://api.deepseek.com/v1", Models: []string{"deepseek-chat"},
+		}},
 		Workspace: workspace,
 		Bots:      []TeamBot{{ID: "b1", Name: "Chief"}},
 		Skills: []Skill{{

@@ -98,7 +98,7 @@ card.
 Phase 1 supports one extension point: `ui.main` with `ui.replace`.
 
 The plugin UI is a declarative widget tree rendered by
-`internal/widgets` using MyGo native widgets. The tree may embed host controls
+`internal/ui` using the Lobe components in `pkg/`. The tree may embed host controls
 (`chat.transcript`, `chat.composer`, `sessions.list`) and request host actions
 (`chat.new`, `chat.open`, `chat.send`, `chat.stop`, `settings.open`,
 `plugins.open`, `workspace.choose`, `ui.builtin`).

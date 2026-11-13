@@ -30,6 +30,28 @@ creates its conversation and reports it with a `bot_session` event;
 `App.teamSignature()` (bot ids + conversation ids) decides whether the runtime
 must be reopened — after adding a Bot, or after a conversation was created.
 
+## Work folders
+
+A turn's tools run in one folder, resolved by `App.BotFolder`:
+
+```text
+group folder > member folder in that group > the Bot's folder > team workspace
+```
+
+The app has the Bot's folder (`bots.Bot.Folder`, set from the Details panel) and
+the team workspace; the group layers come with groups. `App.Send` scopes the
+engine to that folder before dispatching the turn, so tool paths are relative to
+it. `SetBotFolder` refuses omo's data folder and its parents and never moves
+files: the next turn simply runs in the new folder.
+
+## Attachments
+
+`App.AttachFiles` copies picked files (from anywhere) to
+`<Bot folder>/.omo/uploads/<bot>/`, one name per file with a `-2` suffix on a
+collision. `App.Send` appends the workspace-relative paths to the message, so
+`read_file` and `search_files` can reach them. The copy is capped at 32 MB and
+only UTF-8 text is readable by the tools.
+
 ## Skills (`internal/app/skills.go`)
 
 Discovery order, first name wins:

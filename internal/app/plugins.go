@@ -3,7 +3,6 @@ package app
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/QinYangWang/omo/internal/plugins"
-	"github.com/QinYangWang/omo/internal/widgets"
 )
 
 func (a *App) OpenPlugins() {
@@ -58,19 +56,12 @@ func (a *App) ActiveUIPluginAllows(permission string) bool {
 	return false
 }
 
-func (a *App) PluginSchema(plugin *plugins.Installed) (*widgets.Node, error) {
+// PluginUIFile returns a plugin's UI document; the shell parses it.
+func (a *App) PluginUIFile(plugin *plugins.Installed) ([]byte, error) {
 	if a.Plugins == nil || plugin == nil || plugin.UI == nil {
 		return nil, fmt.Errorf("plugin has no UI")
 	}
-	data, err := a.Plugins.ReadUIFile(plugin.ID, plugin.UI.Main)
-	if err != nil {
-		return nil, err
-	}
-	var root widgets.Node
-	if err := json.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", plugin.UI.Main, err)
-	}
-	return &root, nil
+	return a.Plugins.ReadUIFile(plugin.ID, plugin.UI.Main)
 }
 
 // InstallPluginFolder opens the native folder picker and installs the selected

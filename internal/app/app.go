@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,14 @@ import (
 type Message struct {
 	Role string
 	Text string
+}
+
+// Attachment is a file the user attached to the next message. It is copied
+// into the workspace's uploads folder so the agent's tools can read it.
+type Attachment struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Size int64  `json:"size"`
 }
 
 type snapshotMessage struct {
@@ -66,6 +75,8 @@ type SessionView struct {
 	Title     string
 	Workspace string
 	Status    string
+	Preview   string
+	Role      string
 }
 
 type App struct {
@@ -84,11 +95,13 @@ type App struct {
 	teamFingerprint string
 
 	Messages []Message
-	Partial  string
-	Status   string
-	Failure  string
-	Input    string
-	Ready    bool
+	// Attachments wait for the next Send, then clear.
+	Attachments []Attachment
+	Partial     string
+	Status      string
+	Failure     string
+	Input       string
+	Ready       bool
 
 	// Agent activity of the open session, newest last: per-turn metrics,
 	// per-agent cache totals, and the agent dependency graph.
@@ -104,17 +117,14 @@ type App struct {
 	DraftBaseURL  string
 	DraftModel    string
 	DraftKey      string
-	DraftTemp     string
 	DraftProvider string
 	ModelQuery    string
 	DraftWS       string
 	draftLoaded   string
-	CustomModels  []string
 	Fetching      bool
 	FetchErr      string
 	FetchNotice   string
 	fetchSeq      int
-	fetchedBase   string
 	Plugins       *plugins.Manager
 	PluginErr     string
 	PluginNotice  string
@@ -145,6 +155,8 @@ func (a *App) refreshSessions() {
 			Title:     bot.Name,
 			Workspace: a.Config.Settings.Workspace,
 			Status:    a.botStatus(bot.ID),
+			Preview:   a.SessionPreview(bot.ID),
+			Role:      bot.Role,
 		})
 	}
 	a.Sessions = views
@@ -169,6 +181,47 @@ func (a *App) botStatus(botID string) string {
 		return snap.Status
 	}
 	return "idle"
+}
+
+// SessionPreview is the last line of a Bot's conversation, for the rail.
+func (a *App) SessionPreview(botID string) string {
+	a.mu.Lock()
+	snap, ok := a.botSnapshots[botID]
+	a.mu.Unlock()
+	if !ok {
+		return ""
+	}
+	for i := len(snap.Messages) - 1; i >= 0; i-- {
+		if text := strings.Join(strings.Fields(snap.Messages[i].Text), " "); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+// AddMember adds a member Bot to the team and opens it.
+func (a *App) AddMember() {
+	a.update(func() {
+		if a.WS == nil {
+			a.ChooseWorkspace()
+			return
+		}
+		taken := map[string]bool{}
+		for _, bot := range a.Bots.Bots() {
+			taken[strings.ToLower(bot.Name)] = true
+		}
+		name := "Member"
+		for i := 2; taken[strings.ToLower(name)]; i++ {
+			name = fmt.Sprintf("Member %d", i)
+		}
+		bot, err := a.Bots.AddBot(bots.Bot{Name: name, Role: bots.RoleMember, Permission: bots.PermissionWorkspace})
+		if err != nil {
+			a.Failure = err.Error()
+			return
+		}
+		a.refreshSessions()
+		a.openBot(bot.ID)
+	})
 }
 
 // TeamID is the stable identity of the team in this workspace. It names the
@@ -198,15 +251,7 @@ func (a *App) ensureChief() error {
 }
 
 func (a *App) refreshCatalog() {
-	customModels := a.CustomModels
-	if a.fetchedBase != "" && !sameBaseURL(a.fetchedBase, a.Config.Settings.BaseURL) {
-		customModels = nil
-	}
-	customModel := ""
-	if a.Config.Settings.Provider == customProviderID {
-		customModel = a.Config.Settings.Model
-	}
-	catalog, err := a.Engine.ListCatalog(a.Config.Settings.BaseURL, customModel, customModels)
+	catalog, err := a.Engine.ListCatalog(a.engineCustomProviders())
 	if err != nil {
 		a.CatalogErr = err.Error()
 		a.Logf("load pi-ai catalog: %v", err)
@@ -216,32 +261,24 @@ func (a *App) refreshCatalog() {
 	a.CatalogErr = ""
 }
 
-func sameBaseURL(a, b string) bool {
-	return strings.EqualFold(strings.TrimRight(strings.TrimSpace(a), "/"), strings.TrimRight(strings.TrimSpace(b), "/"))
-}
-
-func (a *App) customModelsFor(baseURL, selected string) []string {
-	if a.fetchedBase == "" || !sameBaseURL(a.fetchedBase, baseURL) {
-		return nil
-	}
-	out := make([]string, 0, len(a.CustomModels)+1)
-	seen := map[string]bool{}
-	for _, id := range append(append([]string(nil), a.CustomModels...), selected) {
-		id = strings.TrimSpace(id)
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		out = append(out, id)
+// engineCustomProviders is the user's endpoints as the runtime registers them.
+func (a *App) engineCustomProviders() []moejsruntime.CustomProvider {
+	list := a.Config.Settings.CustomProviders
+	out := make([]moejsruntime.CustomProvider, 0, len(list))
+	for _, provider := range list {
+		out = append(out, moejsruntime.CustomProvider{
+			ID: provider.ID, Name: provider.Name, BaseURL: provider.BaseURL, Models: provider.Models,
+		})
 	}
 	return out
 }
 
-// FetchModels asks the configured OpenAI-compatible endpoint for its
-// /models list. It runs off the UI goroutine and only updates the draft
-// catalog; the user still has to press Save to persist the selection.
+// FetchModels asks the endpoint being edited for its /models list and stores
+// the ids on that custom provider. The provider is saved at once: a model list
+// is reference data, not an unsaved draft.
 func (a *App) FetchModels() {
-	if !a.IsCustomProvider() {
+	provider := a.customProvider(a.DraftProvider)
+	if provider == nil {
 		return
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(a.DraftBaseURL), "/")
@@ -259,10 +296,6 @@ func (a *App) FetchModels() {
 	a.FetchNotice = ""
 	go func() {
 		ids, err := fetchOpenAIModels(context.Background(), baseURL, apiKey)
-		var catalog moejsruntime.Catalog
-		if err == nil {
-			catalog, err = a.Engine.ListCatalog(baseURL, model, ids)
-		}
 		a.update(func() {
 			if seq != a.fetchSeq {
 				return
@@ -272,10 +305,15 @@ func (a *App) FetchModels() {
 				a.FetchErr = err.Error()
 				return
 			}
-			a.CustomModels = append([]string(nil), ids...)
-			a.fetchedBase = baseURL
-			a.Catalog = catalog
-			a.CatalogErr = ""
+			a.setCustomProvider(provider.ID, func(p *config.CustomProvider) {
+				p.BaseURL = baseURL
+				p.Models = append([]string(nil), ids...)
+			})
+			if err := a.Config.Save(); err != nil {
+				a.FetchErr = err.Error()
+				return
+			}
+			a.refreshCatalog()
 			a.DraftBaseURL = baseURL
 			if model == "" && len(ids) > 0 {
 				a.DraftModel = ids[0]
@@ -455,27 +493,31 @@ func (a *App) openTeam(activeID string) error {
 	}
 	specs := make([]moejsruntime.TeamBot, 0, len(list))
 	for _, bot := range list {
+		thinking := appThinking(bot.Thinking)
+		if thinking == "" {
+			thinking = a.botThinking(bot.Model)
+		}
 		specs = append(specs, moejsruntime.TeamBot{
 			ID:             bot.ID,
 			Name:           bot.Name,
 			Model:          bot.Model,
+			Thinking:       thinking,
 			ConversationID: bot.ConversationID,
 		})
 	}
 	teamID := a.TeamID()
 	if err := a.Engine.OpenTeam(moejsruntime.TeamConfig{
-		DBPath:       filepath.Join(a.Config.Dir(), "teams", teamID, "durable.db"),
-		TeamID:       teamID,
-		BaseURL:      strings.TrimRight(a.Config.Settings.BaseURL, "/"),
-		Provider:     a.Config.Settings.Provider,
-		Model:        a.Config.Settings.Model,
-		CustomModels: a.customModelsFor(a.Config.Settings.BaseURL, a.Config.Settings.Model),
-		Workspace:    a.WS.Root(),
-		Credentials:  a.Config.Credentials,
-		MaxTokens:    a.Config.Settings.MaxTokens,
-		Temperature:  a.Config.Settings.Temperature,
-		Skills:       a.loadSkills(a.WS.Root()),
-		Bots:         specs,
+		DBPath:          filepath.Join(a.Config.Dir(), "teams", teamID, "durable.db"),
+		TeamID:          teamID,
+		Provider:        a.Config.Settings.Provider,
+		Model:           a.Config.Settings.Model,
+		CustomProviders: a.engineCustomProviders(),
+		Workspace:       a.WS.Root(),
+		Credentials:     a.Config.Credentials,
+		MaxTokens:       a.Config.Settings.MaxTokens,
+		Thinking:        a.botThinking(""),
+		Skills:          a.loadSkills(a.WS.Root()),
+		Bots:            specs,
 	}); err != nil {
 		return err
 	}
@@ -565,7 +607,7 @@ func (a *App) applyBotSession(text string) {
 
 func (a *App) Send(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" {
+	if text == "" && len(a.Attachments) == 0 {
 		return
 	}
 	if a.WS == nil {
@@ -590,6 +632,19 @@ func (a *App) Send(text string) {
 			return
 		}
 	}
+	// Scope this turn's tools to the Bot's folder. One turn runs at a time, so
+	// the engine's single workspace is the running Bot's.
+	if folder := a.BotFolder(a.ActiveBotID); folder != "" {
+		if err := a.Engine.SetWorkspaceDir(folder); err != nil {
+			a.Failure = fmt.Sprintf("The Bot's folder is unavailable: %v", err)
+			a.Status = "error"
+			return
+		}
+	}
+	if len(a.Attachments) > 0 {
+		text = attachmentNote(text, a.Attachments)
+		a.Attachments = nil
+	}
 	a.Input = ""
 	a.Failure = ""
 	a.Status = "running"
@@ -610,15 +665,14 @@ func (a *App) Stop() {
 
 func (a *App) OpenSettings() {
 	a.ShowSettings = true
+	a.ShowPlugins = false
 	if !a.Fetching {
 		a.FetchErr = ""
 		a.FetchNotice = ""
 	}
-	a.DraftBaseURL = a.Config.Settings.BaseURL
 	a.DraftModel = a.Config.Settings.Model
 	a.DraftProvider = a.Config.Settings.Provider
 	a.draftLoaded = a.DraftProvider
-	a.DraftTemp = fmt.Sprintf("%.2f", a.Config.Settings.Temperature)
 	a.ModelQuery = ""
 	a.DraftWS = a.Config.Settings.Workspace
 	if a.Provider(a.DraftProvider) != nil {
@@ -631,8 +685,6 @@ func (a *App) OpenSettings() {
 }
 
 func (a *App) SaveSettings() {
-	var temp float64
-	fmt.Sscanf(a.DraftTemp, "%f", &temp)
 	providerID := strings.TrimSpace(a.DraftProvider)
 	model := strings.TrimSpace(a.DraftModel)
 	provider := a.Provider(providerID)
@@ -641,30 +693,28 @@ func (a *App) SaveSettings() {
 		return
 	}
 	if model == "" {
-		a.Failure = "Choose a model from the pi-ai catalog."
+		a.Failure = "Choose a model from the provider's catalog."
 		return
 	}
-	if providerID == customProviderID {
-		baseURL := strings.TrimSpace(a.DraftBaseURL)
+	if a.customProvider(providerID) != nil {
+		baseURL := strings.TrimRight(strings.TrimSpace(a.DraftBaseURL), "/")
 		if baseURL == "" {
 			a.Failure = "An OpenAI-compatible provider needs a base URL."
 			return
 		}
-		a.Config.Settings.BaseURL = baseURL
+		a.setCustomProvider(providerID, func(p *config.CustomProvider) {
+			p.BaseURL = baseURL
+			if model != "" && !slices.Contains(p.Models, model) {
+				p.Models = append(p.Models, model)
+			}
+		})
 	} else if !a.providerHasModel(providerID, model) {
 		a.Failure = fmt.Sprintf("Model %s is not in the %s catalog.", model, provider.Name)
 		return
 	}
 	a.Config.Settings.Provider = providerID
 	a.Config.Settings.Model = model
-	a.Config.Settings.Temperature = temp
 	a.Config.SetCredential(providerID, strings.TrimSpace(a.DraftKey))
-	if a.fetchedBase != "" && !sameBaseURL(a.fetchedBase, a.Config.Settings.BaseURL) {
-		a.fetchedBase = ""
-		a.CustomModels = nil
-		a.FetchNotice = ""
-		a.FetchErr = ""
-	}
 	if err := a.Config.Save(); err != nil {
 		a.Failure = err.Error()
 		return
@@ -678,8 +728,6 @@ func (a *App) SaveSettings() {
 		}
 	}
 }
-
-const customProviderID = "openai-compatible"
 
 func (a *App) Providers() []moejsruntime.CatalogProvider {
 	return a.Catalog.Providers
@@ -714,15 +762,6 @@ func (a *App) ChooseProvider(id string) {
 	a.DraftKey = a.Config.Credential(id)
 	a.DraftBaseURL = provider.BaseURL
 	a.ModelQuery = ""
-	if id == customProviderID {
-		if !a.providerHasModel(id, a.DraftModel) {
-			a.DraftModel = ""
-			if len(provider.Models) > 0 {
-				a.DraftModel = provider.Models[0].ID
-			}
-		}
-		return
-	}
 	if !a.providerHasModel(id, a.DraftModel) {
 		a.DraftModel = ""
 		if len(provider.Models) > 0 {
@@ -743,8 +782,40 @@ func (a *App) ChooseModel(id string) {
 	a.DraftModel = id
 }
 
+// ChatModels lists the chat models of the provider in use, for the composer's
+// model menu.
+func (a *App) ChatModels() []moejsruntime.CatalogModel {
+	provider := a.Provider(a.Config.Settings.Provider)
+	if provider == nil {
+		return nil
+	}
+	return provider.Models
+}
+
+// SwitchModel chooses a model of the current provider and reopens the team so
+// the next turn uses it.
+func (a *App) SwitchModel(id string) {
+	a.update(func() {
+		if !a.providerHasModel(a.Config.Settings.Provider, id) {
+			a.Failure = fmt.Sprintf("Model %s is not in the %s catalog.", id, a.SelectedProviderName())
+			return
+		}
+		a.Config.Settings.Model = id
+		if err := a.Config.Save(); err != nil {
+			a.Failure = err.Error()
+			return
+		}
+		a.Failure = ""
+		if a.ActiveBotID != "" && a.WS != nil {
+			if err := a.openTeam(a.ActiveBotID); err != nil {
+				a.Failure = err.Error()
+			}
+		}
+	})
+}
+
 func (a *App) IsCustomProvider() bool {
-	return a.DraftProvider == customProviderID
+	return a.customProvider(a.DraftProvider) != nil
 }
 
 func (a *App) ProviderModels() []moejsruntime.CatalogModel {
