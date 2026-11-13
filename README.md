@@ -1,9 +1,17 @@
 # omo
 
-omo is a native desktop AI chat and agent platform:
+omo is a native desktop app for a **team of long-lived Bots**: named teammates
+with their own private chat, memory, folder and permissions, that work alone or
+together in group chats, message each other, and report back. The product
+contract is `docs/bots/design.md`.
+
+Today's build is the foundation for that: one workspace = one team, chat as one
+widget, declarative UI plugins, and the official Pi Durable agent runtime. The
+work-item/auto-merge layer (`docs/bots/design.md` phase 7) comes on top of the
+Bot team.
 
 - **Host UI**: MyGo native widgets (`github.com/egoist/mygo/ui`). The built-in
-  chat shell is native.
+  chat shell is native; any view can be assembled from declarative widgets.
 - **UI plugins**: a declarative native widget language. A UI plugin can replace
   the entire main view without introducing WebView2 or HTML.
 - **Plugin sharing**: plugins are plain folders or ZIP files. omo installs and
@@ -124,6 +132,36 @@ The example plugin is in
 See `docs/plugin-design.md` for the full manifest, permission, lifecycle and
 sharing contract.
 
+## Skills, subagents and agent activity
+
+Skills are markdown instruction packs discovered at session open, in this
+order (a name found earlier wins):
+
+```text
+<omo data dir>/skills/**/SKILL.md
+<workspace>/.omo/skills/**/SKILL.md
+<workspace>/.pi/skills/**/SKILL.md
+```
+
+A `SKILL.md` needs YAML frontmatter with `name` and `description`. Skills are
+listed in the system prompt in name order (a stable prefix keeps the provider
+prompt cache warm) and loaded on demand with the `use_skill` tool.
+
+The agent's tools are `list_directory`, `read_file`, `write_file`, `edit_file`,
+`search_files`, `use_skill` and `subagent`. `subagent` runs up to six child
+conversations in the same workspace; an agent's `depends_on` names the agents
+it waits for, and their answers are passed into its task.
+
+Every finished turn is measured by the runtime and stored in `app.db`
+(`agent_runs` per turn and agent, `agents` for the dependency graph).
+`chat.Store.AgentCacheStats` aggregates them per agent; `CacheHitRate` uses the
+same `cacheRead / (input + cacheRead + cacheWrite)` accounting as DeepSeek.
+The full contract is in `docs/runtime/agent-contract.md` (what the runtime
+reports) and `docs/core/agent-data.md` (how the app stores it).
+
+For DeepSeek, custom models default to a 64K context window and an 8K answer
+budget, and `deepseek-reasoner`-style IDs are marked as reasoning models.
+
 ## Headless checks
 
 ```powershell
@@ -137,10 +175,11 @@ go run ./cmd/smoketest -data "$env:AppData\omo" -prompt "List the files and summ
 cmd/omo/             desktop entry point
 cmd/smoketest/       headless runtime driver
 internal/app/        app state, sessions, settings, plugin actions
+internal/bots/       roster, groups, append-only message ledger
 internal/ui/         native shell + widget host adapter
 internal/plugins/    manifests, install lifecycle, ZIP import/export
 internal/widgets/    declarative schema and native renderer
-internal/chat/       app SQLite store
+internal/telemetry/  numeric agent activity (SQLite)
 internal/config/     settings + per-provider credentials
 internal/host/       workspace-scoped file adapter
 internal/runtime/    moejs engine + embedded pi-durable bundle
@@ -158,8 +197,17 @@ docs/                plugin design and subsystem ownership
 - Plugins are unsigned. The install page shows the source and permissions, and
   trusting a plugin is the user's decision.
 - Credentials are files, not system-keychain entries.
-- One window and one active runtime session at a time; compaction, subagents,
-  MCP and browser/desktop automation are out of scope for this phase.
+- The Bot team is being built toward DS Bot parity; `docs/bots/design.md`
+  tracks it. Phase 1 (roster, groups, ledger, merged inbox) is done; bot
+  sessions, group rounds, permissions and channels are not shipped yet.
+- Work items, acceptance checks and auto-merge are a later phase on top of the
+  Bot team.
+- Persistence: one durable database per team, one conversation per Bot; the
+  old chat session store is gone. Skills and subagents are supported by the
+  runtime, but the built-in UI does not show metrics or the agent graph yet.
+- There is no shell tool yet: the agent edits and reads files but cannot run
+  builds or tests itself. The Go `ExecutionEnv` (worktree sandbox) is the next
+  hard prerequisite for Bots that verify their own work.
 
 ## License notes
 

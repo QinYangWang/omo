@@ -10,7 +10,6 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 
 	"github.com/QinYangWang/omo/internal/app"
-	"github.com/QinYangWang/omo/internal/chat"
 	"github.com/QinYangWang/omo/internal/plugins"
 	"github.com/QinYangWang/omo/internal/widgets"
 )
@@ -235,7 +234,7 @@ func (v *view) banner(c *mygoui.Context, text string) {
 type sessionRow struct {
 	header  bool
 	group   string
-	session *chat.Session
+	session *app.SessionView
 }
 
 func (v *view) sessionRows() []sessionRow {

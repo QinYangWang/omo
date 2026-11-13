@@ -20,7 +20,7 @@ func main() {
 	workspace := flag.String("workspace", "", "workspace directory (default: a temp sample)")
 	prompt := flag.String("prompt", "List the files in the workspace, read sample.txt and tell me what it says.", "prompt")
 	timeout := flag.Duration("timeout", 3*time.Minute, "overall timeout")
-	dbPath := flag.String("db", "", "durable database path (reuse it to test reopening a session)")
+	dbPath := flag.String("db", "", "durable database path (reuse it to test reopening a team)")
 	abortAfter := flag.Duration("abort-after", 0, "abort the run after this delay (0: never)")
 	listCatalog := flag.Bool("catalog", false, "print the pi-ai provider/model catalog and exit")
 	flag.Parse()
@@ -35,7 +35,7 @@ func main() {
 
 	wsDir := *workspace
 	if wsDir == "" {
-		wsDir, err = os.MkdirTemp("", "omo-smoke-")
+		wsDir, err = os.MkdirTemp("", "omo-smoketest")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -69,10 +69,12 @@ func main() {
 	}
 	durableDB := *dbPath
 	if durableDB == "" {
-		durableDB = filepath.Join(os.TempDir(), fmt.Sprintf("omo-smoke-%d.db", time.Now().UnixNano()))
+		durableDB = filepath.Join(os.TempDir(), fmt.Sprintf("omo-smoketest-team-%d.db", time.Now().UnixNano()))
 	}
-	if err := engine.OpenSession(moejsruntime.SessionConfig{
+	const botID = "smoke"
+	if err := engine.OpenTeam(moejsruntime.TeamConfig{
 		DBPath:      durableDB,
+		TeamID:      "smoketest",
 		BaseURL:     cfg.Settings.BaseURL,
 		Provider:    cfg.Settings.Provider,
 		Model:       cfg.Settings.Model,
@@ -80,19 +82,20 @@ func main() {
 		Credentials: cfg.Credentials,
 		MaxTokens:   cfg.Settings.MaxTokens,
 		Temperature: cfg.Settings.Temperature,
+		Bots:        []moejsruntime.TeamBot{{ID: botID, Name: "Smoke"}},
 	}); err != nil {
 		log.Fatal(err)
 	}
 	time.Sleep(time.Second)
 
-	if err := engine.Send(*prompt); err != nil {
+	if err := engine.SendTo(botID, *prompt); err != nil {
 		log.Fatal(err)
 	}
 	if *abortAfter > 0 {
 		go func() {
 			time.Sleep(*abortAfter)
 			fmt.Println("ABORTING")
-			if err := engine.Abort(); err != nil {
+			if err := engine.AbortBot(botID); err != nil {
 				fmt.Println("abort error:", err)
 			}
 		}()
@@ -102,9 +105,11 @@ func main() {
 		select {
 		case ev := <-engine.Events():
 			switch ev.Kind {
-			case "state":
+			case "team":
+				fmt.Println("[team]", ev.Message)
+			case "bot":
 				var snap struct {
-					Ready    bool   `json:"ready"`
+					BotID    string `json:"botId"`
 					Status   string `json:"status"`
 					Partial  string `json:"partial"`
 					Failure  string `json:"failure"`
@@ -127,8 +132,8 @@ func main() {
 						last = last[:160] + "…"
 					}
 				}
-				fmt.Printf("[state] ready=%v status=%s msgs=%d partial=%d tool=%v last=%q\n",
-					snap.Ready, snap.Status, len(snap.Messages), len(snap.Partial), snap.Tool, last)
+				fmt.Printf("[bot] status=%s msgs=%d partial=%d tool=%v last=%q\n",
+					snap.Status, len(snap.Messages), len(snap.Partial), snap.Tool, last)
 				if snap.Failure != "" {
 					fmt.Println("FAILURE:", snap.Failure)
 				}
@@ -136,6 +141,12 @@ func main() {
 				fmt.Println("[sent] final snapshot:", ev.Message)
 				fmt.Println("PASS")
 				return
+			case "metric":
+				fmt.Println("[metric]", ev.Message)
+			case "agent":
+				fmt.Println("[agent]", ev.Message)
+			case "error":
+				fmt.Println("ERROR:", ev.Message)
 			}
 		case <-deadline:
 			log.Fatal("timed out")

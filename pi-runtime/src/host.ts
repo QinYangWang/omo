@@ -2,6 +2,8 @@
 declare const __host_log: (level: string, message: string) => void;
 declare const __host_fs: (op: string, payload: string) => string;
 declare const __host_sql: (payload: string) => string;
+declare const __host_metric: (payload: string) => void;
+declare const __host_agent: (payload: string) => void;
 
 export type SqliteValue = null | number | bigint | string | Uint8Array;
 
@@ -133,5 +135,19 @@ export const hostFs = (op: string, payload: Record<string, unknown>): any => {
 export const hostLog = (level: string, message: string) => {
   try {
     __host_log(level, message);
+  } catch {}
+};
+
+/** Persist one finished agent turn; the Go host stores it in the app database. */
+export const hostRecordMetric = (metric: unknown) => {
+  try {
+    __host_metric(JSON.stringify(metric));
+  } catch {}
+};
+
+/** Persist one agent node and the agents it depends on. */
+export const hostRecordAgent = (agent: unknown) => {
+  try {
+    __host_agent(JSON.stringify(agent));
   } catch {}
 };

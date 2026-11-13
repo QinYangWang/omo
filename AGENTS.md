@@ -18,17 +18,21 @@ official `@earendil-works/pi-durable` runtime executed by moejs.
 
 | Subsystem | Owned paths | Agent file |
 | --- | --- | --- |
-| `core` | `cmd/omo`, `internal/app`, `internal/chat`, `internal/config`, `internal/host` | `internal/app/AGENTS.md` |
+| `core` | `cmd/omo`, `internal/app`, `internal/bots`, `internal/config`, `internal/host`, `docs/bots/` | `internal/app/AGENTS.md` |
 | `runtime` | `pi-runtime/`, `internal/runtime/moejs` | `pi-runtime/AGENTS.md` |
 | `native-ui` | `internal/ui`, `internal/widgets` | `internal/widgets/AGENTS.md` |
-| `plugin-platform` | `internal/plugins`, `examples/plugins`, `docs/plugin-design.md` | `internal/plugins/AGENTS.md` |
+| `telemetry` | `internal/telemetry`, `docs/telemetry/` | `internal/telemetry/AGENTS.md` |
+| `plugin` | `internal/plugins`, `examples/plugins`, `docs/plugin-design.md` | `internal/plugins/AGENTS.md` |
 | `build-infra` | `scripts/`, `.gitignore`, `README.md`, `docs/subsystems.md` | `scripts/AGENTS.md` |
 
 ## Routing
 
 - Change only the subsystem that owns the files. A cross-subsystem change needs
   an explicit task that names both owners.
-- UI plugin schema changes are a `native-ui` + `plugin-platform` change; update
+- `docs/bots/design.md` is the product contract (the Bot team, groups, the
+  message ledger, channels, work items). Subsystem documents refine it; a
+  change there names `core` plus every subsystem whose contract moves.
+- UI plugin schema changes are a `native-ui` + `plugin` change; update
   `docs/plugin-design.md` in the same commit.
 - Build and release changes go through `build-infra`; do not edit another
   subsystem's build assumptions silently.

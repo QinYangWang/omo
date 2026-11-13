@@ -4,6 +4,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,11 +17,12 @@ import (
 
 	"github.com/egoist/mygo"
 
-	"github.com/QinYangWang/omo/internal/chat"
+	"github.com/QinYangWang/omo/internal/bots"
 	"github.com/QinYangWang/omo/internal/config"
 	"github.com/QinYangWang/omo/internal/host"
 	"github.com/QinYangWang/omo/internal/plugins"
 	moejsruntime "github.com/QinYangWang/omo/internal/runtime/moejs"
+	"github.com/QinYangWang/omo/internal/telemetry"
 )
 
 type Message struct {
@@ -33,8 +36,8 @@ type snapshotMessage struct {
 	Text string `json:"text"`
 }
 
-type snapshot struct {
-	Ready    bool              `json:"ready"`
+type botSnapshot struct {
+	BotID    string            `json:"botId"`
 	Status   string            `json:"status"`
 	Messages []snapshotMessage `json:"messages"`
 	Partial  string            `json:"partial"`
@@ -42,18 +45,43 @@ type snapshot struct {
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	} `json:"tool"`
+	Failure string              `json:"failure"`
+	Metrics *telemetry.AgentRun `json:"metrics"`
+}
+
+type teamEvent struct {
+	Ready   bool   `json:"ready"`
 	Failure string `json:"failure"`
 }
 
-type App struct {
-	Win    *mygo.Window
-	Config *config.Config
-	Store  *chat.Store
-	Engine *moejsruntime.Engine
-	WS     *host.Workspace
+type botSessionEvent struct {
+	BotID          string `json:"botId"`
+	ConversationID string `json:"conversationId"`
+}
 
-	Sessions []chat.Session
-	Session  *chat.Session
+// SessionView is one row of the session rail. A Bot is the session: opening a
+// Bot opens its durable conversation.
+type SessionView struct {
+	ID        string
+	Title     string
+	Workspace string
+	Status    string
+}
+
+type App struct {
+	Win       *mygo.Window
+	Config    *config.Config
+	Bots      *bots.Store
+	Telemetry *telemetry.Store
+	Engine    *moejsruntime.Engine
+	WS        *host.Workspace
+
+	Sessions        []SessionView
+	Session         *SessionView
+	ActiveBotID     string
+	TeamReady       bool
+	teamWorkspace   string
+	teamFingerprint string
 
 	Messages []Message
 	Partial  string
@@ -61,6 +89,13 @@ type App struct {
 	Failure  string
 	Input    string
 	Ready    bool
+
+	// Agent activity of the open session, newest last: per-turn metrics,
+	// per-agent cache totals, and the agent dependency graph.
+	AgentRuns  []telemetry.AgentRun
+	AgentCache []telemetry.AgentCache
+	Agents     []telemetry.Agent
+	LastRun    *telemetry.AgentRun
 
 	ShowSettings  bool
 	ShowPlugins   bool
@@ -84,20 +119,82 @@ type App struct {
 	PluginErr     string
 	PluginNotice  string
 
-	persisted int
-	mu        sync.Mutex
+	mu           sync.Mutex
+	botSnapshots map[string]botSnapshot
 }
 
-func New(cfg *config.Config, store *chat.Store, engine *moejsruntime.Engine) *App {
-	a := &App{Config: cfg, Store: store, Engine: engine, Status: "idle"}
+func New(cfg *config.Config, roster *bots.Store, stats *telemetry.Store, engine *moejsruntime.Engine) *App {
+	a := &App{Config: cfg, Bots: roster, Telemetry: stats, Engine: engine, Status: "idle", botSnapshots: map[string]botSnapshot{}}
 	manager, err := plugins.Open(cfg.Dir())
 	if err != nil {
 		a.PluginErr = err.Error()
 	}
 	a.Plugins = manager
-	a.Sessions, _ = store.ListSessions(50)
+	a.refreshSessions()
 	a.refreshCatalog()
 	return a
+}
+
+// refreshSessions rebuilds the rail from the roster; a Bot's name is its title.
+func (a *App) refreshSessions() {
+	list := a.Bots.Bots()
+	views := make([]SessionView, 0, len(list))
+	for _, bot := range list {
+		views = append(views, SessionView{
+			ID:        bot.ID,
+			Title:     bot.Name,
+			Workspace: a.Config.Settings.Workspace,
+			Status:    a.botStatus(bot.ID),
+		})
+	}
+	a.Sessions = views
+	a.Session = nil
+	for i := range views {
+		if views[i].ID == a.ActiveBotID {
+			selected := views[i]
+			a.Session = &selected
+		}
+	}
+	if a.Session == nil && len(views) > 0 {
+		a.ActiveBotID = views[0].ID
+		selected := views[0]
+		a.Session = &selected
+	}
+}
+
+func (a *App) botStatus(botID string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if snap, ok := a.botSnapshots[botID]; ok {
+		return snap.Status
+	}
+	return "idle"
+}
+
+// TeamID is the stable identity of the team in this workspace. It names the
+// durable database and the telemetry session.
+func (a *App) TeamID() string {
+	root := ""
+	if a.WS != nil {
+		root = a.WS.Root()
+	}
+	sum := sha256.Sum256([]byte(strings.ToLower(root)))
+	return "t" + hex.EncodeToString(sum[:6])
+}
+
+// ensureChief makes sure a team has a main Bot to talk to.
+func (a *App) ensureChief() error {
+	for _, bot := range a.Bots.Bots() {
+		if bot.Role == bots.RoleMain {
+			return nil
+		}
+	}
+	_, err := a.Bots.AddBot(bots.Bot{Name: "Chief", Role: bots.RoleMain, Permission: bots.PermissionWorkspace})
+	if err != nil {
+		return err
+	}
+	a.refreshSessions()
+	return nil
 }
 
 func (a *App) refreshCatalog() {
@@ -198,8 +295,16 @@ func (a *App) Start() {
 	go func() {
 		for ev := range a.Engine.Events() {
 			switch ev.Kind {
-			case "state", "sent", "aborted":
-				a.applySnapshot(ev.Message)
+			case "bot", "sent", "aborted":
+				a.applyBot(ev.Message)
+			case "team":
+				a.applyTeam(ev.Message)
+			case "bot_session":
+				a.applyBotSession(ev.Message)
+			case "metric":
+				a.applyAgentRun(ev.Message)
+			case "agent":
+				a.applyAgent(ev.Message)
 			case "error":
 				a.setFailure(ev.Message)
 			}
@@ -227,65 +332,14 @@ func (a *App) setFailure(text string) {
 	})
 }
 
-func (a *App) applySnapshot(text string) {
-	var snap snapshot
-	if err := json.Unmarshal([]byte(text), &snap); err != nil {
-		a.Logf("bad snapshot: %v", err)
-		return
-	}
-	a.update(func() {
-		a.Ready = snap.Ready
-		a.Status = snap.Status
-		a.Partial = snap.Partial
-		a.Failure = snap.Failure
-		messages := make([]Message, 0, len(snap.Messages))
-		for _, item := range snap.Messages {
-			messages = append(messages, Message{Role: item.Role, Text: item.Text})
-		}
-		a.Messages = messages
-		a.persistNew()
-	})
-}
-
-// persistNew writes messages the SQLite store has not seen yet.
-func (a *App) persistNew() {
-	if a.Session == nil {
-		return
-	}
-	if a.persisted > len(a.Messages) {
-		a.persisted = 0
-	}
-	for _, msg := range a.Messages[a.persisted:] {
-		if err := a.Store.AppendMessage(a.Session.ID, msg.Role, msg.Text); err != nil {
-			a.Logf("append message: %v", err)
-		}
-	}
-	a.persisted = len(a.Messages)
-	_ = a.Store.Touch(a.Session.ID)
-	if a.Session.Title == "New chat" {
-		for _, msg := range a.Messages {
-			if msg.Role == "user" {
-				title := strings.TrimSpace(msg.Text)
-				if len(title) > 48 {
-					title = title[:48] + "…"
-				}
-				if title != "" {
-					a.Session.Title = title
-					_ = a.Store.RenameSession(a.Session.ID, title)
-					a.Sessions, _ = a.Store.ListSessions(50)
-				}
-				break
-			}
-		}
-	}
-}
-
 func (a *App) SetWorkspace(dir string) error {
 	ws, err := host.Open(dir)
 	if err != nil {
 		return err
 	}
 	a.WS = ws
+	a.teamWorkspace = ""
+	a.TeamReady = false
 	a.Config.Settings.Workspace = ws.Root()
 	_ = a.Config.Save()
 	a.Engine.SetWorkspace(ws)
@@ -311,9 +365,7 @@ func (a *App) ChooseWorkspace() {
 				return
 			}
 			a.Failure = ""
-			if a.Session != nil {
-				a.startNewChat()
-			}
+			a.startNewChat()
 		})
 	}()
 }
@@ -322,56 +374,98 @@ func (a *App) StartNewChat() {
 	a.update(func() { a.startNewChat() })
 }
 
+// startNewChat opens the main Bot; a team without one gets Chief.
 func (a *App) startNewChat() {
 	if a.WS == nil {
 		a.ChooseWorkspace()
 		return
 	}
-	session, err := a.Store.NewSession(a.WS.Root())
-	if err != nil {
+	if err := a.ensureChief(); err != nil {
 		a.Failure = err.Error()
 		return
 	}
-	a.openSession(session)
-}
-
-func (a *App) OpenSession(id string) {
-	session, err := a.Store.Session(id)
-	if err != nil {
-		a.Failure = err.Error()
-		return
-	}
-	a.update(func() {
-		if a.WS == nil || !strings.EqualFold(a.WS.Root(), session.Workspace) {
-			if err := a.SetWorkspace(session.Workspace); err != nil {
-				a.Failure = fmt.Sprintf("workspace %s is unavailable: %v", session.Workspace, err)
-				return
-			}
+	for _, bot := range a.Bots.Bots() {
+		if bot.Role == bots.RoleMain {
+			a.openBot(bot.ID)
+			return
 		}
-		a.openSession(session)
-	})
+	}
 }
 
-func (a *App) openSession(session *chat.Session) {
-	a.Session = session
+// OpenSession opens a Bot by id. The name is kept for the existing UI actions.
+func (a *App) OpenSession(id string) {
+	a.update(func() { a.openBot(id) })
+}
+
+// teamSignature changes when the roster or a Bot's conversation changes; the
+// runtime must be reopened to pick it up.
+func (a *App) teamSignature() string {
+	var b strings.Builder
+	for _, bot := range a.Bots.Bots() {
+		b.WriteString(bot.ID)
+		b.WriteString("@")
+		b.WriteString(bot.ConversationID)
+		b.WriteString("|")
+	}
+	return b.String()
+}
+
+func (a *App) openBot(id string) {
+	bot, ok := a.Bots.Bot(id)
+	if !ok {
+		a.Failure = "No such Bot: " + id
+		return
+	}
+	a.ActiveBotID = id
+	a.refreshSessions()
 	a.Messages = nil
 	a.Partial = ""
 	a.Failure = ""
 	a.Status = "idle"
 	a.Ready = false
-	a.persisted = 0
-	// The durable transcript is the source of truth; rebuild the sidebar
-	// mirror from it instead of appending duplicates.
-	if err := a.Store.ClearMessages(session.ID); err != nil {
-		a.Logf("clear mirrored messages: %v", err)
+	a.Input = ""
+	a.LastRun = nil
+	if snap, ok := a.botSnapshot(id); ok {
+		a.applyBotSnapshot(snap)
 	}
-	if err := a.SetWorkspace(session.Workspace); err != nil {
-		a.Failure = fmt.Sprintf("workspace %s is unavailable: %v", session.Workspace, err)
-		a.Status = "error"
-		return
+	a.AgentRuns, a.AgentCache, a.Agents = a.loadAgentActivity(a.TeamID())
+	if a.WS == nil || a.teamWorkspace != a.WS.Root() || a.teamFingerprint != a.teamSignature() {
+		if err := a.openTeam(bot.ID); err != nil {
+			a.Failure = err.Error()
+			a.Status = "error"
+		}
 	}
-	if err := a.Engine.OpenSession(moejsruntime.SessionConfig{
-		DBPath:       filepath.Join(a.Store.SessionDir(session.ID), "durable.db"),
+}
+
+func (a *App) botSnapshot(botID string) (botSnapshot, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	snap, ok := a.botSnapshots[botID]
+	return snap, ok
+}
+
+// openTeam opens (or reopens) the team database with every Bot conversation.
+func (a *App) openTeam(activeID string) error {
+	if a.WS == nil {
+		return fmt.Errorf("no workspace is open")
+	}
+	list := a.Bots.Bots()
+	if len(list) == 0 {
+		return fmt.Errorf("the team has no Bots")
+	}
+	specs := make([]moejsruntime.TeamBot, 0, len(list))
+	for _, bot := range list {
+		specs = append(specs, moejsruntime.TeamBot{
+			ID:             bot.ID,
+			Name:           bot.Name,
+			Model:          bot.Model,
+			ConversationID: bot.ConversationID,
+		})
+	}
+	teamID := a.TeamID()
+	if err := a.Engine.OpenTeam(moejsruntime.TeamConfig{
+		DBPath:       filepath.Join(a.Config.Dir(), "teams", teamID, "durable.db"),
+		TeamID:       teamID,
 		BaseURL:      strings.TrimRight(a.Config.Settings.BaseURL, "/"),
 		Provider:     a.Config.Settings.Provider,
 		Model:        a.Config.Settings.Model,
@@ -380,10 +474,93 @@ func (a *App) openSession(session *chat.Session) {
 		Credentials:  a.Config.Credentials,
 		MaxTokens:    a.Config.Settings.MaxTokens,
 		Temperature:  a.Config.Settings.Temperature,
+		Skills:       a.loadSkills(a.WS.Root()),
+		Bots:         specs,
 	}); err != nil {
-		a.Failure = err.Error()
-		a.Status = "error"
+		return err
 	}
+	a.teamWorkspace = a.WS.Root()
+	a.teamFingerprint = a.teamSignature()
+	a.TeamReady = false
+	a.ActiveBotID = activeID
+	return nil
+}
+
+// applyBot updates one Bot's cached snapshot and the visible messages when it
+// is the active Bot.
+func (a *App) applyBot(text string) {
+	var snap botSnapshot
+	if err := json.Unmarshal([]byte(text), &snap); err != nil {
+		a.Logf("bad bot snapshot: %v", err)
+		return
+	}
+	if snap.BotID == "" {
+		return
+	}
+	a.mu.Lock()
+	a.botSnapshots[snap.BotID] = snap
+	a.mu.Unlock()
+	a.update(func() {
+		if snap.BotID == a.ActiveBotID {
+			a.applyBotSnapshot(snap)
+		}
+		a.refreshSessions()
+	})
+}
+
+func (a *App) applyBotSnapshot(snap botSnapshot) {
+	a.Ready = true
+	a.Status = snap.Status
+	a.Partial = snap.Partial
+	a.Failure = snap.Failure
+	messages := make([]Message, 0, len(snap.Messages))
+	for _, item := range snap.Messages {
+		messages = append(messages, Message{Role: item.Role, Text: item.Text})
+	}
+	a.Messages = messages
+	if snap.Metrics != nil {
+		a.LastRun = snap.Metrics
+	}
+}
+
+func (a *App) applyTeam(text string) {
+	var ev teamEvent
+	if err := json.Unmarshal([]byte(text), &ev); err != nil {
+		a.Logf("bad team event: %v", err)
+		return
+	}
+	a.update(func() {
+		a.TeamReady = ev.Ready
+		if ev.Ready {
+			a.Ready = true
+			if a.Failure != "" {
+				a.Failure = ""
+				a.Status = "idle"
+			}
+			return
+		}
+		a.Failure = ev.Failure
+		a.Status = "error"
+	})
+}
+
+func (a *App) applyBotSession(text string) {
+	var ev botSessionEvent
+	if err := json.Unmarshal([]byte(text), &ev); err != nil {
+		a.Logf("bad bot session event: %v", err)
+		return
+	}
+	if ev.BotID == "" || ev.ConversationID == "" {
+		return
+	}
+	if err := a.Bots.SetBotConversation(ev.BotID, ev.ConversationID); err != nil {
+		a.Logf("store bot conversation: %v", err)
+		return
+	}
+	a.update(func() {
+		a.teamFingerprint = a.teamSignature()
+		a.refreshSessions()
+	})
 }
 
 func (a *App) Send(text string) {
@@ -391,28 +568,42 @@ func (a *App) Send(text string) {
 	if text == "" {
 		return
 	}
-	if a.Session == nil {
+	if a.WS == nil {
+		a.ChooseWorkspace()
+		return
+	}
+	if a.ActiveBotID == "" {
 		a.startNewChat()
-		if a.Session == nil {
-			return
-		}
+	}
+	if a.ActiveBotID == "" {
+		return
 	}
 	if !a.Config.Ready() {
 		a.ShowSettings = true
 		a.Failure = "Choose a provider, model and credential in Settings first."
 		return
 	}
+	if a.teamWorkspace != a.WS.Root() || a.teamFingerprint != a.teamSignature() {
+		if err := a.openTeam(a.ActiveBotID); err != nil {
+			a.Failure = err.Error()
+			a.Status = "error"
+			return
+		}
+	}
 	a.Input = ""
 	a.Failure = ""
 	a.Status = "running"
-	if err := a.Engine.Send(text); err != nil {
+	if err := a.Engine.SendTo(a.ActiveBotID, text); err != nil {
 		a.Failure = err.Error()
 		a.Status = "error"
 	}
 }
 
 func (a *App) Stop() {
-	if err := a.Engine.Abort(); err != nil {
+	if a.ActiveBotID == "" {
+		return
+	}
+	if err := a.Engine.AbortBot(a.ActiveBotID); err != nil {
 		a.Logf("abort: %v", err)
 	}
 }
@@ -481,8 +672,10 @@ func (a *App) SaveSettings() {
 	a.ShowSettings = false
 	a.Failure = ""
 	a.refreshCatalog()
-	if a.Session != nil {
-		a.openSession(a.Session)
+	if a.ActiveBotID != "" && a.WS != nil {
+		if err := a.openTeam(a.ActiveBotID); err != nil {
+			a.Failure = err.Error()
+		}
 	}
 }
 
@@ -613,9 +806,9 @@ func (a *App) SelectedProviderBaseURL() string {
 	return ""
 }
 
-func (a *App) SessionDir(id string) string { return a.Store.SessionDir(id) }
+func (a *App) SessionDir(id string) string { return filepath.Join(a.Config.Dir(), "teams") }
 
-func (a *App) DataDir() string { return a.Store.Dir() }
+func (a *App) DataDir() string { return a.Config.Dir() }
 
 func (a *App) DockName() string { return filepath.Base(a.WS.Root()) }
 

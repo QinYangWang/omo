@@ -36,8 +36,10 @@ type Event struct {
 	Message string
 }
 
-type SessionConfig struct {
+// TeamConfig opens one team: one durable database, one conversation per Bot.
+type TeamConfig struct {
 	DBPath       string            `json:"dbPath"`
+	TeamID       string            `json:"teamId,omitempty"`
 	BaseURL      string            `json:"baseUrl"`
 	Provider     string            `json:"provider"`
 	Model        string            `json:"model"`
@@ -46,6 +48,30 @@ type SessionConfig struct {
 	Credentials  map[string]string `json:"credentials"`
 	MaxTokens    int               `json:"maxTokens"`
 	Temperature  float64           `json:"temperature"`
+	MaxTurns     int               `json:"maxTurns,omitempty"`
+	Skills       []Skill           `json:"skills,omitempty"`
+	Bots         []TeamBot         `json:"bots"`
+}
+
+// TeamBot is one roster entry handed to the runtime, with the durable
+// conversation it already owns (empty on the first open).
+type TeamBot struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Instructions   string `json:"instructions,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+	Model          string `json:"model,omitempty"`
+	ConversationID string `json:"conversationId,omitempty"`
+}
+
+// Skill is one markdown instruction pack the Go host discovered on disk and
+// handed to the agent runtime. The runtime lists it in the system prompt and
+// loads it through the use_skill tool.
+type Skill struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Path        string `json:"path"`
+	Content     string `json:"content"`
 }
 
 type CatalogModel struct {
@@ -203,7 +229,22 @@ func (e *Engine) register() error {
 		}
 		return moejs.String(out), nil
 	})
-	return e.rt.SetGlobal("__host_sql", sqlFn)
+	if err := e.rt.SetGlobal("__host_sql", sqlFn); err != nil {
+		return err
+	}
+
+	// Metrics and the agent graph are reported by the runtime and persisted by
+	// the app; a rejected report must never break the agent loop.
+	emitFn := func(kind string) moejs.NativeFunc {
+		return moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+			e.emit(Event{Kind: kind, Message: moejs.Arg(args, 0).String()})
+			return moejs.Undefined(), nil
+		})
+	}
+	if err := e.rt.SetGlobal("__host_metric", emitFn("metric")); err != nil {
+		return err
+	}
+	return e.rt.SetGlobal("__host_agent", emitFn("agent"))
 }
 
 func (e *Engine) load() error {
@@ -235,7 +276,7 @@ func (e *Engine) load() error {
 			done <- wrapped
 			return wrapped
 		}
-		for _, name := range []string{"openSession", "sendPrompt", "abortSession", "closeSession", "listCatalog"} {
+		for _, name := range []string{"openTeam", "sendToBot", "abortBot", "closeTeam", "listCatalog"} {
 			if _, ok := e.exports[name]; !ok {
 				missing := fmt.Errorf("bundle did not register %s", name)
 				done <- missing
@@ -292,7 +333,8 @@ func (e *Engine) SetWorkspaceDir(dir string) error {
 	return nil
 }
 
-func (e *Engine) OpenSession(cfg SessionConfig) error {
+// OpenTeam opens the team database and every Bot conversation in the runtime.
+func (e *Engine) OpenTeam(cfg TeamConfig) error {
 	if cfg.DBPath == "" {
 		return errors.New("session database path is empty")
 	}
@@ -319,42 +361,42 @@ func (e *Engine) OpenSession(cfg SessionConfig) error {
 	if err != nil {
 		return err
 	}
-	return e.callAsync("openSession", func(rt *moejs.Runtime) ([]moejs.Value, error) {
+	return e.callAsync("openTeam", func(rt *moejs.Runtime) ([]moejs.Value, error) {
 		cfgValue, err := rt.ParseJSON(payload)
 		if err != nil {
 			return nil, err
 		}
-		onState, err := e.funcValue(rt, func(jsonText string) {
-			e.emit(Event{Kind: "state", Message: jsonText})
-		})
+		onEvent, err := e.eventValue(rt)
 		if err != nil {
 			return nil, err
 		}
-		return []moejs.Value{cfgValue, onState}, nil
+		return []moejs.Value{cfgValue, onEvent}, nil
 	})
 }
 
-func (e *Engine) Send(text string) error {
-	return e.callAsync("sendPrompt", func(rt *moejs.Runtime) ([]moejs.Value, error) {
+// SendTo submits one user message to one Bot.
+func (e *Engine) SendTo(botID, text string) error {
+	return e.callAsync("sendToBot", func(rt *moejs.Runtime) ([]moejs.Value, error) {
 		onDone, err := e.funcValue(rt, func(jsonText string) {
 			e.emit(Event{Kind: "sent", Message: jsonText})
 		})
 		if err != nil {
 			return nil, err
 		}
-		return []moejs.Value{moejs.String(text), onDone}, nil
+		return []moejs.Value{moejs.String(botID), moejs.String(text), onDone}, nil
 	})
 }
 
-func (e *Engine) Abort() error {
-	return e.callAsync("abortSession", func(rt *moejs.Runtime) ([]moejs.Value, error) {
+// AbortBot stops the current work of one Bot.
+func (e *Engine) AbortBot(botID string) error {
+	return e.callAsync("abortBot", func(rt *moejs.Runtime) ([]moejs.Value, error) {
 		onDone, err := e.funcValue(rt, func(jsonText string) {
 			e.emit(Event{Kind: "aborted", Message: jsonText})
 		})
 		if err != nil {
 			return nil, err
 		}
-		return []moejs.Value{onDone}, nil
+		return []moejs.Value{moejs.String(botID), onDone}, nil
 	})
 }
 
@@ -373,7 +415,7 @@ func (e *Engine) Close() {
 	if e.started {
 		_ = eventloop.Post(e.loop, func(rt *moejs.Runtime) error {
 			defer close(done)
-			fn, ok := e.exports["closeSession"]
+			fn, ok := e.exports["closeTeam"]
 			if !ok {
 				return nil
 			}
@@ -449,6 +491,16 @@ func (e *Engine) callSync(name string, build func(*moejs.Runtime) ([]moejs.Value
 func (e *Engine) funcValue(rt *moejs.Runtime, fn func(string)) (moejs.Value, error) {
 	native := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
 		fn(moejs.Arg(args, 0).String())
+		return moejs.Undefined(), nil
+	})
+	return rt.FromGo(native)
+}
+
+// eventValue is the runtime's (kind, json) reporter. Every event reaches the
+// app; a rejected report must not fail a run.
+func (e *Engine) eventValue(rt *moejs.Runtime) (moejs.Value, error) {
+	native := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+		e.emit(Event{Kind: moejs.Arg(args, 0).String(), Message: moejs.Arg(args, 1).String()})
 		return moejs.Undefined(), nil
 	})
 	return rt.FromGo(native)

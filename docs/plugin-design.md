@@ -137,5 +137,7 @@ installed (disabled) -> enabled -> active UI
 
 ## Ownership
 
-This design belongs to the `plugin-platform` subsystem. The widget schema and
-renderer belong to `native-ui`; changes to the schema require both owners.
+This design belongs to the `plugin` subsystem, which also owns the built-in
+channel and git adapters (host code behind permissions, not user scripts). The
+widget schema and renderer belong to `native-ui`; changes to the schema require
+both owners.

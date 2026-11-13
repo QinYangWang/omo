@@ -11,9 +11,10 @@ import (
 	"github.com/egoist/mygo"
 
 	"github.com/QinYangWang/omo/internal/app"
-	"github.com/QinYangWang/omo/internal/chat"
+	"github.com/QinYangWang/omo/internal/bots"
 	"github.com/QinYangWang/omo/internal/config"
 	moejsruntime "github.com/QinYangWang/omo/internal/runtime/moejs"
+	"github.com/QinYangWang/omo/internal/telemetry"
 	"github.com/QinYangWang/omo/internal/ui"
 )
 
@@ -35,11 +36,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
-	store, err := chat.Open(dir)
+	roster, err := bots.Open(filepath.Join(dir, "bots"))
 	if err != nil {
-		log.Fatalf("open chat store: %v", err)
+		log.Fatalf("open bot store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = roster.Close() }()
+	stats, err := telemetry.Open(dir)
+	if err != nil {
+		log.Fatalf("open telemetry store: %v", err)
+	}
+	defer stats.Close()
 
 	engine, err := moejsruntime.New(func(format string, args ...any) {
 		log.Printf(format, args...)
@@ -48,7 +54,7 @@ func main() {
 		log.Fatalf("start pi-durable runtime: %v", err)
 	}
 
-	a := app.New(cfg, store, engine)
+	a := app.New(cfg, roster, stats, engine)
 	a.Start()
 
 	mygo.App.SetName("omo")
@@ -77,10 +83,8 @@ func main() {
 					log.Printf("workspace %s is unavailable: %v", cfg.Settings.Workspace, err)
 					return
 				}
-				// Reopen the most recent conversation, as desktop chat apps do.
-				if sessions, err := store.ListSessions(1); err == nil && len(sessions) > 0 {
-					a.OpenSession(sessions[0].ID)
-				}
+				// Open the team: Chief on first start.
+				a.StartNewChat()
 			})
 		}
 	})

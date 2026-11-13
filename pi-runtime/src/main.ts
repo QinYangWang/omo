@@ -4,11 +4,24 @@ import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { createModels, createProvider } from "@earendil-works/pi-ai";
 import * as openAICompletions from "@earendil-works/pi-ai/api/openai-completions";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import { createSubagentsExtension } from "./agents";
 import { createHostSqlite, hostLog } from "./host";
+import { AgentTracker, setSessionId, trackConversation, yieldToWatch, type RunMetric } from "./metrics";
+import { setSkills, skillsExtension, type SkillInfo } from "./skills";
 import { SYSTEM_INSTRUCTIONS, workspaceExtension } from "./tools";
 
-export type SessionConfig = {
+type TeamBot = {
+  id: string;
+  name: string;
+  instructions?: string;
+  provider?: string;
+  model?: string;
+  conversationId?: string;
+};
+
+export type TeamConfig = {
   dbPath: string;
+  teamId?: string;
   baseUrl: string;
   provider: string;
   model: string;
@@ -17,30 +30,51 @@ export type SessionConfig = {
   credentials?: Record<string, string>;
   maxTokens?: number;
   temperature?: number;
+  maxTurns?: number;
+  skills?: SkillInfo[];
+  bots: TeamBot[];
 };
 
 type MessageView = { id: number; role: "user" | "assistant"; text: string };
 
-type Snapshot = {
-  ready: boolean;
+type BotSnapshot = {
+  botId: string;
   status: "idle" | "running" | "tool" | "error";
   messages: MessageView[];
   partial: string;
-  tool?: { name: string; status: string; detail?: string };
+  tool?: { name: string; status: string };
   failure?: string;
+  metrics?: RunMetric;
+};
+
+type BotRuntime = {
+  id: string;
+  name: string;
+  conversationId: string;
+  conversation: any;
+  watch: any;
+  tracker: AgentTracker;
 };
 
 type Active = {
   harness: Harness;
-  root: any;
-  watch: any;
-  onState: (json: string) => void;
+  registry: any;
+  model: { provider: string; modelId: string };
+  maxTurns: number;
+  bots: Map<string, BotRuntime>;
+  onEvent: (kind: string, json: string) => void;
 };
 
 let active: Active | null = null;
 
 const ctx = BACKGROUND_CONTEXT;
 const CUSTOM_PROVIDER_ID = "openai-compatible";
+const DEFAULT_MAX_TURNS = 40;
+const TEAM_INSTRUCTIONS = `You are one Bot of a team of long-lived Bots running in omo.
+
+You work in the user's workspace. Read before you change anything, keep edits small and focused, and say which files you touched.
+Other Bots exist; the user talks to each of you separately. If a request belongs to another Bot, say so instead of guessing.
+Reply in the user's language and keep it short.`;
 
 const modelSummary = (model: any) => ({
   id: String(model?.id ?? ""),
@@ -52,24 +86,37 @@ const modelSummary = (model: any) => ({
   maxTokens: Number(model?.maxTokens ?? 0),
 });
 
-const customModel = (cfg: SessionConfig) => ({
-  id: cfg.model,
-  name: cfg.model,
-  api: "openai-completions",
-  provider: CUSTOM_PROVIDER_ID,
-  baseUrl: cfg.baseUrl,
-  reasoning: false,
-  input: ["text"],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 128_000,
-  maxTokens: cfg.maxTokens ?? 4096,
-  samplingParams: typeof cfg.temperature === "number" ? { temperature: cfg.temperature } : undefined,
-});
+// DeepSeek's OpenAI-compatible endpoint is the first target: a 64K window,
+// an 8K answer budget, and its reasoner models report thinking tokens.
+const modelDefaults = (id: string) => {
+  if (/deepseek/i.test(id)) {
+    return { contextWindow: 65_536, maxTokens: 8_192, reasoning: /reasoner|think|r1/i.test(id) };
+  }
+  return { contextWindow: 128_000, maxTokens: 4_096, reasoning: false };
+};
 
-const customModelIDs = (cfg: SessionConfig) => {
+const customModel = (cfg: TeamConfig, id: string) => {
+  const defaults = modelDefaults(id);
+  return {
+    id,
+    name: id,
+    api: "openai-completions",
+    provider: CUSTOM_PROVIDER_ID,
+    baseUrl: cfg.baseUrl,
+    reasoning: defaults.reasoning,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: defaults.contextWindow,
+    maxTokens: cfg.maxTokens && cfg.maxTokens > 0 ? cfg.maxTokens : defaults.maxTokens,
+    samplingParams: typeof cfg.temperature === "number" ? { temperature: cfg.temperature } : undefined,
+  };
+};
+
+const customModelIDs = (cfg: TeamConfig) => {
   const ids: string[] = [];
   const seen = new Set<string>();
-  for (const id of [cfg.model, ...(cfg.customModels ?? [])]) {
+  const wanted = [cfg.model, ...(cfg.customModels ?? []), ...(cfg.bots ?? []).map((bot) => bot.model ?? "")];
+  for (const id of wanted) {
     const value = String(id ?? "").trim();
     if (!value || seen.has(value)) continue;
     seen.add(value);
@@ -78,7 +125,7 @@ const customModelIDs = (cfg: SessionConfig) => {
   return ids;
 };
 
-const customProvider = (cfg: SessionConfig) =>
+const customProvider = (cfg: TeamConfig) =>
   createProvider({
     id: CUSTOM_PROVIDER_ID,
     name: "OpenAI-compatible",
@@ -91,7 +138,7 @@ const customProvider = (cfg: SessionConfig) =>
         }),
       },
     },
-    models: customModelIDs(cfg).map((id) => customModel({ ...cfg, model: id }) as any),
+    models: customModelIDs(cfg).map((id) => customModel(cfg, id) as any),
     api: { stream: openAICompletions.stream, streamSimple: openAICompletions.streamSimple },
   });
 
@@ -131,13 +178,14 @@ export function listCatalog(baseUrl: string, model: string, customModelsJson = "
       const parsed = JSON.parse(customModelsJson);
       if (Array.isArray(parsed)) customModels = parsed.map(String);
     } catch {}
-    const ids = customModelIDs({ baseUrl, model, customModels } as SessionConfig);
+    const cfg = { baseUrl, model, customModels } as TeamConfig;
+    const ids = customModelIDs(cfg);
     providers.unshift({
       id: CUSTOM_PROVIDER_ID,
       name: "OpenAI-compatible",
       baseUrl,
       authName: "API key",
-      models: baseUrl ? ids.map((id) => modelSummary(customModel({ baseUrl, model: id } as SessionConfig))) : [],
+      models: baseUrl ? ids.map((id) => modelSummary(customModel(cfg, id))) : [],
     });
   }
   return JSON.stringify({ providers });
@@ -152,7 +200,7 @@ const textOf = (message: any): string => {
     .join("");
 };
 
-const buildSnapshot = (value: any, ready = true): Snapshot => {
+const buildSnapshot = (botId: string, value: any, metrics?: RunMetric): BotSnapshot => {
   const messages: MessageView[] = [];
   for (const entry of value?.entries ?? []) {
     if (entry.kind === "pi.user") {
@@ -163,128 +211,169 @@ const buildSnapshot = (value: any, ready = true): Snapshot => {
       if (text) messages.push({ id: Number(entry.id), role: "assistant", text });
     }
   }
-
   const live = value?.docs?.["pi.live"] ?? {};
-  const generation = live.generation;
-  const partial = generation?.message ? textOf(generation.message) : "";
+  const partial = live.generation?.message ? textOf(live.generation.message) : "";
   const slots = Array.isArray(live.tools) ? live.tools : [];
   const lastTool = slots[slots.length - 1];
-  const failure = live.runFailure ? `${live.runFailure.reason}${live.runFailure.detail ? ": " + live.runFailure.detail : ""}` : undefined;
-
-  let status: Snapshot["status"] = "idle";
-  if (live.run) {
-    status = lastTool && lastTool.status !== "done" ? "tool" : "running";
-  }
-
+  const failure = live.runFailure
+    ? `${live.runFailure.reason}${live.runFailure.detail ? ": " + live.runFailure.detail : ""}`
+    : undefined;
+  let status: BotSnapshot["status"] = "idle";
+  if (live.run) status = lastTool && lastTool.status !== "done" ? "tool" : "running";
   return {
-    ready,
+    botId,
     status,
     messages,
     partial,
     tool: lastTool ? { name: String(lastTool.name ?? ""), status: String(lastTool.status ?? "") } : undefined,
     failure,
+    metrics,
   };
 };
 
-const emit = (snapshot: Snapshot) => {
+const emit = (kind: string, payload: unknown) => {
   if (!active) return;
   try {
-    active.onState(JSON.stringify(snapshot));
+    active.onEvent(kind, JSON.stringify(payload));
   } catch (error) {
-    hostLog("error", `onState failed: ${String(error)}`);
+    hostLog("error", `${kind} emit failed: ${String(error)}`);
   }
 };
 
-export async function openSession(cfg: SessionConfig, onState: (json: string) => void): Promise<void> {
+const emitBot = (bot: BotRuntime, metrics?: RunMetric) =>
+  emit("bot", buildSnapshot(bot.id, bot.watch.value, metrics));
+
+const botAgent = (bot: TeamBot, cfg: TeamConfig, maxTurns: number) => ({
+  model: bot.model
+    ? { provider: bot.provider || CUSTOM_PROVIDER_ID, modelId: bot.model }
+    : { provider: cfg.provider, modelId: cfg.model },
+  instructions: `${TEAM_INSTRUCTIONS}\n\nYour name is ${bot.name}.${bot.instructions ? "\n\n" + bot.instructions : ""}\n\n${SYSTEM_INSTRUCTIONS}`,
+  cwd: cfg.workspace,
+  maxTurns,
+});
+
+export async function openTeam(cfg: TeamConfig, onEvent: (kind: string, json: string) => void): Promise<void> {
   try {
-    await closeSession();
-    hostLog("info", `opening session model=${cfg.model} workspace=${cfg.workspace}`);
+    await closeTeam();
+    hostLog("info", `opening team model=${cfg.model} workspace=${cfg.workspace} bots=${(cfg.bots ?? []).length}`);
+    if (!Array.isArray(cfg.bots) || cfg.bots.length === 0) throw new Error("the team has no Bots");
+
+    setSessionId(cfg.teamId ?? "");
+    setSkills(cfg.skills ?? []);
 
     const credentials = memoryCredentialStore(cfg.credentials);
     const models = createModels({ credentials });
     for (const provider of builtinProviders()) models.setProvider(provider);
-    if (cfg.provider === CUSTOM_PROVIDER_ID) {
+    if (cfg.provider === CUSTOM_PROVIDER_ID || (cfg.bots ?? []).some((bot) => bot.model && (bot.provider ?? CUSTOM_PROVIDER_ID) === CUSTOM_PROVIDER_ID)) {
       if (!cfg.baseUrl) throw new Error("base URL is required for the OpenAI-compatible provider");
       models.setProvider(customProvider(cfg));
     }
-    const model = models.getModel(cfg.provider, cfg.model);
-    if (!model) {
+    const defaultModel = models.getModel(cfg.provider, cfg.model);
+    if (!defaultModel) {
       throw new Error(`Model ${cfg.provider}/${cfg.model} is not in the loaded pi-ai catalog`);
     }
 
     const registry = createRegistry();
     registry.install(workspaceExtension);
+    registry.install(skillsExtension);
 
     const storage = await SqliteStorage.open(createHostSqlite());
     const harness = await Harness.open(storage, { models, registry }, ctx);
-    const root = await harness.root(ctx, {
-      agent: {
-        model: { provider: cfg.provider, modelId: cfg.model },
-        instructions: SYSTEM_INSTRUCTIONS,
-        cwd: cfg.workspace,
-      },
-    });
-    // root() only applies `agent` when it creates a conversation. Reopening
-    // an existing session must update its persisted model and workspace.
-    await root.configure(
-      {
-        model: { provider: cfg.provider, modelId: cfg.model },
-        instructions: SYSTEM_INSTRUCTIONS,
-        cwd: cfg.workspace,
-      },
-      ctx,
-    );
+    registry.install(createSubagentsExtension(harness));
 
-    const watch = await root.watch(ctx);
-    active = { harness, root, watch, onState };
-    emit(buildSnapshot(watch.value));
+    const maxTurns = cfg.maxTurns && cfg.maxTurns > 0 ? cfg.maxTurns : DEFAULT_MAX_TURNS;
+    const team: Active = {
+      harness,
+      registry,
+      model: { provider: cfg.provider, modelId: cfg.model },
+      maxTurns,
+      bots: new Map(),
+      onEvent,
+    };
+    active = team;
 
-    watch.start((call: any) => {
-      if (call.kind !== "value") return;
-      emit(buildSnapshot(call.value));
-    });
+    for (const spec of cfg.bots) {
+      const agent = botAgent(spec, cfg, maxTurns);
+      let conversation: any;
+      if (spec.conversationId) {
+        conversation = await harness.conversation(spec.conversationId as any, ctx);
+      }
+      if (!conversation) {
+        conversation = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, ctx);
+        emit("bot_session", { botId: spec.id, conversationId: String(conversation.id) });
+      }
+      await conversation.configure(agent, ctx);
+      const watch = await conversation.watch(ctx);
+      const tracker = trackConversation(new AgentTracker(String(conversation.id), spec.name));
+      tracker.attach(watch, false);
+      const bot: BotRuntime = {
+        id: spec.id,
+        name: spec.name,
+        conversationId: String(conversation.id),
+        conversation,
+        watch,
+        tracker,
+      };
+      team.bots.set(spec.id, bot);
+      watch.start((call: any) => {
+        if (call.kind !== "value") return;
+        tracker.observe(call.value);
+        emitBot(bot);
+      });
+      emitBot(bot);
+    }
 
+    emit("team", { ready: true, bots: cfg.bots.map((spec) => ({ id: spec.id, name: spec.name })) });
     harness.resume();
-    hostLog("info", "session ready");
+    hostLog("info", "team ready");
   } catch (error: any) {
-    hostLog("error", `openSession failed: ${String(error?.stack ?? error)}`);
-    onState(JSON.stringify({ ready: false, status: "error", messages: [], partial: "", failure: String(error?.message ?? error) }));
+    hostLog("error", `openTeam failed: ${String(error?.stack ?? error)}`);
+    onEvent("team", JSON.stringify({ ready: false, failure: String(error?.message ?? error) }));
   }
 }
 
-export async function sendPrompt(text: string, onDone: (json: string) => void): Promise<void> {
+const botOf = (botId: string): BotRuntime => {
+  const bot = active?.bots.get(botId);
+  if (!bot) throw new Error(`no Bot ${botId} in the open team`);
+  return bot;
+};
+
+export async function sendToBot(botId: string, text: string, onDone: (json: string) => void): Promise<void> {
   try {
-    if (!active) throw new Error("no active session");
-    const { root } = active;
-    const submission = await root.submit({ type: "input", content: text }, ctx);
+    if (!active) throw new Error("no open team");
+    const bot = botOf(botId);
+    bot.tracker.begin();
+    const submission = await bot.conversation.submit({ type: "input", content: text }, ctx);
     const settled = await submission.wait(ctx);
-    const snapshot = buildSnapshot(active.watch.value);
-    if (settled.status !== "done") {
-      snapshot.failure = snapshot.failure ?? `${settled.reason}${settled.detail ? ": " + settled.detail : ""}`;
-    }
-    emit(snapshot);
+    await yieldToWatch();
+    const failure =
+      settled.status === "done" ? undefined : `${settled.reason}${settled.detail ? ": " + settled.detail : ""}`;
+    const snapshot = buildSnapshot(bot.id, bot.watch.value, bot.tracker.end(failure));
+    if (settled.status !== "done") snapshot.failure = snapshot.failure ?? failure;
+    emit("bot", snapshot);
     onDone(JSON.stringify(snapshot));
   } catch (error: any) {
     hostLog("error", `send failed: ${String(error?.stack ?? error)}`);
-    const snapshot: Snapshot = {
-      ready: true,
-      status: "error",
-      messages: active ? buildSnapshot(active.watch.value).messages : [],
-      partial: "",
-      failure: String(error?.message ?? error),
-    };
-    emit(snapshot);
+    const failure = String(error?.message ?? error);
+    let snapshot: BotSnapshot = { botId, status: "error", messages: [], partial: "", failure };
+    try {
+      const bot = botOf(botId);
+      snapshot = buildSnapshot(bot.id, bot.watch.value, bot.tracker.end(failure));
+      snapshot.failure = failure;
+    } catch {}
+    emit("bot", snapshot);
     onDone(JSON.stringify(snapshot));
   }
 }
 
-export async function abortSession(onDone: (json: string) => void): Promise<void> {
+export async function abortBot(botId: string, onDone: (json: string) => void): Promise<void> {
   try {
-    if (!active) throw new Error("no active session");
-    await active.root.abort(ctx);
-    const snapshot = buildSnapshot(active.watch.value);
+    if (!active) throw new Error("no open team");
+    const bot = botOf(botId);
+    await bot.conversation.abort(ctx);
+    const snapshot = buildSnapshot(bot.id, bot.watch.value);
     snapshot.status = "idle";
-    emit(snapshot);
+    emit("bot", snapshot);
     onDone(JSON.stringify(snapshot));
   } catch (error: any) {
     hostLog("error", `abort failed: ${String(error?.stack ?? error)}`);
@@ -292,13 +381,16 @@ export async function abortSession(onDone: (json: string) => void): Promise<void
   }
 }
 
-export async function closeSession(): Promise<void> {
+export async function closeTeam(): Promise<void> {
   const current = active;
   active = null;
   if (!current) return;
-  try {
-    await current.watch.stop();
-  } catch {}
+  for (const bot of current.bots.values()) {
+    try {
+      await bot.watch.stop();
+    } catch {}
+    await bot.tracker.stop();
+  }
   try {
     await current.harness.close(ctx);
   } catch (error) {
@@ -307,8 +399,8 @@ export async function closeSession(): Promise<void> {
 }
 
 declare const __pi_register: (name: string, fn: unknown) => void;
-__pi_register("openSession", openSession);
-__pi_register("sendPrompt", sendPrompt);
-__pi_register("abortSession", abortSession);
-__pi_register("closeSession", closeSession);
+__pi_register("openTeam", openTeam);
+__pi_register("sendToBot", sendToBot);
+__pi_register("abortBot", abortBot);
+__pi_register("closeTeam", closeTeam);
 __pi_register("listCatalog", listCatalog);
